@@ -1,0 +1,23 @@
+{{ define "main" }}
+<div class="post-header" style="width:100%;">
+  <h1>{{ .Title }}</h1>
+</div>
+<div class="portfolio-grid">
+  {{ range .Pages }}
+  <a href="{{ .Permalink }}" class="portfolio-item">
+    {{ $thumb := .Resources.GetMatch "thumb.{jpg,jpeg,png,gif,webp}" }}
+    {{ if not $thumb }}
+      {{ $thumb = .Resources.GetMatch "hero.{jpg,jpeg,png,gif,webp}" }}
+    {{ end }}
+    {{ if $thumb }}
+      {{ $resized := $thumb.Resize "900x q85" }}
+      <img src="{{ $resized.RelPermalink }}" alt="{{ .Title }}" loading="lazy"
+           width="{{ $resized.Width }}" height="{{ $resized.Height }}">
+    {{ end }}
+    <div class="item-overlay">
+      <span class="item-title">{{ .Title }}</span>
+    </div>
+  </a>
+  {{ end }}
+</div>
+{{ end }}

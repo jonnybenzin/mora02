@@ -1,0 +1,9 @@
+[Unit]
+Description=Stündlicher Synology Health-Check (45min nach voller Stunde)
+
+[Timer]
+OnCalendar=*:45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

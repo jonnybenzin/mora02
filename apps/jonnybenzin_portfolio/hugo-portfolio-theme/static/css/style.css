@@ -1,0 +1,608 @@
+/* ============================================================
+   JONNY BENZIN – Portfolio Theme for Hugo
+   Dark, minimal, art-focused
+   ============================================================ */
+
+/* --- Reset & Base --- */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #1c1c1c;
+  --text-primary: #d8d8d8;
+  --text-secondary: #888888;
+  --text-muted: #666666;
+  --text-heading: #ffffff;
+  --border: #333333;
+  --grid-gap: 14px;
+  --grid-padding: 100px;
+  --content-width: 480px;
+  --page-width: 680px;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'EB Garamond', 'Georgia', serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.7;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+a {
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: color 0.25s ease;
+}
+
+a:hover {
+  color: #ffffff;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+h1, h2, h3 {
+  font-family: 'EB Garamond', 'Georgia', serif;
+  font-weight: 400;
+  color: var(--text-heading);
+}
+
+h1 {
+  font-size: 2.6rem;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+}
+
+p {
+  margin-bottom: 1em;
+}
+
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.site-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 28px 36px;
+  background: linear-gradient(
+    to bottom,
+    rgba(28, 28, 28, 0.92) 0%,
+    rgba(28, 28, 28, 0.4) 60%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.site-header > * {
+  pointer-events: auto;
+}
+
+.site-logo {
+  height: 38px;
+  width: auto;
+}
+
+.site-logo-text {
+  font-family: 'Caveat', cursive;
+  font-size: 1.6rem;
+  color: #ffffff;
+}
+
+/* Hamburger */
+.menu-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 101;
+}
+
+.menu-toggle span {
+  display: block;
+  width: 24px;
+  height: 1.5px;
+  background-color: var(--text-primary);
+  transition: all 0.3s ease;
+}
+
+.menu-toggle.active span:nth-child(1) {
+  transform: rotate(45deg) translate(5px, 5px);
+}
+
+.menu-toggle.active span:nth-child(2) {
+  opacity: 0;
+}
+
+.menu-toggle.active span:nth-child(3) {
+  transform: rotate(-45deg) translate(5px, -5px);
+}
+
+
+/* ============================================================
+   NAVIGATION OVERLAY – Fullscreen, LEFT-ALIGNED
+   Logo top-left, X top-right, links left, copyright bottom-left
+   ============================================================ */
+.nav-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(28, 28, 28, 0.98);
+  z-index: 99;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+.nav-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.nav-overlay .nav-logo {
+  padding: 28px 36px;
+}
+
+.nav-overlay .nav-logo img {
+  height: 38px;
+}
+
+.nav-overlay .nav-logo-text {
+  font-family: 'Caveat', cursive;
+  font-size: 1.6rem;
+  color: #ffffff;
+}
+
+.nav-overlay nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 20px 36px 0;
+}
+
+.nav-overlay nav a {
+  display: inline-block;
+  font-family: 'EB Garamond', 'Georgia', serif;
+  font-size: 2.8rem;
+  font-weight: 400;
+  color: var(--text-primary);
+  padding: 4px 0;
+  line-height: 1.3;
+  width: fit-content;
+}
+
+.nav-overlay nav a:hover,
+.nav-overlay nav a.active {
+  color: #ffffff;
+}
+
+.nav-overlay nav a.active {
+  text-decoration: underline;
+  text-underline-offset: 6px;
+  text-decoration-thickness: 1px;
+}
+
+.nav-overlay .nav-footer {
+  padding: 28px 36px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+
+/* ============================================================
+   MAIN
+   ============================================================ */
+main {
+  flex: 1;
+  padding-top: 90px;
+}
+
+
+/* ============================================================
+   HOME – Equal-width 2-column Masonry Grid
+   Images keep natural aspect ratio (landscape / portrait mix)
+   ============================================================ */
+.portfolio-grid {
+  padding: 10px var(--grid-padding);
+  columns: 2;
+  column-gap: var(--grid-gap);
+}
+
+.portfolio-item {
+  break-inside: avoid;
+  margin-bottom: var(--grid-gap);
+  position: relative;
+  overflow: hidden;
+  display: block;
+  cursor: pointer;
+}
+
+/* Natural aspect ratio – no cropping, no fixed height */
+.portfolio-item img {
+  width: 100%;
+  height: auto;
+  display: block;
+  transition: transform 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.portfolio-item:hover img {
+  transform: scale(1.03);
+}
+
+/* Hover overlay with title + label */
+.portfolio-item .item-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.portfolio-item:hover .item-overlay {
+  opacity: 1;
+}
+
+.portfolio-item .item-title {
+  font-family: 'EB Garamond', 'Georgia', serif;
+  font-size: 2rem;
+  font-weight: 400;
+  color: #ffffff;
+  text-align: center;
+  padding: 0 20px;
+  line-height: 1.2;
+}
+
+.portfolio-item .item-label {
+  display: inline-block;
+  font-family: 'EB Garamond', 'Georgia', serif;
+  font-size: 0.8rem;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.18);
+  padding: 3px 12px;
+  margin-top: 10px;
+  letter-spacing: 0.03em;
+}
+
+
+/* ============================================================
+   SINGLE POST – Project page
+   ============================================================ */
+.single-post {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Title – centered */
+.post-header {
+  text-align: center;
+  padding: 50px 24px 16px;
+  width: 100%;
+  max-width: var(--content-width);
+}
+
+.post-header h1 {
+  margin-bottom: 12px;
+}
+
+.post-category {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
+.post-category a {
+  color: var(--text-muted);
+}
+
+.post-category a:hover {
+  color: var(--text-primary);
+}
+
+/* Description – narrow centered */
+.post-description {
+  width: 100%;
+  max-width: var(--content-width);
+  padding: 30px 24px 40px;
+  font-size: 0.95rem;
+  line-height: 1.8;
+}
+
+/* Hero image – FULL WIDTH edge to edge */
+.post-hero {
+  width: 100%;
+}
+
+.post-hero img {
+  width: 100%;
+  display: block;
+}
+
+.post-hero figcaption,
+.image-caption {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 14px 24px;
+  font-style: italic;
+}
+
+/* Content area */
+.post-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Text → narrow */
+.post-content p {
+  width: 100%;
+  max-width: var(--content-width);
+  padding: 0 24px;
+}
+
+/* Images → wider */
+.post-content img {
+  max-width: var(--page-width);
+  width: 100%;
+  margin: 10px auto;
+}
+
+.post-content figure {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.post-content figure img {
+  max-width: var(--page-width);
+  width: 100%;
+}
+
+.post-content figure figcaption {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 12px 24px;
+  font-style: italic;
+}
+
+.post-content .full-width {
+  max-width: 100%;
+  width: 100%;
+}
+
+/* Video */
+.post-content video,
+.post-content iframe {
+  max-width: var(--page-width);
+  width: 100%;
+  margin: 10px auto;
+  display: block;
+}
+
+.post-content video {
+  background: #000;
+}
+
+/* Date */
+.post-date {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 30px 24px;
+  margin-top: 40px;
+}
+
+
+/* ============================================================
+   RELATED POSTS – 3-Column Thumbnails
+   ============================================================ */
+.related-posts {
+  width: 100%;
+  padding: 30px var(--grid-padding) 20px;
+}
+
+.related-posts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--grid-gap);
+}
+
+.related-posts-grid a {
+  display: block;
+  overflow: hidden;
+}
+
+.related-posts-grid img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  transition: transform 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.related-posts-grid a:hover img {
+  transform: scale(1.05);
+}
+
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.site-footer {
+  text-align: center;
+  padding: 30px 24px 40px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+
+/* ============================================================
+   RESPONSIVE – Tablet
+   ============================================================ */
+@media (max-width: 1024px) {
+  :root {
+    --grid-padding: 50px;
+  }
+
+  .portfolio-item .item-title {
+    font-size: 1.5rem;
+  }
+
+  .nav-overlay nav a {
+    font-size: 2.2rem;
+  }
+}
+
+
+/* ============================================================
+   RESPONSIVE – Mobile
+   ============================================================ */
+@media (max-width: 768px) {
+  :root {
+    --grid-padding: 12px;
+    --grid-gap: 10px;
+  }
+
+  .site-header {
+    padding: 20px 20px;
+  }
+
+  .site-logo {
+    height: 30px;
+  }
+
+  .site-logo-text {
+    font-size: 1.3rem;
+  }
+
+  h1 {
+    font-size: 1.9rem;
+  }
+
+  main {
+    padding-top: 70px;
+  }
+
+  /* 2 columns stays on mobile */
+  .portfolio-grid {
+    columns: 2;
+  }
+
+  .portfolio-item .item-title {
+    font-size: 1rem;
+  }
+
+  .portfolio-item .item-label {
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    margin-top: 6px;
+  }
+
+  /* No hover overlay on touch devices – just the images */
+  @media (hover: none) {
+    .portfolio-item .item-overlay {
+      display: none;
+    }
+  }
+
+  .post-header {
+    padding: 30px 20px 12px;
+  }
+
+  .post-description {
+    padding: 20px 20px 30px;
+    font-size: 0.9rem;
+  }
+
+  .post-content p {
+    padding: 0 20px;
+    font-size: 0.9rem;
+  }
+
+  .related-posts {
+    padding: 20px 12px 10px;
+  }
+
+  .related-posts-grid {
+    gap: 8px;
+  }
+
+  .nav-overlay nav {
+    padding: 0 20px;
+    padding-top: 10px;
+  }
+
+  .nav-overlay nav a {
+    font-size: 2rem;
+  }
+
+  .nav-overlay .nav-logo {
+    padding: 20px;
+  }
+
+  .nav-overlay .nav-footer {
+    padding: 20px;
+  }
+}
+
+
+/* ============================================================
+   RESPONSIVE – Small Mobile
+   ============================================================ */
+@media (max-width: 400px) {
+  h1 {
+    font-size: 1.5rem;
+  }
+
+  .portfolio-item .item-title {
+    font-size: 0.8rem;
+  }
+
+  .nav-overlay nav a {
+    font-size: 1.6rem;
+  }
+}

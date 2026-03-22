@@ -1,0 +1,95 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">IMAGE GEN</span>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Generate images via ComfyUI. Choose a workflow, write your prompt. 4 variants are generated — pick one to revise or download.</div>
+
+  <div id="img-prompt-section">
+
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <select class="fl-select" id="img-flow">
+          <option value="photo" selected>Juggernaut XL (Photo)</option>
+          <option value="concept">DreamShaper XL (Concept)</option>
+          <option value="epic">Epic Realism XL</option>
+          <option value="flux">FLUX Schnell</option>
+          <option value="sd15">SD 1.5 (Legacy)</option>
+        </select>
+        <label class="fl-label">WORKFLOW</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="img-format">
+          <option value="1024x1024" selected>Square (1024)</option>
+          <option value="1152x768">Landscape (1152×768)</option>
+          <option value="768x1152">Portrait (768×1152)</option>
+        </select>
+        <label class="fl-label">FORMAT</label>
+      </div>
+    </div>
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="img-prompt" rows="1" placeholder=" "></textarea>
+      <label class="fl-label">POSITIVE PROMPT</label>
+    </div>
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="img-negative" rows="1" placeholder=" "></textarea>
+      <label class="fl-label">NEGATIVE PROMPT</label>
+    </div>
+
+    <div class="fl-grid fl-grid-3">
+      <div class="fl-field">
+        <input class="fl-input" id="img-seed" type="text" value="-1" placeholder=" ">
+        <label class="fl-label">SEED</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="img-steps" type="text" value="25" placeholder=" ">
+        <label class="fl-label">STEPS</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="img-cfg" type="text" value="7.5" placeholder=" ">
+        <label class="fl-label">CFG</label>
+      </div>
+    </div>
+
+    <div class="tool-actions">
+      <button class="btn-ico" data-action="img-generate" id="img-generate-btn">
+        <svg fill="currentColor" width="16" height="16"><use href="icons/sprite.svg#i-image"/></svg>
+        GENERATE
+      </button>
+    </div>
+  </div>
+
+  <div id="img-variants-section" style="display:none">
+    <div class="img-field-lbl">4 VARIANTS — CLICK TO SELECT</div>
+    <div class="img-grid" id="img-grid"></div>
+  </div>
+
+  <div id="img-preview-section" style="display:none">
+    <div class="tool-result-head" id="img-preview-badge"></div>
+    <div id="img-preview-img"></div>
+    <div class="tool-result-btns" id="img-btns">
+      <button class="tool-action-btn" data-action="img-revise">REVISE</button>
+      <button class="tool-action-btn" data-action="img-download">DOWNLOAD</button>
+      <button class="tool-action-btn" data-action="img-new">CREATE NEW</button>
+    </div>
+    <div class="tool-result-status" id="img-status"></div>
+  </div>
+
+  <div id="img-revision-section" style="display:none">
+    <div class="fl-field">
+      <textarea class="fl-input" id="img-revision-text" rows="1" placeholder=" "></textarea>
+      <label class="fl-label">REVISION NOTES</label>
+    </div>
+    <div class="tool-actions">
+      <button class="btn-ico" data-action="img-revise-generate">
+        <svg fill="currentColor" width="16" height="16"><use href="icons/sprite.svg#i-image"/></svg>
+        GENERATE REVISION
+      </button>
+    </div>
+  </div>
+
+</div>

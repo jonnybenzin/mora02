@@ -1,0 +1,520 @@
+import uuid, json
+from datetime import datetime, timezone
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sse_starlette.sse import EventSourceResponse
+from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT
+from router import classify_input
+from session_manager import store
+from llm_client import stream_llm
+from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search
+from baserow_client import (
+    write_session, read_last_sessions, read_all_sessions,
+    read_context, read_known_issues, BASEROW_HEADERS,
+    format_sessions_context, format_known_issues, format_context_table,
+)
+
+app = FastAPI(title="Pilot Bot", version="0.1.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
+
+session_settings: dict[str, dict] = {}
+
+DEFAULT_SETTINGS = {
+    "system_prompt": DEFAULT_SYSTEM_PROMPT,
+    "temperature": 0.7,
+    "max_tokens": 4096,
+}
+
+END_SESSION_PROMPT = """Analyze this conversation and produce a JSON summary. Respond ONLY with valid JSON, no markdown fences, no preamble.
+
+{
+  "goal": "One sentence: what was the user trying to accomplish",
+  "summary": "2-3 sentences summarizing what happened",
+  "decisions": "Key decisions made (or 'none')",
+  "open_items": "Unresolved items or next steps (or 'none')"
+}"""
+
+
+def get_session_settings(sid: str) -> dict:
+    return {**DEFAULT_SETTINGS, **session_settings.get(sid, {})}
+
+
+def get_system_prompt(session_id: str, model_key: str) -> str:
+    s = get_session_settings(session_id)
+    base = s["system_prompt"]
+    model = MODELS[model_key]
+    identity = f"\n\n## Your Identity\nYou are currently running as: {model['name']} ({model['icon']})\nModel key: {model_key}\nWhen asked which model you are, state this clearly."
+    return base + identity
+
+
+async def get_cost_summary() -> str:
+    """Read costs from bot_costs table + calculate current week from bot_sessions."""
+    import httpx as _httpx
+    from datetime import timedelta
+    from config import settings
+
+    # Monthly data from bot_costs
+    async with _httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
+            headers=BASEROW_HEADERS)
+        months = resp.json().get("results", []) if resp.status_code == 200 else []
+
+    # Current week from bot_sessions (Monday 00:00)
+    now = datetime.now(timezone.utc)
+    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    current_month = now.strftime("%Y-%m")
+
+    sessions = await read_all_sessions()
+    week_cost = 0.0
+    week_sessions = 0
+    week_models: dict[str, float] = {}
+    for s in sessions:
+        ended = s.get("ended_at") or ""
+        if not ended:
+            continue
+        try:
+            ts = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+            if ts >= monday:
+                cost = float(s.get("cost_usd") or 0)
+                model = s.get("model_used") or "qwen"
+                week_cost += cost
+                week_sessions += 1
+                week_models[model] = week_models.get(model, 0) + cost
+        except (ValueError, TypeError):
+            pass
+
+    # Build output
+    out = "## API Costs\n\n"
+
+    # This week
+    out += f"### This Week (since Monday {monday.strftime('%Y-%m-%d')})\n"
+    out += f"Sessions: {week_sessions} · Cost: **${week_cost:.4f}**\n"
+    if week_models:
+        for m, c in sorted(week_models.items(), key=lambda x: -x[1]):
+            out += f"  - {m}: ${c:.4f}\n"
+    out += "\n"
+
+    # Monthly breakdown
+    out += "### Monthly\n| Month | Sessions | Qwen | Haiku | Sonnet | Opus | Total |\n"
+    out += "|-------|----------|------|-------|--------|------|-------|\n"
+    for row in sorted([r for r in months if r.get("month")], key=lambda r: r.get("month", ""), reverse=True)[:6]:
+        m = row.get("month", "?")
+        s = int(float(row.get("sessions_total") or 0))
+        q = float(row.get("cost_qwen") or 0)
+        h = float(row.get("cost_haiku") or 0)
+        sn = float(row.get("cost_sonnet") or 0)
+        o = float(row.get("cost_opus") or 0)
+        t = float(row.get("cost_total") or 0)
+        bold = "**" if m == current_month else ""
+        out += f"| {bold}{m}{bold} | {s} | ${q:.2f} | ${h:.2f} | ${sn:.2f} | ${o:.2f} | {bold}${t:.2f}{bold} |\n"
+
+    total_all = sum(float(r.get("cost_total") or 0) for r in months if r.get("month"))
+    out += f"\n**All time total: ${total_all:.2f}**"
+    return out
+
+
+async def handle_ctx(session, subcommand: str) -> str:
+    """Handle /ctx commands. Returns context text to inject into conversation."""
+    sub = subcommand.strip().lower()
+
+    if sub in ("", "help"):
+        return """Available context commands:
+- `/ctx system` — Full system status (GPU, VRAM, ports, containers, backup, LLM)
+- `/ctx issues` — Known issues & solutions from Baserow
+- `/ctx sessions` — Last 3 session summaries
+- `/ctx costs` — API costs this week/month
+- `/ctx all` — Load everything (except costs)
+
+Run `pilot-sync.sh` on host to refresh system data."""
+
+    parts = []
+
+    if sub in ("system", "ports", "all"):
+        sys_info = await read_context("system_info")
+        if sys_info:
+            parts.append(sys_info)
+        else:
+            parts.append("⚠ No system data. Run `bash /opt/mora02/scripts/pilot-sync.sh` on host first.")
+
+    if sub in ("issues", "all"):
+        issues = await read_known_issues()
+        parts.append(format_known_issues(issues))
+
+    if sub in ("sessions", "all"):
+        sessions = await read_last_sessions(3)
+        parts.append(format_sessions_context(sessions))
+
+    if sub in ("costs", ):
+        costs = await get_cost_summary()
+        parts.append(costs)
+
+    if not parts:
+        return f"Unknown context: '{sub}'. Try /ctx help"
+
+    context_text = "\n\n---\n\n".join(parts)
+
+    # Inject into session history as system knowledge
+    session.add_assistant_message(f"[Context loaded: {sub}]\n\n{context_text}", model="context")
+
+    return f"✅ Context loaded: **{sub}** ({len(context_text)} chars)\n\n{context_text}"
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "pilot", "port": settings.port}
+
+
+@app.get("/models")
+async def list_models():
+    return {k: {"name": m["name"], "icon": m["icon"],
+                "supports_vision": m["supports_vision"],
+                "cost_input_per_1m": m["cost_input_per_1m"],
+                "cost_output_per_1m": m["cost_output_per_1m"]}
+            for k, m in MODELS.items()}
+
+
+@app.get("/posts/list")
+async def list_posts():
+    """Return posts from Baserow for the post picker."""
+    import httpx as _httpx
+    posts = []
+    page = 1
+    async with _httpx.AsyncClient(timeout=10.0) as client:
+        while True:
+            resp = await client.get(
+                f"{settings.baserow_url}/api/database/rows/table/557/?user_field_names=true&size=50&page={page}",
+                headers=BASEROW_HEADERS)
+            if resp.status_code != 200:
+                break
+            data = resp.json()
+            for r in data.get("results", []):
+                status_val = r.get("status")
+                if isinstance(status_val, dict):
+                    status_val = status_val.get("value", "")
+                posts.append({
+                    "id": r["id"],
+                    "title": r.get("title") or "",
+                    "caption": (r.get("caption_master") or "")[:100],
+                    "status": status_val or "",
+                })
+            if not data.get("next"):
+                break
+            page += 1
+    return {"posts": posts}
+
+
+@app.post("/assign-image")
+async def assign_image(request: Request):
+    """Assign a generated image to a Baserow post: copy to socialmedia + set media_path."""
+    import httpx as _httpx
+    import shutil
+    import os
+    body = await request.json()
+    post_id = body.get("post_id")
+    filename = body.get("filename")
+
+    if not post_id or not filename:
+        return JSONResponse(content={"success": False, "error": "post_id and filename required"})
+
+    # Copy image from comfyui wip to socialmedia assets
+    src = f"/images/wip/{filename}"
+    dst_dir = "/socialmedia/"
+    dst = f"{dst_dir}{filename}"
+
+    try:
+        if os.path.exists(src):
+            shutil.copy2(src, dst)
+        else:
+            return JSONResponse(content={"success": False, "error": f"Source file not found: {filename}"})
+    except Exception as e:
+        return JSONResponse(content={"success": False, "error": f"Copy failed: {e}"})
+
+    # Write only filename to media_path in Baserow
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.patch(
+                f"{settings.baserow_url}/api/database/rows/table/557/{post_id}/?user_field_names=true",
+                headers=BASEROW_HEADERS,
+                json={"media_path": filename})
+            if resp.status_code == 200:
+                return JSONResponse(content={"success": True, "post_id": post_id, "filename": filename})
+            return JSONResponse(content={"success": False, "error": f"Baserow {resp.status_code}: {resp.text[:200]}"})
+    except Exception as e:
+        return JSONResponse(content={"success": False, "error": str(e)})
+
+
+@app.get("/costs/monthly")
+async def monthly_costs():
+    """Return current month costs per model for frontend display."""
+    import httpx as _httpx
+    now = datetime.now(timezone.utc)
+    current_month = now.strftime("%Y-%m")
+
+    # Read from bot_costs
+    async with _httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
+            headers=BASEROW_HEADERS)
+        months = resp.json().get("results", []) if resp.status_code == 200 else []
+
+    for row in months:
+        if row.get("month") == current_month:
+            return {
+                "month": current_month,
+                "qwen": float(row.get("cost_qwen") or 0),
+                "haiku": float(row.get("cost_haiku") or 0),
+                "sonnet": float(row.get("cost_sonnet") or 0),
+                "opus": float(row.get("cost_opus") or 0),
+                "total": float(row.get("cost_total") or 0),
+            }
+    return {"month": current_month, "qwen": 0, "haiku": 0, "sonnet": 0, "opus": 0, "total": 0}
+
+
+@app.post("/session/create")
+async def create_session():
+    sid = str(uuid.uuid4())[:8]
+    session = store.create(sid)
+    return {"session_id": sid, "model": session.current_model}
+
+
+@app.post("/session/{sid}/model")
+async def switch_model(sid: str, request: Request):
+    body = await request.json()
+    model_key = body.get("model", "qwen")
+    if model_key not in MODELS:
+        return JSONResponse(status_code=400, content={"error": f"Unknown model: {model_key}"})
+    session = store.get_or_create(sid)
+    session.current_model = model_key
+    return {"session_id": sid, "model": model_key,
+            "model_name": MODELS[model_key]["name"], "icon": MODELS[model_key]["icon"]}
+
+
+@app.get("/session/{sid}/status")
+async def session_status(sid: str):
+    session = store.get(sid)
+    if not session:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+    return {"session_id": sid, "model": session.current_model,
+            "message_count": len(session.messages),
+            "tokens_in": session.total_tokens_in,
+            "tokens_out": session.total_tokens_out,
+            "cost_usd": session.get_total_cost()}
+
+
+@app.get("/session/{sid}/system-prompt")
+async def get_prompt(sid: str):
+    s = get_session_settings(sid)
+    return {
+        "session_id": sid,
+        "system_prompt": s["system_prompt"],
+        "temperature": s["temperature"],
+        "max_tokens": s["max_tokens"],
+        "is_default": sid not in session_settings,
+    }
+
+
+@app.put("/session/{sid}/system-prompt")
+async def set_prompt(sid: str, request: Request):
+    body = await request.json()
+    updates = {}
+    prompt = body.get("system_prompt", "").strip()
+    if prompt:
+        updates["system_prompt"] = prompt
+    if "temperature" in body:
+        updates["temperature"] = max(0.0, min(1.5, float(body["temperature"])))
+    if "max_tokens" in body:
+        updates["max_tokens"] = max(256, min(8192, int(body["max_tokens"])))
+    if not prompt and "temperature" not in body and "max_tokens" not in body:
+        session_settings.pop(sid, None)
+        return {**DEFAULT_SETTINGS, "session_id": sid, "is_default": True, "action": "reset"}
+    session_settings[sid] = {**session_settings.get(sid, {}), **updates}
+    s = get_session_settings(sid)
+    return {
+        "session_id": sid,
+        "system_prompt": s["system_prompt"],
+        "temperature": s["temperature"],
+        "max_tokens": s["max_tokens"],
+        "is_default": False,
+        "action": "updated",
+    }
+
+
+@app.post("/session/{sid}/end")
+async def end_session(sid: str):
+    session = store.get(sid)
+    if not session:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+
+    if len(session.messages) < 2:
+        return JSONResponse(content={
+            "type": "session_done",
+            "result": "Session too short to summarize (< 2 messages)."
+        })
+
+    model_key = session.current_model if session.current_model != "qwen" else "haiku"
+    history = session.get_history_for_llm()
+    history.append({"role": "user", "content": END_SESSION_PROMPT})
+
+    full_response = ""
+    try:
+        async for chunk in stream_llm(history, "You are a conversation summarizer. Respond only with valid JSON.",
+                                       model_key):
+            if chunk["type"] == "text":
+                full_response += chunk["content"]
+    except Exception as e:
+        full_response = json.dumps({
+            "goal": "Error generating summary", "summary": str(e),
+            "decisions": "none", "open_items": "none"
+        })
+
+    try:
+        clean = full_response.strip().replace("```json", "").replace("```", "").strip()
+        summary_data = json.loads(clean)
+    except json.JSONDecodeError:
+        summary_data = {
+            "goal": "Summary parse error", "summary": full_response[:500],
+            "decisions": "none", "open_items": "none"
+        }
+
+    model_counts = {}
+    for msg in session.messages:
+        if msg.model and msg.model not in ("runner", "script-runner", "searxng", "system", "context"):
+            model_counts[msg.model] = model_counts.get(msg.model, 0) + 1
+    primary_model = max(model_counts, key=model_counts.get) if model_counts else "qwen"
+
+    now = datetime.now(timezone.utc).isoformat()
+    row_data = {
+        "Name": summary_data.get("goal", "")[:255],
+        "started_at": datetime.fromtimestamp(session.started_at, tz=timezone.utc).isoformat(),
+        "ended_at": now,
+        "model_used": primary_model,
+        "goal": summary_data.get("goal", ""),
+        "summary": summary_data.get("summary", ""),
+        "decisions": summary_data.get("decisions", ""),
+        "open_items": summary_data.get("open_items", ""),
+        "tokens_in": session.total_tokens_in,
+        "tokens_out": session.total_tokens_out,
+        "cost_usd": str(session.get_total_cost()),
+    }
+
+    baserow_result = await write_session(row_data)
+    store.delete(sid)
+    session_settings.pop(sid, None)
+
+    return JSONResponse(content={
+        "type": "session_ended",
+        "summary": summary_data,
+        "tokens": {"in": session.total_tokens_in, "out": session.total_tokens_out},
+        "cost_usd": session.get_total_cost(),
+        "baserow_saved": baserow_result is not None,
+    })
+
+
+@app.post("/chat/{sid}")
+async def chat(sid: str, request: Request):
+    body = await request.json()
+    user_message = body.get("message", "").strip()
+    image_data = body.get("image", None)
+    if not user_message and not image_data:
+        return JSONResponse(status_code=400, content={"error": "Empty message"})
+
+    session = store.get_or_create(sid)
+    classification = classify_input(user_message)
+
+    if classification["type"] in ("social", "roadmap"):
+        session.add_user_message(user_message)
+        result = await call_runner(classification["raw"])
+        session.add_assistant_message(result, model="runner")
+        return JSONResponse(content={"type": "command_result", "result": result, "model": "runner"})
+
+    if classification["type"] == "script":
+        session.add_user_message(user_message)
+        result_data = await call_script_runner(classification["raw"])
+        if result_data.get("subtype") == "stock_results":
+            session.add_assistant_message(json.dumps(result_data["data"]), model="script-runner")
+            return JSONResponse(content={
+                "type": "stock_results",
+                "results": result_data["data"].get("results", []),
+                "query": result_data["data"].get("query", ""),
+                "model": "script-runner"
+            })
+        else:
+            text = result_data.get("data", str(result_data))
+            session.add_assistant_message(text, model="script-runner")
+            return JSONResponse(content={"type": "command_result", "result": text, "model": "script-runner"})
+
+    if classification["type"] == "search":
+        session.add_user_message(user_message)
+        query = user_message[7:].strip()
+        if not query:
+            return JSONResponse(content={"type": "command_result", "result": "Usage: /search <query>", "model": "searxng"})
+        result_data = await call_search(query)
+        if result_data.get("subtype") == "search_results":
+            readable = f"Web search results for '{query}':\n\n"
+            for i, r in enumerate(result_data["results"], 1):
+                readable += f"{i}. {r['title']}\n   {r['url']}\n   {r['content']}\n\n"
+            session.add_assistant_message(readable, model="searxng")
+            return JSONResponse(content={
+                "type": "search_results",
+                "results": result_data["results"],
+                "query": result_data["query"],
+                "model": "searxng"
+            })
+        else:
+            text = result_data.get("data", str(result_data))
+            session.add_assistant_message(text, model="searxng")
+            return JSONResponse(content={"type": "command_result", "result": text, "model": "searxng"})
+
+    if classification["type"] == "ctx":
+        session.add_user_message(user_message)
+        subcommand = user_message[4:].strip()  # strip "/ctx"
+        result = await handle_ctx(session, subcommand)
+        return JSONResponse(content={"type": "command_result", "result": result, "model": "context"})
+
+    if classification["type"] == "comfyui":
+        session.add_user_message(user_message)
+        result_data = await call_comfyui(classification["raw"])
+        if result_data.get("subtype") == "image_variants":
+            session.add_assistant_message(
+                f"Generated {result_data['count']} variants for: {result_data['prompt']}", model="comfyui")
+            return JSONResponse(content={"type": "image_variants", **result_data})
+        text = result_data.get("data", str(result_data))
+        session.add_assistant_message(text, model="comfyui")
+        return JSONResponse(content={"type": "command_result", "result": text, "model": "comfyui"})
+
+    if classification["type"] == "session_done":
+        return JSONResponse(content={"type": "session_done",
+                                      "result": "Use the Session Done button or POST /session/{sid}/end"})
+
+    session.add_user_message(user_message)
+    model_key = session.current_model
+    if image_data and not MODELS[model_key]["supports_vision"]:
+        model_key = "haiku"
+
+    s = get_session_settings(sid)
+
+    async def event_generator():
+        full_response = ""
+        usage = {"input_tokens": 0, "output_tokens": 0}
+        async for chunk in stream_llm(session.get_history_for_llm(),
+                                       get_system_prompt(sid, model_key), model_key,
+                                       image_data, s["temperature"], s["max_tokens"]):
+            if chunk["type"] == "text":
+                full_response += chunk["content"]
+                yield {"event": "text", "data": json.dumps({"content": chunk["content"]})}
+            elif chunk["type"] == "done":
+                usage = chunk.get("usage", usage)
+                yield {"event": "done", "data": json.dumps({"model": model_key, "usage": usage})}
+        session.add_assistant_message(full_response, model=model_key,
+                                       tokens_in=usage.get("input_tokens", 0),
+                                       tokens_out=usage.get("output_tokens", 0))
+
+    return EventSourceResponse(event_generator())
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host=settings.host, port=settings.port)

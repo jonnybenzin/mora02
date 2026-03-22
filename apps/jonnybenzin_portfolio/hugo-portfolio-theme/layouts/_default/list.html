@@ -1,0 +1,22 @@
+{{ define "main" }}
+<div class="post-header" style="width: 100%;">
+  <h1>{{ .Title }}</h1>
+</div>
+
+<div class="portfolio-grid">
+  {{ range .Pages }}
+  <a href="{{ .Permalink }}" class="portfolio-item">
+    {{ with .Params.image }}
+      <img src="{{ . }}" alt="{{ $.Title }}" loading="lazy">
+    {{ else }}
+      {{ with .Resources.GetMatch "cover.*" }}
+        <img src="{{ .RelPermalink }}" alt="{{ $.Title }}" loading="lazy">
+      {{ end }}
+    {{ end }}
+    <div class="overlay">
+      <h3>{{ .Title }}</h3>
+    </div>
+  </a>
+  {{ end }}
+</div>
+{{ end }}

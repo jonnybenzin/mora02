@@ -1,0 +1,38 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">FILES</span>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Browse generated assets — images, GIFs, clips, text frames.</div>
+
+  <div class="tool-settings" style="justify-content:space-between">
+    <div class="tool-setting">
+      <span class="tool-setting-lbl">TYPE:</span>
+      <select class="tool-select" id="files-type" data-action-change="files-filter">
+        <option value="all" selected>ALL</option>
+        <option value="images">IMAGES</option>
+        <option value="gifer">GIFS</option>
+        <option value="clipper">CLIPS</option>
+        <option value="typer">TYPER</option>
+      </select>
+    </div>
+    <div class="tool-setting" style="flex:1;justify-content:center">
+      <span class="tool-setting-lbl" id="files-count" style="font-weight:normal">loading...</span>
+    </div>
+    <div class="tool-setting">
+      <span class="tool-setting-lbl">SORT:</span>
+      <select class="tool-select" id="files-sort">
+        <option value="newest" selected>NEWEST</option>
+        <option value="oldest">OLDEST</option>
+        <option value="name">NAME</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="files-grid" id="files-grid">
+    <!-- Filled by files.js -->
+  </div>
+
+</div>

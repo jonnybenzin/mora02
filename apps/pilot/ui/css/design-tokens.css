@@ -1,0 +1,245 @@
+  /* ═══════════════════════════════════════════════════════════════
+   MORA02 PILOT — Design Tokens
+   ═══════════════════════════════════════════════════════════════
+   Single source of truth. Change here → updates everywhere.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Font loaded via @font-face — see below */
+@font-face{font-family:'JetBrains Mono';font-weight:400;src:url('../fonts/JetBrainsMono-Regular.woff2') format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:500;src:url('../fonts/JetBrainsMono-Medium.woff2') format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:600;src:url('../fonts/JetBrainsMono-SemiBold.woff2') format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:700;src:url('../fonts/JetBrainsMono-Bold.woff2') format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:800;src:url('../fonts/JetBrainsMono-ExtraBold.woff2') format('woff2')}
+@font-face{font-family:Inter;font-weight:400;src:url('../fonts/Inter-Regular.woff2') format('woff2')}
+@font-face{font-family:Inter;font-weight:500;src:url('../fonts/Inter-Medium.woff2') format('woff2')}
+@font-face{font-family:Inter;font-weight:700;src:url('../fonts/Inter-Bold.woff2') format('woff2')}
+
+:root {
+
+  /* ─── COLORS: Scale ───────────────────────────────────────── */
+  --c-black:    #000000;
+  --c-grey1:    #1a1a1a;
+  --c-grey1-5:  #272727;
+  --c-grey2:    #333333;
+  --c-grey3:    #4D4D4D;
+  --c-grey4:    #666666;
+  --c-grey5:    #808080;
+  --c-grey6:    #999999;
+  --c-grey7:    #b3b3b3;
+  --c-grey8:    #cccccc;
+  --c-grey9:    #dadada;
+  --c-grey10:   #e6e6e6;
+  --c-white:    #ffffff;
+
+  /* ─── COLORS: Accents ─────────────────────────────────────── */
+  --c-blue:       #008FFF;
+  --c-blue-dim:   #004BA5;
+  --c-purple:     #9300FF;
+  --c-purple-dim: #5400A5;
+  --c-pink:       #FF00E6;
+  --c-pink-dim:   #A50088;
+  --c-orange:     #FF8D00;
+  --c-orange-dim: #A55C00;
+  --c-green:      #00FF3A;
+  --c-green-dim:  #00A559;
+
+  /* ─── COLORS: Semantic surfaces ───────────────────────────── */
+  --sf-app:         var(--c-grey1-5);
+  --sf-sidebar:     var(--c-grey1-5);
+  --sf-sec-head:    var(--c-black);
+  --sf-footer:      var(--c-black);
+  --sf-input:       var(--c-grey1);
+  --sf-card:        var(--c-black);
+  --sf-flyout:      var(--c-grey1);
+  --sf-hover:       var(--c-grey2);
+  --sf-toggle:      var(--c-black);
+  --sf-btn-attach:  var(--c-black);
+  --sf-btn-send:    var(--c-green);
+
+  /* ─── COLORS: Semantic text ───────────────────────────────── */
+  --tx-primary:   var(--c-grey8);
+  --tx-secondary: var(--c-grey7);
+  --tx-muted:     var(--c-grey5);
+  --tx-disabled:  var(--c-grey4);
+  --tx-active:    var(--c-white);
+  --tx-icon-act:  var(--c-grey7);
+
+  /* ─── COLORS: Borders ─────────────────────────────────────── */
+  --bd-sidebar:  var(--c-black);
+  --bd-flyout:   var(--c-grey3);
+  --bd-sep:      var(--c-grey3);
+
+  /* ─── COLORS: Models ──────────────────────────────────────── */
+  --m-qwen:       var(--c-green);
+  --m-haiku:      var(--c-blue);
+  --m-sonnet:     var(--c-orange);
+  --m-opus:       var(--c-pink);
+  --m-perplexity: var(--c-purple);
+
+  /* ─── TYPOGRAPHY ──────────────────────────────────────────── */
+  --font:       'JetBrains Mono', monospace;
+  --font-body:  'Inter', sans-serif;
+  --fs-xs:      10px;
+  --fs-sm:      12px;
+  --fs-base:    14px;
+  --fs-md:      14px;
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-semi:    600;
+  --fw-bold:    700;
+  --fw-black:   800;
+  --ls-tight:   0.3px;
+  --ls-normal:  0.5px;
+  --ls-wide:    1.5px;
+
+  /* ─── SPACING (10px grid, exceptions for small elements) ─── */
+  --sp-2:  2px;
+  --sp-4:  4px;
+  --sp-6:  6px;
+  --sp-8:  8px;
+  --sp-10: 10px;
+  --sp-16: 16px;
+  --sp-20: 20px;
+  --sp-26: 26px;
+  --sp-30: 30px;
+  --sp-40: 40px;
+
+  /* ─── LAYOUT ──────────────────────────────────────────────── */
+  --sb-w:       250px;
+  --sb-coll:    50px;
+  --sb-head-h:  60px;
+  --mob-drawer: 280px;
+  --mob-bar-h:  50px;
+
+  /* ─── ICONS ───────────────────────────────────────────────── */
+  --ico-sec:    16px;
+  --ico-item:   16px;
+  --ico-box:    18px;
+  --ico-strip:  18px;
+  --ico-toggle: 10px;
+  --ico-btn:    14px;
+  --ico-chev:   8px;
+  --ico-trash:  14px;
+  --ico-shadow: 20px;
+
+  /* ─── BUTTONS ─────────────────────────────────────────────── */
+  --btn-sq:     40px;
+  --btn-toggle: 30px;
+  --btn-strip:  40px;
+
+  /* ─── HOMEPAGE ────────────────────────────────────────────── */
+  --hero-max-w:  700px;
+  --hero-h:      180px;
+  --hero-h-mob:  100px;
+  --input-max-w: 640px;
+  --cards-max-w: 640px;
+  --flyout-w:    210px;
+
+  /* ─── LOGO ────────────────────────────────────────────────── */
+  --logo-color:  #666666;
+  --logo-pixel:  12;
+
+  /* ─── EFFECTS ─────────────────────────────────────────────── */
+  --tr-fast:   0.12s;
+  --tr-med:    0.15s;
+  --tr-slow:   0.25s;
+  --op-dis:    0.3;
+  --op-send:   0.8;
+  --z-sidebar: 100;
+  --z-toggle:  110;
+  --z-flyout:  300;
+  --z-mob-ov:  500;
+  --z-mob-dr:  510;
+  /* ─── ANIMATIONS ────────────────────────────────────────── */
+  --anim-duration-fast:   0.15s;
+  --anim-duration-med:    0.25s;
+  --anim-duration-slow:   0.4s;
+  --anim-ease-out:        cubic-bezier(0.16, 1, 0.3, 1);
+  --anim-ease-in-out:     cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ─── ICON BUTTONS ──────────────────────────────────────── */
+  --btn-ico-height:   44px;
+  --btn-ico-padding:  0 var(--sp-20) 0 var(--sp-16);
+  --btn-ico-gap:      var(--sp-8);
+  --btn-ico-bg:       var(--c-black);
+  --btn-ico-color:    var(--tx-muted);
+  --btn-ico-hover-bg: var(--c-grey2);
+  --btn-ico-hover-color: var(--tx-primary);
+  --btn-ico-icon-size: 16px;
+  --btn-ico-font:     var(--font);
+  --btn-ico-size:     var(--fs-sm);
+  --btn-ico-weight:   var(--fw-bold);
+  --btn-ico-spacing:  var(--ls-wide);
+
+  /* ─── FLOATING LABELS ───────────────────────────────────── */
+  --fl-label-font:    var(--font);
+  --fl-label-size:    9px;
+  --fl-label-weight:  var(--fw-semi);
+  --fl-label-color:   var(--tx-muted);
+  --fl-label-spacing: var(--ls-wide);
+  --fl-field-bg:      var(--c-grey1);
+  --fl-field-border:  var(--c-grey3);
+  --fl-field-focus:   var(--tx-muted);
+  --fl-field-font:    var(--typo-input-font);
+  --fl-field-size:    var(--typo-input-size);
+  --fl-field-color:   var(--tx-primary);
+
+  /* ─── TYPOGRAPHY SCALE ────────────────────────────────── */
+  /* Change here → updates all components automatically     */
+
+  /* H1: Tool titles, page titles (GIFER, CLIPPER, SETTINGS) */
+  --typo-h1-font:    var(--font);
+  --typo-h1-size:    24px;
+  --typo-h1-weight:  var(--fw-bold);
+  --typo-h1-color:   var(--tx-active);
+  --typo-h1-spacing: var(--ls-wide);
+  --typo-h1-transform: uppercase;
+
+  /* H2: Chat headings, section titles in content */
+  --typo-h2-font:    var(--font-body);
+  --typo-h2-size:    18px;
+  --typo-h2-weight:  var(--fw-bold);
+  --typo-h2-color:   var(--tx-primary);
+
+  /* Body: Chat messages, descriptions, flowing text */
+  --typo-body-font:   var(--font-body);
+  --typo-body-size:   14px;
+  --typo-body-weight: var(--fw-regular);
+  --typo-body-color:  var(--c-grey8);
+  --typo-body-line-h: 1.6;
+
+  /* Label: Settings labels, section headers, meta */
+  --typo-label-font:    var(--font);
+  --typo-label-size:    var(--fs-sm);
+  --typo-label-weight:  var(--fw-semi);
+  --typo-label-color:   var(--tx-muted);
+  --typo-label-spacing: var(--ls-normal);
+
+  /* Button: All buttons, action labels */
+  --typo-btn-font:    var(--font);
+  --typo-btn-size:    var(--fs-sm);
+  --typo-btn-weight:  var(--fw-bold);
+  --typo-btn-spacing: var(--ls-normal);
+
+  /* Menu Item: Sidebar items */
+  --typo-mi-font:    var(--font);
+  --typo-mi-size:    var(--fs-base);
+  --typo-mi-weight:  var(--fw-medium);
+  --typo-mi-color:   var(--tx-secondary);
+
+  /* Meta: Timestamps, model names, usernames */
+  --typo-meta-font:   var(--font);
+  --typo-meta-size:   var(--fs-sm);
+  --typo-meta-color:  var(--c-grey6);
+
+  /* Code: Code blocks, inline code */
+  --typo-code-font:   var(--font);
+  --typo-code-size:   12px;
+  --typo-code-color:  var(--c-grey8);
+
+  /* Input: Text inputs, textareas */
+  --typo-input-font:  var(--font-body);
+  --typo-input-size:  var(--fs-md);
+  --typo-input-color: var(--tx-primary);
+
+}

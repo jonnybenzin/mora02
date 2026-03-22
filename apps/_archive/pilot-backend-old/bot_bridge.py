@@ -1,0 +1,69 @@
+import httpx
+import json
+from config import settings
+
+
+async def call_runner(command: str) -> str:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{settings.dify_api_url}/v1/chat-messages",
+            headers={"Authorization": f"Bearer {settings.dify_api_key}",
+                     "Content-Type": "application/json"},
+            json={"inputs": {}, "query": command,
+                  "response_mode": "blocking", "user": "pilot"})
+        if resp.status_code == 200:
+            return resp.json().get("answer", "Keine Antwort vom Runner")
+        return f"Runner Error: {resp.status_code} - {resp.text}"
+
+
+async def call_script_runner(command: str) -> dict:
+    """Returns dict with type info for frontend rendering."""
+    stripped = command.strip()
+    if stripped.lower().startswith("/stock"):
+        query = stripped[6:].strip()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(f"{settings.script_runner_url}/search/pexels",
+                                      json={"query": query})
+            if resp.status_code == 200:
+                data = resp.json()
+                return {"subtype": "stock_results", "data": data}
+            return {"subtype": "text", "data": f"Script-Runner Error: {resp.status_code} - {resp.text}"}
+    if stripped.lower().startswith("/gif"):
+        return {"subtype": "text", "data": "GIF braucht Bilder \u2192 mora02.local:8092/script-bot/"}
+    if stripped.lower().startswith("/typer"):
+        return {"subtype": "text", "data": "Typer braucht Parameter \u2192 mora02.local:8092/script-bot/"}
+    if stripped.lower().startswith("/clip"):
+        return {"subtype": "text", "data": "Clipper braucht Medien \u2192 mora02.local:8092/script-bot/"}
+    return {"subtype": "text", "data": f"Unbekannter Script-Command: {stripped}"}
+
+
+async def call_search(query: str) -> dict:
+    """Search via local SearXNG instance."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            f"{settings.searxng_url}/search",
+            params={"q": query, "format": "json", "categories": "general"})
+        if resp.status_code == 200:
+            data = resp.json()
+            results = []
+            for r in data.get("results", [])[:8]:
+                results.append({
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "content": r.get("content", ""),
+                    "engines": r.get("engines", []),
+                })
+            return {"subtype": "search_results", "query": query, "results": results}
+        return {"subtype": "text", "data": f"SearXNG Error: {resp.status_code}"}
+
+
+async def call_comfyui(command: str) -> dict:
+    from comfyui_client import generate_images, parse_img_command
+    try:
+        parsed = parse_img_command(command)
+        if not parsed["prompt"]:
+            return {"subtype": "text", "data": "Usage: /img [prompt] --flow [sd15|photo|illustration] --count [1-8]"}
+        result = await generate_images(parsed["prompt"], batch_size=parsed["count"])
+        return result
+    except Exception as e:
+        return {"subtype": "text", "data": f"ComfyUI Error: {str(e)}"}

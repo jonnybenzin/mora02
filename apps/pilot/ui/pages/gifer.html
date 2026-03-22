@@ -1,0 +1,48 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">GIFER</span>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Create animated GIFs from a sequence of images. Upload 2+ images, set duration per frame, choose quality and size, then generate.</div>
+
+  <div class="tool-upload" id="gifer-upload">
+    <svg fill="currentColor"><use href="icons/sprite.svg#i-plus"/></svg>
+    <span class="tool-upload-lbl">CLICK OR DRAG & DROP TO ADD IMAGES</span>
+  </div>
+
+  <div id="gifer-arrange">
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <select class="fl-select" id="gifer-quality"><option>Low</option><option selected>Medium</option><option>High</option><option>Ultra</option></select>
+        <label class="fl-label">QUALITY</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="gifer-size-w" type="text" value="" placeholder=" ">
+        <label class="fl-label">WIDTH (auto)</label>
+      </div>
+    </div>
+    <div class="fl-field" style="max-width:50%">
+      <input class="fl-input" id="gifer-size-h" type="text" value="" placeholder=" ">
+      <label class="fl-label">HEIGHT (auto)</label>
+    </div>
+
+    <div class="tool-list-head"><span class="tool-list-head-lbl">duration (seconds)</span></div>
+    <div class="tool-list" id="gifer-list"></div>
+
+    <div class="tool-add">
+      <button class="tool-action-btn" data-action="gifer-add-more">+ ADD MORE IMAGES</button>
+    </div>
+
+    <div class="tool-actions">
+      <button class="btn-ico" data-action="gifer-generate" disabled style="opacity:0.3">
+        <svg fill="currentColor"><use href="icons/sprite.svg#i-gif"/></svg>
+        GENERATE GIF
+      </button>
+    </div>
+  </div>
+
+  <div class="tool-result" id="gifer-result" style="display:none"></div>
+
+</div>

@@ -1,0 +1,9 @@
+<div style="position:relative;height:calc(100vh - 60px)">
+  <div style="position:absolute;top:var(--sp-8);right:var(--sp-8);z-index:10;display:flex;gap:var(--sp-8);align-items:center">
+    <button class="tool-action-btn" data-action="xray-view" data-view="dashboard" id="xray-btn-dashboard" style="opacity:1">BUBBLES</button>
+    <button class="tool-action-btn" data-action="xray-view" data-view="architektur" id="xray-btn-architektur" style="opacity:0.4">GRID</button>
+    <button class="tool-action-btn" data-action="xray-run">RUN SCAN</button>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+  <iframe id="xray-frame" style="width:100%;height:100%;border:none;padding-left:40px" src="about:blank"></iframe>
+</div>

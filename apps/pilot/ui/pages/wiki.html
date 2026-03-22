@@ -1,0 +1,36 @@
+<div class="tool-wrap" style="max-width:none;width:100%">
+
+  <div class="tool-head">
+    <span class="tool-title">WIKI</span>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <!-- TABS + SEARCH (hidden when doc is open) -->
+  <div id="wiki-nav">
+    <div class="wiki-tabs" id="wiki-tabs">
+      <!-- Filled by wiki.js -->
+    </div>
+
+    <div class="tool-settings" style="margin:var(--sp-12) 0">
+      <div class="tool-setting" style="flex:1">
+        <input class="tool-input-wide" id="wiki-search" type="text" placeholder="Filter by filename...">
+      </div>
+      <div class="tool-setting">
+        <span class="tool-setting-lbl" id="wiki-count" style="font-weight:normal"></span>
+      </div>
+    </div>
+
+    <!-- FILE LIST -->
+    <div id="wiki-list"></div>
+  </div>
+
+  <!-- DOCUMENT VIEW (hidden initially) -->
+  <div id="wiki-doc" style="display:none">
+    <div class="wiki-doc-head">
+      <span class="tool-setting-lbl" id="wiki-doc-name"></span>
+      <button class="tool-action-btn" data-action="wiki-close">CLOSE</button>
+    </div>
+    <div class="wiki-doc-body msg-body" id="wiki-doc-body"></div>
+  </div>
+
+</div>

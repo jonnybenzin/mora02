@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MORA02 Pilot</title>
+<link rel="stylesheet" href="css/design-tokens.css">
+<link rel="stylesheet" href="css/pilot.css">
+<link rel="stylesheet" href="css/chat.css">
+<link rel="stylesheet" href="css/tools.css">
+<link rel="apple-touch-icon" href="/pilot/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mora02">
+</head>
+<body>
+
+<!-- SVG Sprite injected here by app.js -->
+<div id="sprite-mount"></div>
+
+<div class="app">
+<nav class="sb" id="sb">
+  <div class="sb-head"><div class="sb-logo">
+    <img class="logo-f" src="icons/logo-full.svg" alt="MORA02" width="140" height="20">
+    <img class="logo-s" src="icons/logo-small.svg" alt="M2" width="20" height="44">
+  </div></div>
+
+  <!-- OPEN: full menu -->
+  <div class="sb-scroll">
+    <!-- LLMs -->
+    <div class="sec open"><div class="sec-h" data-action="toggle-section"><div class="sec-l"><div class="sec-ico" id="hd-llm" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg></div><span class="sec-lbl">LLMs</span></div><div class="sec-r"><span class="sec-meta" id="monthly-cost">…</span><div class="sec-chev"><svg fill="currentColor"><use href="icons/sprite.svg#i-chev"/></svg></div></div></div>
+    <div class="sec-body">
+      <div class="mi act" data-action="select-llm" data-model="qwen" data-color="m-qwen"><div class="mi-l"><div class="mi-ico" style="color:var(--m-qwen)"><svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg></div><span class="mi-lbl" style="color:var(--m-qwen)">QWEN</span></div></div>
+      <div class="mi" data-action="select-llm" data-model="haiku" data-color="m-haiku"><div class="mi-l"><div class="mi-ico" style="color:var(--m-haiku)"><svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg></div><span class="mi-lbl">HAIKU</span></div><div class="mi-r">€</div></div>
+      <div class="mi" data-action="select-llm" data-model="sonnet" data-color="m-sonnet"><div class="mi-l"><div class="mi-ico" style="color:var(--m-sonnet)"><svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg></div><span class="mi-lbl">SONNET</span></div><div class="mi-r">€€</div></div>
+      <div class="mi" data-action="select-llm" data-model="opus" data-color="m-opus"><div class="mi-l"><div class="mi-ico" style="color:var(--m-pink)"><svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg></div><span class="mi-lbl">OPUS</span></div><div class="mi-r">€€€</div></div>
+      <div class="mi dis" data-model="perplexity"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg></div><span class="mi-lbl">PERPLEXITY COMPUTER</span></div><div class="mi-r"><span class="mi-badge">COMING SOON</span></div></div>
+    </div></div>
+
+    <!-- Persona -->
+    <div class="sec open"><div class="sec-h" data-action="toggle-section"><div class="sec-l"><div class="sec-ico" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-persona"/></svg></div><span class="sec-lbl">Persona</span></div><div class="sec-r"><div class="sec-chev"><svg fill="currentColor"><use href="icons/sprite.svg#i-chev"/></svg></div></div></div>
+    <div class="sec-body" id="persona-list">
+      <!-- Filled dynamically by app.js -->
+    </div></div>
+
+    <!-- Apps -->
+    <div class="sec open"><div class="sec-h" data-action="toggle-section"><div class="sec-l"><div class="sec-ico" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="sec-lbl">Apps</span></div><div class="sec-r"><div class="sec-chev"><svg fill="currentColor"><use href="icons/sprite.svg#i-chev"/></svg></div></div></div>
+    <div class="sec-body">
+      <div class="mi" data-action="navigate" data-page="imagegen"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">IMAGE GEN</span></div></div>
+      <div class="mi" data-action="navigate" data-page="gifer"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">GIFER</span></div></div>
+      <div class="mi" data-action="navigate" data-page="clipper"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">CLIPPER</span></div></div>
+      <div class="mi" data-action="navigate" data-page="typer"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">TYPER</span></div></div>
+      <div class="mi" data-action="navigate" data-page="excalidraw"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">EXCALIDRAW</span></div></div>
+      <div class="mi dis"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">VIDEO GEN</span></div><div class="mi-r"><span class="mi-badge">COMING SOON</span></div></div>
+    </div></div>
+
+    <!-- Library -->
+    <div class="sec open"><div class="sec-h" data-action="toggle-section"><div class="sec-l"><div class="sec-ico" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-library"/></svg></div><span class="sec-lbl">Library</span></div><div class="sec-r"><div class="sec-chev"><svg fill="currentColor"><use href="icons/sprite.svg#i-chev"/></svg></div></div></div>
+    <div class="sec-body">
+      <div class="mi" data-action="navigate" data-page="wiki"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-library"/></svg></div><span class="mi-lbl">WIKI</span></div></div>
+      <div class="mi" data-action="navigate" data-page="files"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-library"/></svg></div><span class="mi-lbl">FILES</span></div></div>
+    </div></div>
+
+    <!-- Machine Room -->
+    <div class="sec open" data-s="mr"><div class="sec-h" data-action="toggle-section"><div class="sec-l"><div class="sec-ico" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-core"/></svg></div><span class="sec-lbl">Machine Room</span></div><div class="sec-r"><div class="sec-chev"><svg fill="currentColor"><use href="icons/sprite.svg#i-chev"/></svg></div></div></div>
+    <div class="sec-body">
+      <div class="mi" data-action="navigate" data-page="dashboard"><div class="mi-l"><div class="mi-ico" style="color:var(--c-grey6)"><svg fill="none" stroke="currentColor" stroke-width="1"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="14" height="6" rx="1"/></svg></div><span class="mi-lbl">DASHBOARD</span></div></div>
+      <div class="mi" data-action="navigate" data-page="xray"><div class="mi-l"><div class="mi-ico" style="color:var(--c-grey6)"><svg fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 16 16"><path d="M8 2v12M4 6h8M3 10h10"/></svg></div><span class="mi-lbl">X RAY</span></div></div>
+      <div class="mi" data-action="navigate" data-page="styleguide"><div class="mi-l"><div class="mi-ico" style="color:var(--c-grey6)"><svg fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3h3"/></svg></div><span class="mi-lbl">STYLE GUIDE</span></div></div>
+      <div class="mi" data-action="external" data-url="http://mora02.local:8085"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor" style="color:var(--c-blue)"><use href="icons/sprite.svg#i-baserow"/></svg></div><span class="mi-lbl">BASEROW</span></div></div>
+      <div class="mi" data-action="external" data-url="http://mora02.local:8090"><div class="mi-l"><div class="mi-ico"><svg fill="var(--c-purple)" viewBox="0 0 16 16"><polygon points="4,2 12,8 4,14"/></svg></div><span class="mi-lbl">DIFY</span></div></div>
+      <div class="mi" data-action="external" data-url="http://mora02.local:8089"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor" style="color:var(--c-orange)"><use href="icons/sprite.svg#i-activepieces"/></svg></div><span class="mi-lbl">ACTIVE PIECES</span></div></div>
+      <div class="mi" data-action="external" data-url="http://mora02.local:8188"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor" style="color:var(--c-green)"><use href="icons/sprite.svg#i-comfyui"/></svg></div><span class="mi-lbl">COMFY UI</span></div></div>
+    </div></div>
+  </div>
+
+  <!-- COLLAPSED: icon strip -->
+  <div class="istrip">
+    <div class="istrip-spacer"></div>
+    <div class="si" id="si-llm" style="color:var(--m-qwen)"><svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="select-llm" data-model="qwen" data-color="m-qwen"><div class="mi-l"><span class="mi-lbl">QWEN</span></div></div><div class="mi" data-action="select-llm" data-model="haiku" data-color="m-haiku"><div class="mi-l"><span class="mi-lbl">HAIKU</span></div><div class="mi-r">€</div></div><div class="mi" data-action="select-llm" data-model="sonnet" data-color="m-sonnet"><div class="mi-l"><span class="mi-lbl">SONNET</span></div><div class="mi-r">€€</div></div><div class="mi" data-action="select-llm" data-model="opus" data-color="m-opus"><div class="mi-l"><span class="mi-lbl">OPUS</span></div><div class="mi-r">€€€</div></div></div></div></div>
+    <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-persona"/></svg><div class="si-fly"><div class="si-fly-in" id="persona-fly"><!-- Filled by app.js --></div></div></div>
+    <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="navigate" data-page="imagegen"><div class="mi-l"><span class="mi-lbl">IMAGE GEN</span></div></div><div class="mi" data-action="navigate" data-page="gifer"><div class="mi-l"><span class="mi-lbl">GIFER</span></div></div><div class="mi" data-action="navigate" data-page="clipper"><div class="mi-l"><span class="mi-lbl">CLIPPER</span></div></div><div class="mi" data-action="navigate" data-page="typer"><div class="mi-l"><span class="mi-lbl">TYPER</span></div></div><div class="mi" data-action="navigate" data-page="excalidraw"><div class="mi-l"><span class="mi-lbl">EXCALIDRAW</span></div></div></div></div></div>
+    <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-library"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="navigate" data-page="wiki"><div class="mi-l"><span class="mi-lbl">WIKI</span></div></div><div class="mi" data-action="navigate" data-page="files"><div class="mi-l"><span class="mi-lbl">FILES</span></div></div></div></div></div>
+    <div class="si-sep"></div>
+    <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-core"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="navigate" data-page="dashboard"><div class="mi-l"><span class="mi-lbl">DASHBOARD</span></div></div><div class="mi" data-action="navigate" data-page="xray"><div class="mi-l"><span class="mi-lbl">X RAY</span></div></div><div class="mi" data-action="navigate" data-page="styleguide"><div class="mi-l"><span class="mi-lbl">STYLE GUIDE</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8085"><div class="mi-l"><span class="mi-lbl">BASEROW</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8090"><div class="mi-l"><span class="mi-lbl">DIFY</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8089"><div class="mi-l"><span class="mi-lbl">ACTIVE PIECES</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8188"><div class="mi-l"><span class="mi-lbl">COMFY UI</span></div></div></div></div></div>
+  </div>
+
+  <!-- Footer -->
+  <div class="sb-foot"><div class="mi" data-action="navigate" data-page="settings"><div class="mi-l"><div class="mi-ico" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-settings"/></svg></div><span class="mi-lbl">SETTINGS</span></div></div></div>
+</nav>
+
+<main class="main">
+  <button class="tog" id="tog" data-action="toggle-sidebar"><svg fill="currentColor"><use href="icons/sprite.svg#i-arrow-l"/></svg></button>
+
+  <div class="mob-bar">
+    <button class="mob-hamburger" data-action="open-mobile"><svg fill="currentColor"><use href="icons/sprite.svg#i-hamburger"/></svg></button>
+    <img src="icons/logo-m2-horizontal.svg" class="mob-logo-img" alt="M2">
+  </div>
+
+  <!-- Content container — pages loaded here -->
+  <div id="content" class="pg-home">
+    <!-- Homepage (default) — replaced when navigating -->
+    <div class="hero" id="hero"><canvas id="lc"></canvas></div>
+    <div class="home-in">
+      <textarea class="home-inp" rows="1" placeholder="Whats up today?" autofocus></textarea>
+      <div class="home-in-row">
+        <button class="btn-at" data-action="home-attach"><svg fill="currentColor"><use href="icons/sprite.svg#i-plus"/></svg></button>
+        <div style="flex:1"></div>
+        <button class="btn-send"><svg fill="currentColor"><use href="icons/sprite.svg#i-arrow-up"/></svg></button>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+
+<script src="js/marked.min.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/imagegen.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/files.js"></script>
+<script src="js/wiki.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/styleguide.js"></script>
+<script src="js/app.js"></script>
+<script src="js/logo.js"></script>
+<div class="mob-ov" id="mob-ov">
+  <div class="mob-dr">
+    <button class="mob-close" data-action="close-mobile"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    <div class="mob-dr-head" style="background:var(--c-black)">
+      
+    </div>
+    <div class="mob-dr-scroll" id="mob-menu-content">
+    </div>
+  </div>
+</div>
+</body>
+</html>

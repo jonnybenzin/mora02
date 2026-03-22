@@ -1,0 +1,17 @@
+{{ $related := first 3 (where (where .Site.RegularPages "Section" "posts") ".Permalink" "ne" .Permalink) }}
+{{ if $related }}
+<div class="related-posts">
+  <div class="related-posts-grid">
+    {{ range $related }}
+    <a href="{{ .Permalink }}">
+      {{ $thumb := .Resources.GetMatch "thumb.{jpg,jpeg,png,gif,webp}" }}
+      {{ if not $thumb }}{{ $thumb = .Resources.GetMatch "hero.{jpg,jpeg,png,gif,webp}" }}{{ end }}
+      {{ if $thumb }}
+        {{ $cropped := $thumb.Fill "400x500 q80" }}
+        <img src="{{ $cropped.RelPermalink }}" alt="{{ .Title }}" loading="lazy">
+      {{ end }}
+    </a>
+    {{ end }}
+  </div>
+</div>
+{{ end }}

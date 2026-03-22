@@ -1,0 +1,26 @@
+# ============================================================================
+# SCRIPT RUNNER - GIF/Video/Image Generation API
+# ============================================================================
+# Add this to /opt/mora02/docker/docker-compose.yml
+
+  script-runner:
+    build:
+      context: /opt/mora02/docker/script-runner
+      dockerfile: Dockerfile
+    image: script-runner:latest
+    container_name: script-runner
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    volumes:
+      # Data directory for wip and final outputs
+      - /opt/mora02/output/_default/script-bot:/data
+    environment:
+      - TZ=Europe/Berlin
+    networks:
+      - mora02-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

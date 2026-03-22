@@ -1,0 +1,59 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">CLIPPER</span>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Create video clips from images with pan, zoom and animation effects. Upload images, set animation style and duration per frame, then generate.</div>
+
+  <div class="tool-upload" id="clipper-upload">
+    <svg fill="currentColor"><use href="icons/sprite.svg#i-plus"/></svg>
+    <span class="tool-upload-lbl">CLICK OR DRAG & DROP TO ADD IMAGES</span>
+  </div>
+
+  <div id="clipper-arrange">
+    <div class="fl-grid fl-grid-3">
+      <div class="fl-field">
+        <select class="fl-select" id="clipper-animation"><option value="pan">Pan</option><option value="zoom_in" selected>Zoom In</option><option value="zoom_out">Zoom Out</option><option value="none">None</option></select>
+        <label class="fl-label">ANIMATION</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="clipper-direction" type="text" value="90" placeholder=" ">
+        <label class="fl-label">DIRECTION (°)</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="clipper-intensity"><option value="10">10</option><option value="20" selected>20</option><option value="30">30</option></select>
+        <label class="fl-label">INTENSITY</label>
+      </div>
+    </div>
+
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <select class="fl-select" id="clipper-resolution"><option value="720p">720p</option><option value="1080p" selected>1080p</option><option value="4k">4K</option></select>
+        <label class="fl-label">RESOLUTION</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="clipper-transition" type="text" value="1" placeholder=" ">
+        <label class="fl-label">TRANSITION (s)</label>
+      </div>
+    </div>
+
+    <div class="tool-list-head"><span class="tool-list-head-lbl">duration (seconds)</span></div>
+    <div class="tool-list" id="clipper-list"></div>
+
+    <div class="tool-add">
+      <button class="tool-action-btn" data-action="clipper-add-more">+ ADD MORE IMAGES</button>
+    </div>
+
+    <div class="tool-actions">
+      <button class="btn-ico" data-action="clipper-generate" disabled style="opacity:0.3">
+        <svg fill="currentColor"><use href="icons/sprite.svg#i-mpg"/></svg>
+        GENERATE CLIP
+      </button>
+    </div>
+  </div>
+
+  <div class="tool-result" id="clipper-result" style="display:none"></div>
+
+</div>

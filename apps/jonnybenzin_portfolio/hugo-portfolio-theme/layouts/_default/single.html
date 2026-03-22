@@ -1,0 +1,59 @@
+{{ define "main" }}
+<article class="single-post">
+
+  <!-- Title + Category -->
+  <div class="post-header">
+    <h1>{{ .Title }}</h1>
+    {{ with .Params.categories }}
+      <p class="post-category">
+        In {{ range $i, $cat := . }}{{ if $i }}, {{ end }}<a href="{{ "/categories/" | relURL }}{{ $cat | urlize }}/">{{ $cat }}</a>{{ end }}
+      </p>
+    {{ end }}
+  </div>
+
+  <!-- Description Text (from front matter or summary) -->
+  {{ with .Params.description }}
+  <div class="post-description">
+    <p>{{ . }}</p>
+  </div>
+  {{ else }}
+    {{ if .Truncated }}
+    <div class="post-description">
+      {{ .Summary }}
+    </div>
+    {{ end }}
+  {{ end }}
+
+  <!-- Hero Image (full width) -->
+  {{ with .Params.image }}
+  <figure class="post-hero">
+    <img src="{{ . }}" alt="{{ $.Title }}">
+    {{ with $.Params.image_caption }}
+      <figcaption>{{ . }}</figcaption>
+    {{ end }}
+  </figure>
+  {{ else }}
+    {{ with .Resources.GetMatch "cover.*" }}
+    <figure class="post-hero">
+      <img src="{{ .RelPermalink }}" alt="{{ $.Title }}">
+    </figure>
+    {{ end }}
+  {{ end }}
+
+  <!-- Post Content (additional images, text, videos) -->
+  <div class="post-content">
+    {{ .Content }}
+  </div>
+
+  <!-- Date -->
+  {{ with .Date }}
+  <div class="post-date">
+    {{ .Format "January 2, 2006" }}
+  </div>
+  {{ end }}
+
+  <!-- Related Posts (3-column thumbnail grid) -->
+  {{ partial "related.html" . }}
+
+</article>
+{{ end }}

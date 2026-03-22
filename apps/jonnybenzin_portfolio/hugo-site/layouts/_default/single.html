@@ -1,0 +1,37 @@
+{{ define "main" }}
+<article class="single-post">
+  <div class="post-header">
+    <h1>{{ .Title }}</h1>
+    {{ with .Params.categories }}
+      <p class="post-category">
+        In {{ range $i, $cat := . }}{{ if $i }}, {{ end }}<a href="{{ "/categories/" | relURL }}{{ $cat | urlize }}/">{{ $cat }}</a>{{ end }}
+      </p>
+    {{ end }}
+  </div>
+  {{ with .Params.description }}
+  <div class="post-description"><p>{{ . }}</p></div>
+  {{ end }}
+  {{ $hero := .Resources.GetMatch "hero.{jpg,jpeg,png,gif,webp}" }}
+  {{ if $hero }}
+    {{ if gt $hero.Width 1920 }}{{ $hero = $hero.Resize "1920x q85" }}{{ end }}
+  <figure class="post-hero">
+    <img src="{{ $hero.RelPermalink }}" alt="{{ .Title }}">
+    {{ with .Params.image_caption }}<figcaption>{{ . }}</figcaption>{{ end }}
+  </figure>
+  {{ end }}
+  <div class="post-content">
+    {{ $content := .Content }}
+    {{ range .Resources.Match "*.{jpg,jpeg,png,gif,webp}" }}
+      {{ if not (strings.HasPrefix .Name "hero") }}
+        {{ if gt .Width 1400 }}
+          {{ $resized := .Resize "1400x q85" }}
+          {{ $content = replace $content .RelPermalink $resized.RelPermalink }}
+        {{ end }}
+      {{ end }}
+    {{ end }}
+    {{ $content | safeHTML }}
+  </div>
+  {{ with .Date }}<div class="post-date">{{ .Format "January 2, 2006" }}</div>{{ end }}
+  {{ partial "related.html" . }}
+</article>
+{{ end }}

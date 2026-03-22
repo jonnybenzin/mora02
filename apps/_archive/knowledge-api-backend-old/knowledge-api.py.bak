@@ -1,0 +1,337 @@
+#!/usr/bin/env python3
+"""
+Mora02 Knowledge API - Extended
+Wrapper für SYNC, Perplexity Search, Claude Vision
+
+Endpoints:
+  POST /sync       - Knowledge Base aktualisieren
+  GET  /status     - Letzten Sync-Status abrufen
+  GET  /health     - Health Check
+  GET  /docs       - Dokumentenliste
+  POST /perplexity - Web-Suche via Perplexity
+  POST /vision     - Bildanalyse via Claude
+"""
+
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+import subprocess
+import os
+import requests as http_requests
+from datetime import datetime
+
+app = Flask(__name__)
+CORS(app)
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+STATUS_FILE = "/opt/mora02/data/knowledge-sync-status.txt"
+SYNC_SCRIPT = "/opt/mora02/scripts/update-knowledge-base.sh"
+
+# API Keys
+PERPLEXITY_KEY = "***PERPLEXITY_API_KEY_OLD_REVOKED***"
+CLAUDE_KEY = "***ANTHROPIC_API_KEY_OLD_REVOKED***"
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def read_status():
+    """Liest den aktuellen Sync-Status."""
+    try:
+        with open(STATUS_FILE, 'r') as f:
+            lines = f.readlines()
+            status = {}
+            for line in lines:
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    status[key] = value
+            return status
+    except FileNotFoundError:
+        return {"LAST_SYNC": "never", "LAST_SYNC_READABLE": "Noch nie synchronisiert"}
+
+# =============================================================================
+# CORE ENDPOINTS
+# =============================================================================
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health Check Endpoint."""
+    return jsonify({
+        "status": "healthy",
+        "service": "mora02-knowledge-api",
+        "version": "2.0",
+        "endpoints": ["/sync", "/status", "/docs", "/perplexity", "/vision"],
+        "timestamp": datetime.now().isoformat()
+    })
+
+
+@app.route('/status', methods=['GET'])
+def status():
+    """Gibt den aktuellen Sync-Status zurück."""
+    sync_status = read_status()
+    return jsonify({
+        "last_sync": sync_status.get("LAST_SYNC_READABLE", "unbekannt"),
+        "last_sync_iso": sync_status.get("LAST_SYNC", "never"),
+        "docs_count": sync_status.get("DOCS_COUNT", "0"),
+        "container_count": sync_status.get("CONTAINER_COUNT", "0"),
+        "output_file": sync_status.get("OUTPUT_FILE", ""),
+    })
+
+
+@app.route('/sync', methods=['POST'])
+def sync():
+    """Führt das Knowledge-Update-Script aus."""
+    try:
+        if not os.path.isfile(SYNC_SCRIPT):
+            return jsonify({
+                "status": "error",
+                "message": f"Sync-Script nicht gefunden: {SYNC_SCRIPT}"
+            }), 500
+        
+        result = subprocess.run(
+            ['/bin/bash', SYNC_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        if result.returncode == 0:
+            sync_status = read_status()
+            return jsonify({
+                "status": "ok",
+                "message": "Knowledge Base erfolgreich aktualisiert",
+                "timestamp": datetime.now().isoformat(),
+                "docs_count": sync_status.get("DOCS_COUNT", "0"),
+                "container_count": sync_status.get("CONTAINER_COUNT", "0"),
+                "output": result.stdout[-1000:] if result.stdout else ""
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "Sync-Script fehlgeschlagen",
+                "returncode": result.returncode,
+                "stderr": result.stderr[-500:] if result.stderr else "",
+                "stdout": result.stdout[-500:] if result.stdout else ""
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({"status": "error", "message": "Sync-Script Timeout (>60s)"}), 504
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/docs', methods=['GET'])
+def list_docs():
+    """Listet verfügbare Knowledge-Dokumente auf."""
+    docs_dir = "/opt/mora02/docs/system"
+    try:
+        files = []
+        for f in os.listdir(docs_dir):
+            if f.endswith('.md'):
+                filepath = os.path.join(docs_dir, f)
+                stat = os.stat(filepath)
+                files.append({
+                    "name": f,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                })
+        files.sort(key=lambda x: x['modified'], reverse=True)
+        return jsonify({"count": len(files), "docs": files[:20]})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# =============================================================================
+# PERPLEXITY SEARCH WRAPPER
+# =============================================================================
+
+@app.route('/perplexity', methods=['POST'])
+def perplexity_search():
+    """
+    Perplexity Search Wrapper.
+    
+    Input JSON:
+      {"query": "Deine Suchanfrage"}
+    
+    Oder Query-Parameter:
+      POST /perplexity?q=Deine+Suchanfrage
+    """
+    try:
+        # Query aus JSON oder URL-Parameter
+        data = request.get_json(silent=True) or {}
+        query = data.get('query') or request.args.get('q', '')
+        
+        if not query:
+            return jsonify({
+                "status": "error",
+                "message": "Parameter 'query' erforderlich",
+                "usage": "POST /perplexity mit JSON {'query': '...'} oder ?q=..."
+            }), 400
+        
+        # Perplexity API aufrufen
+        response = http_requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers={
+                "Authorization": f"Bearer {PERPLEXITY_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "sonar",
+                "messages": [{"role": "user", "content": query}]
+            },
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            # Extrahiere die Antwort für einfachere Verarbeitung
+            answer = ""
+            if 'choices' in result and len(result['choices']) > 0:
+                answer = result['choices'][0].get('message', {}).get('content', '')
+            
+            return jsonify({
+                "status": "ok",
+                "query": query,
+                "answer": answer,
+                "citations": result.get('citations', []),
+                "model": result.get('model', 'sonar'),
+                "raw_response": result
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": f"Perplexity API Fehler: {response.status_code}",
+                "details": response.text[:500]
+            }), response.status_code
+            
+    except http_requests.Timeout:
+        return jsonify({"status": "error", "message": "Perplexity Timeout (>30s)"}), 504
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# =============================================================================
+# CLAUDE VISION WRAPPER
+# =============================================================================
+
+@app.route('/vision', methods=['POST'])
+def vision_analyze():
+    """
+    Claude Vision Wrapper für Bildanalyse.
+    
+    Input JSON:
+      {
+        "image": "base64-encoded-image-data",
+        "prompt": "Optional: Spezifische Frage zum Bild",
+        "media_type": "Optional: image/png, image/jpeg, etc."
+      }
+    
+    Oder für URL-basierte Bilder:
+      {
+        "image_url": "https://example.com/image.png",
+        "prompt": "Optional: Spezifische Frage"
+      }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        image_base64 = data.get('image', '')
+        image_url = data.get('image_url', '')
+        prompt = data.get('prompt', 'Beschreibe dieses Bild detailliert. Falls es ein Screenshot mit einem Fehler ist, erkläre das Problem und mögliche Lösungen.')
+        media_type = data.get('media_type', 'image/png')
+        
+        # Entweder base64 oder URL erforderlich
+        if not image_base64 and not image_url:
+            return jsonify({
+                "status": "error",
+                "message": "Parameter 'image' (base64) oder 'image_url' erforderlich",
+                "usage": "POST /vision mit JSON {'image': 'base64...'} oder {'image_url': 'https://...'}"
+            }), 400
+        
+        # Bild-Content für Claude API bauen
+        if image_base64:
+            image_content = {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": image_base64
+                }
+            }
+        else:
+            image_content = {
+                "type": "image",
+                "source": {
+                    "type": "url",
+                    "url": image_url
+                }
+            }
+        
+        # Claude API aufrufen
+        response = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": CLAUDE_KEY,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1024,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        image_content,
+                        {"type": "text", "text": prompt}
+                    ]
+                }]
+            },
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            # Extrahiere die Antwort
+            answer = ""
+            if 'content' in result and len(result['content']) > 0:
+                answer = result['content'][0].get('text', '')
+            
+            return jsonify({
+                "status": "ok",
+                "prompt": prompt,
+                "analysis": answer,
+                "model": result.get('model', 'claude-sonnet-4-20250514'),
+                "usage": result.get('usage', {})
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": f"Claude API Fehler: {response.status_code}",
+                "details": response.text[:500]
+            }), response.status_code
+            
+    except http_requests.Timeout:
+        return jsonify({"status": "error", "message": "Claude Vision Timeout (>60s)"}), 504
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+if __name__ == '__main__':
+    print("=" * 50)
+    print("Mora02 Knowledge API - Extended v2.0")
+    print("=" * 50)
+    print(f"Status File: {STATUS_FILE}")
+    print(f"Sync Script: {SYNC_SCRIPT}")
+    print("Endpoints:")
+    print("  POST /sync       - Knowledge Base Update")
+    print("  GET  /status     - Sync Status")
+    print("  GET  /health     - Health Check")
+    print("  GET  /docs       - Document List")
+    print("  POST /perplexity - Web Search (Perplexity)")
+    print("  POST /vision     - Image Analysis (Claude)")
+    print("=" * 50)
+    
+    app.run(host='0.0.0.0', port=8095, debug=False)

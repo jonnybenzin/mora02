@@ -1,0 +1,36 @@
+baseURL = "https://jonnybenzin.com/"
+languageCode = "en"
+title = "Jonny Benzin"
+enableRobotsTXT = false
+
+[pagination]
+pagerSize = 50
+
+[params]
+  author = "Jonny Benzin"
+  description = "Portfolio of Jonny Benzin"
+  copyright = "Jonny Benzin"
+  logo = "/images/logo.png"
+
+[menu]
+  [[menu.main]]
+    name = "Overview"
+    url = "/"
+    weight = 1
+  [[menu.main]]
+    name = "About"
+    url = "/about/"
+    weight = 2
+
+[taxonomies]
+  category = "categories"
+  tag = "tags"
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true
+
+[imaging]
+  quality = 85
+  resampleFilter = "Lanczos"

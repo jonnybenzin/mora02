@@ -1,0 +1,74 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Compose Snapshots (enthalten alte Secrets)
+knowledge/changelog/compose-snapshots/
+knowledge/changelog/chats/
+
+# Scripts Archive (enthält env-centralize.sh mit Klartext-Secrets)
+scripts/_archive/
+
+# Laufzeit-Daten
+volumes/
+data/
+backups/
+output/
+
+# Penpot Assets (massenhaft generierte Dateien)
+docker/penpot/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+venv_rag/
+scripts/venv/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generierte Bilder / Factory Output
+output/
+knowledge/
+ai_models/
+ai-models/
+docker/ComfyUI/output/
+docker/ComfyUI/input/
+docker/ComfyUI/models/
+docker/open-webui/
+docker/penpot/
+nginx-images/
+
+# Grosse Modell-Dateien
+*.ckpt
+*.safetensors
+*.bin
+*.pt
+*.gguf
+
+# VPN
+config/vpn/
+
+# LibreChat env
+docker/.librechat.env
+
+# Activepieces Runtime-Daten
+docker/activepieces/
+
+# Blender Binaries
+*.blend
+*.blend1
+
+# Archives / Exports
+*.zip
+*.tar.gz
+*.xml
+
+# SQLite Datenbanken
+*.sqlite

@@ -1,0 +1,57 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">TYPER</span>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Generate text-frame PNGs in JetBrains Mono. Use for title cards, social media posts, or as frames for gifer. Use /b for line breaks.</div>
+
+  <div id="typer-arrange">
+    <div class="fl-field">
+      <textarea class="fl-input" id="typer-text" rows="3" placeholder=" ">CHECK OUT/bMY BRAND NEW/bPRODUCT</textarea>
+      <label class="fl-label">TEXT</label>
+    </div>
+
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <select class="fl-select" id="typer-template"><option value="dark" selected>Dark</option><option value="darker">Darker</option><option value="light">Light</option><option value="black">Black</option></select>
+        <label class="fl-label">TEMPLATE</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="typer-font"><option value="bold" selected>Bold</option><option value="bold-italic">Bold Italic</option><option value="thin">Thin</option><option value="thin-italic">Thin Italic</option></select>
+        <label class="fl-label">FONT</label>
+      </div>
+    </div>
+
+    <div class="fl-grid fl-grid-3">
+      <div class="fl-field">
+        <input class="fl-input" id="typer-fontsize" type="text" value="medium" list="typer-fontsize-opts" placeholder=" ">
+        <datalist id="typer-fontsize-opts"><option value="small"><option value="medium"><option value="large"></datalist>
+        <label class="fl-label">FONTSIZE</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="typer-layout"><option value="left" selected>Left</option><option value="centered">Centered</option></select>
+        <label class="fl-label">LAYOUT</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="typer-size-w" type="text" value="1080" placeholder=" ">
+        <label class="fl-label">SIZE (W×H)</label>
+      </div>
+    </div>
+    <div class="fl-field" style="max-width:33.33%">
+      <input class="fl-input" id="typer-size-h" type="text" value="1080" placeholder=" ">
+      <label class="fl-label">HEIGHT</label>
+    </div>
+
+    <div class="tool-actions">
+      <button class="btn-ico" data-action="typer-generate">
+        <svg fill="currentColor"><use href="icons/sprite.svg#i-typer"/></svg>
+        GENERATE PNG
+      </button>
+    </div>
+  </div>
+
+  <div class="tool-result" id="typer-result" style="display:none"></div>
+
+</div>

@@ -1,0 +1,43 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">CREATE NEW PERSONA</span>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="fl-grid fl-grid-2">
+    <div class="fl-field fl-field-grow">
+      <input class="fl-input" id="pc-name" type="text" value="" placeholder=" ">
+      <label class="fl-label">NAME</label>
+    </div>
+    <div class="fl-field" style="width:100px">
+      <input class="fl-input" id="pc-icon" type="text" value="" placeholder=" ">
+      <label class="fl-label">ICON</label>
+    </div>
+  </div>
+
+  <div class="fl-field">
+    <textarea class="fl-input" id="pc-description" rows="2" placeholder=" "></textarea>
+    <label class="fl-label">DESCRIPTION</label>
+  </div>
+
+  <div class="fl-field">
+    <textarea class="fl-input" id="pc-prompt" rows="4" placeholder=" "></textarea>
+    <label class="fl-label">PERSONA PROMPT</label>
+  </div>
+
+  <div class="fl-field">
+    <input class="fl-input" id="pc-briefing" type="text" value="" placeholder=" ">
+    <label class="fl-label">BRIEFING TARGET</label>
+  </div>
+
+  <div class="tool-actions">
+    <button class="btn-ico" data-action="persona-create-save">
+      <svg fill="currentColor"><use href="icons/sprite.svg#i-persona"/></svg>
+      CREATE PERSONA
+    </button>
+  </div>
+
+  <div class="tool-result-status" id="pc-status"></div>
+
+</div>

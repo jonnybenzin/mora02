@@ -1,0 +1,18 @@
+{{ $related := first 3 (where (where .Site.RegularPages "Section" "posts") ".Permalink" "ne" .Permalink) }}
+{{ if $related }}
+<div class="related-posts">
+  <div class="related-posts-grid">
+    {{ range $related }}
+    <a href="{{ .Permalink }}">
+      {{ with .Params.image }}
+        <img src="{{ . }}" alt="{{ $.Title }}" loading="lazy">
+      {{ else }}
+        {{ with .Resources.GetMatch "cover.*" }}
+          <img src="{{ .RelPermalink }}" alt="{{ $.Title }}" loading="lazy">
+        {{ end }}
+      {{ end }}
+    </a>
+    {{ end }}
+  </div>
+</div>
+{{ end }}

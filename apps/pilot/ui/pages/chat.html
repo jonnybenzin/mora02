@@ -1,0 +1,121 @@
+<link rel="stylesheet" href="css/chat.css">
+
+<div class="chat-wrap">
+  <div class="chat-messages" id="chat-messages">
+
+    <!-- BOT MESSAGE: heading + text + list -->
+    <div class="msg-bot" data-model="qwen">
+      <div class="msg-head">
+        <span class="msg-model" style="color:var(--m-qwen)">QWEN</span>
+        <span class="msg-persona">STRATEGIST</span>
+        <span class="msg-time">today 18.46</span>
+      </div>
+      <div class="msg-body">
+        <h3>Donec vel rhoncus nulla</h3>
+        <p>Maecenas et consectetur diam. Morbi sed massa nunc. Aliquam at orci nec est aliquam bibendum. Etiam sit amet ipsum eros. <strong>Proin enim mass</strong>, lacinia sed nisi sit amet, vehicula auctor eros. Nullam laoreet velit viverra, bibendum orci et, semper enim.</p>
+        <h3>Donec vel rhoncus nulla</h3>
+        <ul>
+          <li>Maecenas et consectetur diam</li>
+          <li>Morbi sed massa nunc. Aliquam</li>
+          <li>at orci nec est aliquam bibendum</li>
+        </ul>
+        <p>Etiam sit amet ipsum eros. Proin enim massa, lacinia sed nisi sit amet, vehicula auctor eros. Nullam laoreet velit viverra, bibendum orci et, semper enim.</p>
+      </div>
+    </div>
+
+    <!-- BOT MESSAGE: code block -->
+    <div class="msg-bot" data-model="qwen">
+      <div class="msg-body">
+        <div class="code-block">
+          <div class="code-head">
+            <span class="code-lang">bash</span>
+            <div class="code-actions">
+              <div class="code-action" title="Download" data-action="download-code"><svg fill="currentColor"><use href="icons/sprite.svg#i-download"/></svg></div>
+              <div class="code-action" title="Copy" data-action="copy-code"><svg fill="currentColor"><use href="icons/sprite.svg#i-copy"/></svg></div>
+            </div>
+          </div>
+          <div class="code-body"><pre><code><span class="hljs-comment"># Alle Tabellen in der Datenbank finden:</span>
+<span class="hljs-built_in">curl</span> -s <span class="hljs-string">"http://mora02.local:8085/api/database/rows/table/575/?
+user_field_names=true&amp;size=1"</span> \
+  -H <span class="hljs-string">"Authorization: Token ***BASEROW_TOKEN_OLD_REVOKED***"</span> &gt; /
+dev/null &amp;&amp; <span class="hljs-built_in">echo</span> <span class="hljs-string">"575: bot_personas ✓"</span>
+
+<span class="hljs-comment"># Welche anderen Tabellen nutzt der Pilot?</span>
+<span class="hljs-built_in">grep</span> -o <span class="hljs-string">"table/[0-9]*"</span> /opt/mora02/docker/pilot/baserow_client.py | sort -u</code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="msg-actions">
+        <div class="msg-action" title="Regenerate"><svg fill="currentColor"><use href="icons/sprite.svg#i-reload"/></svg></div>
+        <div class="msg-action" title="Good"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 8h2v6H2V8zm4-3c0-1 .5-3 2-4 .5 1 1 2 1 3v2h4c1 0 1.5 1 1.5 2l-1.5 6H6V5z"/></svg></div>
+        <div class="msg-action" title="Bad"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M12 8h2V2h-2v6zM8 11c0 1-.5 3-2 4-.5-1-1-2-1-3V10H1c-1 0-1.5-1-1.5-2L1 2h6v6z"/></svg></div>
+      </div>
+    </div>
+
+    <!-- USER MESSAGE -->
+    <div class="msg-user-wrap">
+      <div class="msg-user-head"><span class="msg-time">today 18.46</span> <span>JONNY</span></div>
+      <div class="msg-user">Donec vel rhoncus nulla, at ultricies odio. Integer quis malesuada risus. In ut sagittis leo. Mauris nec posuere dui. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia curae; Suspendisse urna</div>
+      <div class="msg-more" data-action="toggle-msg">MORE</div>
+    </div>
+
+    <!-- BOT MESSAGE: simple -->
+    <div class="msg-bot" data-model="qwen">
+      <div class="msg-head">
+        <span class="msg-model" style="color:var(--m-qwen)">QWEN</span>
+        <span class="msg-persona">STRATEGIST</span>
+        <span class="msg-time">today 18.46</span>
+      </div>
+      <div class="msg-body">
+        <h3>Donec vel rhoncus nulla</h3>
+        <p>Donec vel rhoncus nulla, at ultricies odio. Integer quis malesuada risus. In ut sagittis leo. Mauris nec posuere dui. Vestibulum ante ipsum primis in vehicula auctor eros. Nullam laoreet velit viverra, bibendum orci et, semper enim.</p>
+      </div>
+      <div class="msg-actions">
+        <div class="msg-action" title="Regenerate"><svg fill="currentColor"><use href="icons/sprite.svg#i-reload"/></svg></div>
+        <div class="msg-action" title="Good"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 8h2v6H2V8zm4-3c0-1 .5-3 2-4 .5 1 1 2 1 3v2h4c1 0 1.5 1 1.5 2l-1.5 6H6V5z"/></svg></div>
+        <div class="msg-action" title="Bad"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M12 8h2V2h-2v6zM8 11c0 1-.5 3-2 4-.5-1-1-2-1-3V10H1c-1 0-1.5-1-1.5-2L1 2h6v6z"/></svg></div>
+      </div>
+    </div>
+
+    <!-- USER MESSAGE (long) -->
+    <div class="msg-user-wrap">
+      <div class="msg-user-head"><span class="msg-time">today 18.44</span> <span>USER</span></div>
+      <div class="msg-user">Donec vel rhoncus nulla, at ultricies odio. Integer quis malesuada risus. In ut sagittis leo. Mauris nec posuere dui. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia curae; Suspendisse urna tortor, convallis vel placerat ac, interdum in nibh.
+
+Donec vel rhoncus nulla, at ultricies odio. Integer quis malesuada tortor, convallis vel placerat ac, interdum in nibh.</div>
+    </div>
+
+    <!-- BOT MESSAGE: inline bold -->
+    <div class="msg-bot" data-model="qwen">
+      <div class="msg-head">
+        <span class="msg-model" style="color:var(--m-qwen)">QWEN</span>
+        <span class="msg-persona">STRATEGIST</span>
+        <span class="msg-time">today 18.46</span>
+      </div>
+      <div class="msg-body">
+        <p>Maecenas et consectetur diam. Morbi sed massa nunc. Aliquam at orci nec est aliquam bibendum. Etiam sit amet ipsum eros. <strong>Proin enim mass</strong>, lacinia</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- SCROLL TO BOTTOM -->
+  <button class="chat-scroll-btn" id="chat-scroll-btn" data-action="scroll-bottom">
+    <svg fill="currentColor" width="16" height="16"><use href="icons/sprite.svg#i-chev-down"/></svg>
+  </button>
+
+  <!-- INPUT BAR -->
+  <div class="chat-input-bar">
+    <div class="chat-stats" id="chat-stats"></div>
+    <div class="chat-input-inner">
+      <textarea class="chat-input-field" id="chat-input" rows="1" placeholder="Message... or use /commands"></textarea>
+      <div class="chat-input-row">
+        <button class="chat-btn chat-btn-attach" data-action="attach-file"><svg fill="currentColor"><use href="icons/sprite.svg#i-plus"/></svg></button>
+        <div class="chat-input-spacer"></div>
+        <button class="chat-btn chat-btn-end" data-action="end-session">END SESSION</button>
+        <div class="chat-input-spacer"></div>
+        <button class="chat-btn chat-btn-send" id="chat-send" data-action="send-chat"><svg fill="currentColor"><use href="icons/sprite.svg#i-arrow-up"/></svg></button>
+      </div>
+    </div>
+  </div>
+</div>

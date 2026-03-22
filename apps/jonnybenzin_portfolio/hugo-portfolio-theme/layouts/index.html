@@ -1,0 +1,21 @@
+{{ define "main" }}
+<div class="portfolio-grid">
+  {{ range where .Site.RegularPages "Section" "posts" }}
+  <a href="{{ .Permalink }}" class="portfolio-item">
+    {{ with .Params.image }}
+      <img src="{{ . }}" alt="{{ $.Title }}" loading="lazy">
+    {{ else }}
+      {{ with .Resources.GetMatch "cover.*" }}
+        <img src="{{ .RelPermalink }}" alt="{{ $.Title }}" loading="lazy">
+      {{ end }}
+    {{ end }}
+    <div class="item-overlay">
+      <span class="item-title">{{ .Title }}</span>
+      {{ with .Params.categories }}
+        <span class="item-label">{{ index . 0 }}</span>
+      {{ end }}
+    </div>
+  </a>
+  {{ end }}
+</div>
+{{ end }}

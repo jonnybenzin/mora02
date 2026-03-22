@@ -1,0 +1,7 @@
+[Unit]
+Description=Synology NFS Health-Check
+Before=borgbackup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/synology-health-check.sh

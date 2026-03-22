@@ -1,0 +1,54 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">ADJUST PERSONA</span>
+    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div id="persona-edit-content">
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field fl-field-grow">
+        <input class="fl-input" id="pe-name" type="text" value="" readonly style="opacity:0.6" placeholder=" ">
+        <label class="fl-label">NAME</label>
+      </div>
+      <div class="fl-field" style="width:100px">
+        <input class="fl-input" id="pe-icon" type="text" value="" readonly style="opacity:0.6" placeholder=" ">
+        <label class="fl-label">ICON</label>
+      </div>
+    </div>
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="pe-description" rows="2" readonly style="opacity:0.6" placeholder=" "></textarea>
+      <label class="fl-label">DESCRIPTION</label>
+    </div>
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="pe-prompt" rows="4" readonly style="opacity:0.6" placeholder=" "></textarea>
+      <label class="fl-label">PERSONA PROMPT</label>
+    </div>
+
+    <div class="fl-field">
+      <input class="fl-input" id="pe-briefing" type="text" value="" readonly style="opacity:0.6" placeholder=" ">
+      <label class="fl-label">BRIEFING TARGET</label>
+    </div>
+
+    <div class="fl-field" style="max-width:200px">
+      <input class="fl-input" id="pe-usage" type="text" value="0" readonly style="opacity:0.6" placeholder=" ">
+      <label class="fl-label">USAGE COUNT</label>
+    </div>
+
+    <div class="tool-result-btns" style="margin-top:var(--sp-16)">
+      <button class="tool-action-btn" data-action="persona-archive" style="color:var(--c-red,#f55)">ARCHIVE PERSONA</button>
+    </div>
+    <div class="tool-result-status" id="pe-status" style="margin-top:var(--sp-10)">
+      <span style="color:var(--tx-disabled)">Editing requires a backend endpoint (planned). Currently read-only.</span>
+    </div>
+  </div>
+
+  <div id="persona-edit-empty" style="display:none">
+    <div class="tool-result-status">
+      <span style="color:var(--tx-muted)">No persona selected. Choose a persona from the sidebar first.</span>
+    </div>
+  </div>
+
+</div>
