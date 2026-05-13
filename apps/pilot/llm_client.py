@@ -6,8 +6,10 @@ from config import settings, MODELS
 
 async def stream_qwen(messages: list[dict], system_prompt: str,
                        temperature: float = 0.7, max_tokens: int = 4096) -> AsyncGenerator[dict, None]:
+    # llama.cpp ignores the "model" field and always serves whatever
+    # LLAMA_ARG_MODEL was loaded — we send "local" as a neutral label.
     payload = {
-        "model": "Qwen3-14B-Q4_K_M",
+        "model": "local",
         "messages": [{"role": "system", "content": system_prompt}] + messages,
         "stream": True,
         "temperature": temperature,

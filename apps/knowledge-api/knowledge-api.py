@@ -13,6 +13,9 @@ Endpoints:
   POST /ask-claude   - Text-Anfrage via Claude
   POST /session-done - Session Summary generieren
   POST /export-sessions - Sessions zu Knowledge Base exportieren
+  GET  /tts/voices     - Verfügbare TTS-Stimmen
+  POST /tts/generate   - Text-to-Speech Generierung (DE→Piper, EN→Kokoro)
+  GET  /tts/health     - TTS Backend Status
 """
 
 from flask import Flask, jsonify, request
@@ -44,8 +47,8 @@ DB_HOST = os.getenv("POSTGRES_HOST", "postgres-dify-new")
 DB_PORT = os.getenv("POSTGRES_PORT", "5432")
 
 # API Keys
-PERPLEXITY_KEY = "***PERPLEXITY_API_KEY_OLD_REVOKED***"
-CLAUDE_KEY = "***ANTHROPIC_API_KEY_OLD_REVOKED***"
+PERPLEXITY_KEY = os.environ["PERPLEXITY_API_KEY"]
+CLAUDE_KEY = os.environ["CLAUDE_API_KEY"]
 
 # Dify Knowledge Base Configuration
 DIFY_API_URL = "http://dify-api-new:5001/v1"
@@ -713,6 +716,375 @@ Be direct and concise. No bullet points. Write like a colleague giving honest fe
             
     except http_requests.Timeout:
         return jsonify({"status": "error", "message": "Claude timeout (>60s)"}), 504
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# =============================================================================
+# TTS - TEXT TO SPEECH
+# =============================================================================
+
+TTS_OUTPUT_DIR = "/opt/mora02/output/_default/tts"
+KOKORO_URL = os.getenv("KOKORO_URL", "http://kokoro-tts:8880")
+PIPER_URL = os.getenv("PIPER_URL", "http://piper-tts:8107")
+CHATTERBOX_URL = os.getenv("CHATTERBOX_URL", "http://chatterbox-tts:4123")
+DOCKER_COMPOSE_DIR = "/opt/mora02/docker"
+
+TTS_VOICES = {
+    "en": [
+        {"id": "af_bella", "name": "Bella (Female)"},
+        {"id": "af_nova", "name": "Nova (Female)"},
+        {"id": "am_adam", "name": "Adam (Male)"},
+        {"id": "am_michael", "name": "Michael (Male)"},
+    ],
+    "de": [
+        {"id": "thorsten", "name": "Thorsten (Male)", "model": "de_DE-thorsten-high"},
+        {"id": "thorsten_emotional", "name": "Thorsten Emotional (Male)", "model": "de_DE-thorsten_emotional-medium"},
+        {"id": "kerstin", "name": "Kerstin (Female)", "model": "de_DE-kerstin-low"},
+    ],
+}
+
+PIPER_VOICE_MAP = {
+    "thorsten": "de_DE-thorsten-high",
+    "thorsten_emotional": "de_DE-thorsten_emotional-medium",
+    "kerstin": "de_DE-kerstin-low",
+}
+
+
+@app.route('/tts/voices', methods=['GET'])
+def tts_voices():
+    """List available TTS voices grouped by language."""
+    return jsonify(TTS_VOICES)
+
+
+@app.route('/tts/health', methods=['GET'])
+def tts_health():
+    """Check connectivity to TTS backends."""
+    status = {"kokoro": "unknown", "piper": "unknown"}
+    try:
+        r = http_requests.get(f"{KOKORO_URL}/health", timeout=5)
+        status["kokoro"] = "ok" if r.status_code == 200 else f"error ({r.status_code})"
+    except Exception as e:
+        status["kokoro"] = f"error: {str(e)[:100]}"
+    try:
+        r = http_requests.get(f"{PIPER_URL}/health", timeout=5)
+        status["piper"] = "ok" if r.status_code == 200 else f"error ({r.status_code})"
+    except Exception as e:
+        status["piper"] = f"error: {str(e)[:100]}"
+    return jsonify(status)
+
+
+@app.route('/tts/generate', methods=['POST'])
+def tts_generate():
+    """Generate speech audio from text.
+
+    Input JSON:
+      text:     string (required)
+      language: "de" | "en" (default: "en")
+      voice:    voice id (default: "thorsten" for de, "af_bella" for en)
+      format:   "wav" | "mp3" (default: "wav")
+
+    Routes: de -> Piper, en -> Kokoro
+    """
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"status": "error", "message": "No text provided"}), 400
+
+    language = data.get("language", "en")
+    voice = data.get("voice", "thorsten" if language == "de" else "af_bella")
+    fmt = data.get("format", "wav")
+    speed = float(data.get("speed", 1.0))
+    noise_scale = float(data.get("noise_scale", 0.667))
+    noise_w = float(data.get("noise_w", 0.8))
+    engine_pref = data.get("engine", "auto")  # "auto", "piper", "kokoro", "chatterbox"
+    exaggeration = float(data.get("exaggeration", 0.5))
+
+    try:
+        os.makedirs(TTS_OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%y%m%d-%H%M")
+        existing = len([f for f in os.listdir(TTS_OUTPUT_DIR) if f.startswith(f"vox_{timestamp}_")])
+        counter = existing + 1
+        filename = f"vox_{timestamp}_{counter:03d}.{fmt}"
+        output_path = os.path.join(TTS_OUTPUT_DIR, filename)
+
+        # Engine selection: explicit choice or auto-route by language
+        if engine_pref == "chatterbox":
+            engine = "chatterbox"
+            cfg_weight = float(data.get("cfg_weight", 0.5))
+            temperature = float(data.get("temperature", 0.8))
+            cb_voice = data.get("cb_voice", "")  # voice name from library
+            r = http_requests.post(
+                f"{CHATTERBOX_URL}/v1/audio/speech",
+                json={
+                    "input": text,
+                    "voice": cb_voice if cb_voice else "alloy",
+                    "exaggeration": exaggeration,
+                    "cfg_weight": cfg_weight,
+                    "temperature": temperature,
+                },
+                timeout=180,
+            )
+        elif engine_pref == "piper" or (engine_pref == "auto" and language == "de"):
+            engine = "piper"
+            model_name = PIPER_VOICE_MAP.get(voice, voice)
+            r = http_requests.post(
+                f"{PIPER_URL}/v1/audio/speech",
+                json={
+                    "input": text, "voice": model_name, "response_format": fmt,
+                    "speed": speed, "noise_scale": noise_scale, "noise_w": noise_w,
+                },
+                timeout=120,
+            )
+        else:
+            engine = "kokoro"
+            r = http_requests.post(
+                f"{KOKORO_URL}/v1/audio/speech",
+                json={
+                    "input": text, "voice": voice, "response_format": fmt,
+                    "speed": speed,
+                },
+                timeout=120,
+            )
+
+        if r.status_code != 200:
+            return jsonify({
+                "status": "error",
+                "message": f"{engine} returned {r.status_code}",
+                "detail": r.text[:500],
+            }), 502
+
+        with open(output_path, "wb") as f:
+            f.write(r.content)
+
+        # Embed metadata into the audio file
+        try:
+            import json as _json, subprocess as _sp
+            meta = _json.dumps({
+                "engine": engine, "voice": voice, "language": language,
+                "speed": speed, "text": text[:500],
+                "format": fmt, "timestamp": timestamp,
+            })
+            if fmt == "mp3":
+                # Use ffmpeg to add ID3 comment tag
+                tmp = output_path + ".tmp"
+                _sp.run([
+                    "ffmpeg", "-y", "-i", output_path,
+                    "-metadata", f"comment={meta}",
+                    "-metadata", f"title=TTS: {voice}",
+                    "-metadata", f"artist=mora02 ({engine})",
+                    "-c", "copy", tmp
+                ], capture_output=True)
+                if os.path.exists(tmp):
+                    os.replace(tmp, output_path)
+            elif fmt == "wav":
+                tmp = output_path + ".tmp"
+                _sp.run([
+                    "ffmpeg", "-y", "-i", output_path,
+                    "-metadata", f"comment={meta}",
+                    "-metadata", f"title=TTS: {voice}",
+                    "-metadata", f"artist=mora02 ({engine})",
+                    "-c", "copy", tmp
+                ], capture_output=True)
+                if os.path.exists(tmp):
+                    os.replace(tmp, output_path)
+        except Exception:
+            pass  # metadata is optional, don't fail the request
+
+        return jsonify({
+            "success": True,
+            "url": f"/tool-assets/tts/{filename}",
+            "filename": filename,
+            "voice": voice,
+            "engine": engine,
+            "language": language,
+            "text_length": len(text),
+        })
+    except http_requests.Timeout:
+        return jsonify({"status": "error", "message": f"TTS backend timed out"}), 504
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# =============================================================================
+# CHATTERBOX VOICE LIBRARY
+# =============================================================================
+
+VOICE_LIBRARY_DIR = "/opt/mora02/volumes/chatterbox/voices"
+
+@app.route('/tts/voices/library', methods=['GET'])
+def tts_voice_library():
+    """List voices in the Chatterbox voice library."""
+    try:
+        r = http_requests.get(f"{CHATTERBOX_URL}/voices", timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            return jsonify({"voices": data.get("voices", []), "count": data.get("count", 0)})
+        return jsonify({"voices": [], "count": 0})
+    except Exception:
+        return jsonify({"voices": [], "count": 0})
+
+
+@app.route('/tts/voices/upload', methods=['POST'])
+def tts_voice_upload():
+    """Upload a voice sample for Chatterbox voice cloning.
+
+    Accepts any audio/video format (mp3, wav, m4a, ogg, mp4, mov, webm, etc.).
+    Extracts audio via ffmpeg and forwards to Chatterbox voice library.
+
+    Form fields:
+      voice_name: string (required) — name for this voice
+      file: file upload (required) — audio or video file
+      language: string (optional, default: "de")
+    """
+    voice_name = request.form.get("voice_name", "").strip()
+    if not voice_name:
+        return jsonify({"status": "error", "message": "voice_name is required"}), 400
+
+    language = request.form.get("language", "de")
+
+    if "file" not in request.files:
+        return jsonify({"status": "error", "message": "No file uploaded"}), 400
+
+    uploaded = request.files["file"]
+    if not uploaded.filename:
+        return jsonify({"status": "error", "message": "Empty filename"}), 400
+
+    import tempfile
+    try:
+        # Save uploaded file temporarily
+        suffix = os.path.splitext(uploaded.filename)[1] or ".tmp"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp_in:
+            uploaded.save(tmp_in)
+            tmp_in_path = tmp_in.name
+
+        # Convert to WAV via ffmpeg (extracts audio from any format)
+        tmp_out_path = tmp_in_path + ".wav"
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", tmp_in_path,
+                "-vn",                    # no video
+                "-acodec", "pcm_s16le",   # 16-bit PCM
+                "-ar", "22050",           # 22kHz sample rate
+                "-ac", "1",               # mono
+                tmp_out_path,
+            ],
+            capture_output=True, text=True, timeout=60,
+        )
+
+        # Clean up input
+        os.unlink(tmp_in_path)
+
+        if result.returncode != 0:
+            return jsonify({
+                "status": "error",
+                "message": f"ffmpeg conversion failed: {result.stderr[:300]}",
+            }), 400
+
+        # Upload to Chatterbox voice library
+        with open(tmp_out_path, "rb") as wav_file:
+            r = http_requests.post(
+                f"{CHATTERBOX_URL}/voices",
+                files={"voice_file": (f"{voice_name}.wav", wav_file, "audio/wav")},
+                data={"voice_name": voice_name, "language": language},
+                timeout=30,
+            )
+
+        # Clean up output
+        os.unlink(tmp_out_path)
+
+        if r.status_code in (200, 201):
+            return jsonify({
+                "success": True,
+                "message": f"Voice '{voice_name}' uploaded successfully",
+                "voice_name": voice_name,
+                "language": language,
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": f"Chatterbox rejected upload: {r.text[:300]}",
+            }), r.status_code
+
+    except Exception as e:
+        # Clean up temp files on error
+        for p in [tmp_in_path, tmp_out_path]:
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/tts/voices/delete/<voice_name>', methods=['DELETE'])
+def tts_voice_delete(voice_name):
+    """Delete a voice from the Chatterbox library."""
+    try:
+        r = http_requests.delete(f"{CHATTERBOX_URL}/voices/{voice_name}", timeout=10)
+        if r.status_code == 200:
+            return jsonify({"success": True, "message": f"Voice '{voice_name}' deleted"})
+        return jsonify({"status": "error", "message": r.text[:300]}), r.status_code
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# =============================================================================
+# CHATTERBOX DOCKER CONTROL
+# =============================================================================
+
+@app.route('/tts/chatterbox/status', methods=['GET'])
+def tts_chatterbox_status():
+    """Check if chatterbox-tts container is running and healthy."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Status}}", "chatterbox-tts"],
+            capture_output=True, text=True, timeout=10,
+        )
+        container_status = result.stdout.strip() if result.returncode == 0 else "not_found"
+
+        healthy = False
+        if container_status == "running":
+            try:
+                r = http_requests.get(f"{CHATTERBOX_URL}/health", timeout=5)
+                healthy = r.status_code == 200
+            except Exception:
+                healthy = False
+
+        return jsonify({
+            "container": container_status,
+            "healthy": healthy,
+            "running": container_status == "running",
+        })
+    except Exception as e:
+        return jsonify({"container": "error", "healthy": False, "running": False, "error": str(e)})
+
+
+@app.route('/tts/chatterbox/start', methods=['POST'])
+def tts_chatterbox_start():
+    """Start the chatterbox-tts container."""
+    try:
+        result = subprocess.run(
+            ["docker", "start", "chatterbox-tts"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return jsonify({"status": "error", "message": result.stderr[:500]}), 500
+        return jsonify({"status": "ok", "message": "Chatterbox starting (model warmup may take 1-2 min)"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/tts/chatterbox/stop', methods=['POST'])
+def tts_chatterbox_stop():
+    """Stop the chatterbox-tts container."""
+    try:
+        result = subprocess.run(
+            ["docker", "stop", "chatterbox-tts"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return jsonify({"status": "error", "message": result.stderr[:500]}), 500
+        return jsonify({"status": "ok", "message": "Chatterbox stopped"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

@@ -3,12 +3,24 @@
 .env.*
 !.env.example
 
+# Security scan reports (may contain Klartext-secrets)
+gitleaks-report.json
+trufflehog-report.json
+
 # Compose Snapshots (enthalten alte Secrets)
 knowledge/changelog/compose-snapshots/
 knowledge/changelog/chats/
 
 # Scripts Archive (enthält env-centralize.sh mit Klartext-Secrets)
 scripts/_archive/
+
+# Claude Code & MCP runtime data
+.claude/
+.playwright-mcp/
+
+# Generated / large app data (keep out of repo)
+apps/batch-imagegen/
+apps/blender-worker/
 
 # Laufzeit-Daten
 volumes/
@@ -72,3 +84,6 @@ docker/activepieces/
 
 # SQLite Datenbanken
 *.sqlite
+
+# Screendesign (Playwright-Screenshots & Design-Input)
+apps/pilot/ui/screendesign/

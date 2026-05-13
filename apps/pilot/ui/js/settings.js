@@ -227,13 +227,9 @@ async function personaArchive() {
   if (!confirm('Archive this persona? It will be hidden from the menu.')) return;
 
   try {
-    var resp = await fetch('http://mora02.local:8085/api/database/rows/table/575/' + pid + '/?user_field_names=true', {
+    var resp = await fetch(API_BASE + '/personas/' + pid, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Token ***BASEROW_TOKEN_OLD_REVOKED***',
-        'Host': 'mora02.local:8085',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active: false }),
     });
     if (resp.ok) {

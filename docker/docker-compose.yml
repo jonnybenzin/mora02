@@ -211,7 +211,8 @@ services:
     ports:
       - "8188:8188"
     environment:
-      - CLI_ARGS=--listen 0.0.0.0 --port 8188 --highvram --preview-method none --disable-metadata
+      - CLI_ARGS=--listen 0.0.0.0 --port 8188 --highvram --preview-method none
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
     volumes:
       - /opt/mora02/volumes:/data
       - /opt/mora02/docker/ComfyUI/workflows:/app/ComfyUI/user/default/workflows
@@ -276,7 +277,7 @@ services:
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       AUTHENTICATION_APIKEY_ENABLED: 'false'
-      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ***WEAVIATE_API_KEY_OLD_REVOKED***
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_AUTH_API_KEY}
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
       DEFAULT_VECTORIZER_MODULE: none
       CLUSTER_HOSTNAME: node1
@@ -373,7 +374,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       SERVER_PORT: 5002
-      SERVER_KEY: ***DIFY_PLUGIN_DAEMON_KEY_OLD_REVOKED***
+      SERVER_KEY: ${DIFY_PLUGIN_DAEMON_KEY}
       MAX_PLUGIN_PACKAGE_SIZE: 52428800
       PPROF_ENABLED: "false"
       DIFY_INNER_API_URL: http://dify-api-new:5001
@@ -434,13 +435,13 @@ services:
       CODE_EXECUTION_API_KEY: dify-sandbox
       # Plugin
       PLUGIN_DAEMON_TIMEOUT: 600.0
-      INNER_API_KEY_FOR_PLUGIN: ***DIFY_INNER_API_KEY_OLD_REVOKED***
+      INNER_API_KEY_FOR_PLUGIN: ${DIFY_INNER_API_KEY}
       # CORS
       CONSOLE_CORS_ALLOW_ORIGINS: '*'
       WEB_API_CORS_ALLOW_ORIGINS: '*'
       # Plugin Daemon
       PLUGIN_DAEMON_URL: http://dify-plugin-daemon:5002
-      PLUGIN_DAEMON_KEY: ***DIFY_PLUGIN_DAEMON_KEY_OLD_REVOKED***
+      PLUGIN_DAEMON_KEY: ${DIFY_PLUGIN_DAEMON_KEY}
     volumes:
       - /opt/mora02/volumes/dify-new/storage:/app/api/storage
     depends_on:
@@ -481,7 +482,7 @@ services:
       WEAVIATE_API_KEY: ""
       CODE_EXECUTION_ENDPOINT: http://dify-sandbox:8194
       CODE_EXECUTION_API_KEY: dify-sandbox
-      INNER_API_KEY_FOR_PLUGIN: ***DIFY_INNER_API_KEY_OLD_REVOKED***
+      INNER_API_KEY_FOR_PLUGIN: ${DIFY_INNER_API_KEY}
     volumes:
       - /opt/mora02/volumes/dify-new/storage:/app/api/storage
     depends_on:
@@ -722,7 +723,10 @@ services:
       - /opt/mora02/output/_default/gifer:/usr/share/nginx/html/tool-assets/gifer:ro
       - /opt/mora02/output/_default/clipper:/usr/share/nginx/html/tool-assets/clipper:ro
       - /opt/mora02/output/_default/typer:/usr/share/nginx/html/tool-assets/typer:ro
+      - /opt/mora02/output/_default/pixeltext:/usr/share/nginx/html/pixeltext:ro
       - /opt/mora02/knowledge:/usr/share/nginx/html/wiki:ro
+      - /opt/mora02/output/_default/tts:/usr/share/nginx/html/tool-assets/tts:ro
+      - /opt/mora02/output/_default/music:/usr/share/nginx/html/tool-assets/music:ro
     networks:
       - mora02-net
 
@@ -740,6 +744,7 @@ services:
       - /opt/mora02/docker/searxng:/etc/searxng
     environment:
       - SEARXNG_BASE_URL=http://mora02.local:8094
+      - SEARXNG_SECRET=${SEARXNG_SECRET_KEY}
     networks:
       - mora02-net
 
@@ -756,8 +761,12 @@ services:
       - /opt/mora02/volumes:/opt/mora02/volumes
       - /opt/mora02/scripts:/opt/mora02/scripts:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /opt/mora02/output/_default/tts:/opt/mora02/output/_default/tts
+      - /opt/mora02/volumes/chatterbox/voices:/opt/mora02/volumes/chatterbox/voices
     environment:
       - TZ=Europe/Berlin
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY}
     networks:
       - mora02-net
 
@@ -782,9 +791,12 @@ services:
       - /opt/mora02/output/_default/clipper:/data/final/clipper
       - /opt/mora02/output/_default/typer:/data/final/typer
       - /opt/mora02/output/_default/socialmedia:/socialmedia-assets
+      # LLM switcher briefkasten (read/write requests, read responses + state)
+      - /opt/mora02/llm-switch:/llm-switch
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}
       - PIXABAY_API_KEY=${PIXABAY_API_KEY}
+      - BASEROW_TOKEN=${BASEROW_TOKEN}
       - TZ=Europe/Berlin
     networks:
       - mora02-net
@@ -793,7 +805,45 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      
+
+# ============================================================================
+# BLENDER WORKER - PixelText 3D Typo Renderer (GPU)
+# ============================================================================
+
+  blender-worker:
+    build:
+      context: /opt/mora02/apps/blender-worker
+      dockerfile: Dockerfile
+    image: blender-worker:latest
+    container_name: blender-worker
+    restart: unless-stopped
+    ports:
+      - "8097:8097"
+    volumes:
+      - /opt/mora02/output/_default/pixeltext:/output
+      - /opt/mora02/apps/blender-worker/scripts:/scripts:ro
+      - /opt/mora02/apps/blender-worker/templates:/templates
+    environment:
+      - TZ=Europe/Berlin
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
+      # VRAM guard threshold (MB). Below this, render returns HTTP 503.
+      - VRAM_REQUIRED_MB=8000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - mora02-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8097/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 # ============================================================================
 # EMBED OLLAMA
 # ============================================================================
@@ -815,7 +865,76 @@ services:
     networks:
       - mora02-net
     restart: unless-stopped
-    
+
+# ============================================================================
+# TTS SERVICES
+# ============================================================================
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: kokoro-tts
+    restart: unless-stopped
+    ports:
+      - "8106:8880"
+    networks:
+      - mora02-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8880/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  chatterbox-tts:
+    build:
+      context: /opt/mora02/apps/chatterbox-api
+      dockerfile: docker/Dockerfile.blackwell
+    container_name: chatterbox-tts
+    restart: "no"
+    ports:
+      - "8108:4123"
+    environment:
+      - DEVICE=cuda
+      - EXAGGERATION=0.5
+      - CFG_WEIGHT=0.5
+      - TEMPERATURE=0.8
+      - MODEL_CACHE_DIR=/cache
+      - VOICE_LIBRARY_DIR=/voices
+    volumes:
+      - /opt/mora02/volumes/chatterbox/cache:/cache
+      - /opt/mora02/volumes/chatterbox/voices:/voices
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - mora02-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4123/health"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 300s
+
+  piper-tts:
+    build:
+      context: /opt/mora02/apps/piper-api
+      dockerfile: Dockerfile
+    container_name: piper-tts
+    restart: unless-stopped
+    ports:
+      - "8107:8107"
+    volumes:
+      - /opt/mora02/ai-models/piper:/models:ro
+    networks:
+      - mora02-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8107/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 # ============================================================================
 # PILOT BOT
 # ============================================================================
@@ -831,12 +950,23 @@ services:
     volumes:
       - /opt/mora02/apps/pilot/frontend:/app/static
       - /opt/mora02/output/_default/comfyui/wip:/images/wip:ro
+      # Writable mounts for file deletion
+      - /opt/mora02/output/_default/comfyui/wip:/output/comfyui-wip
+      - /opt/mora02/output/_default/gifer:/output/gifer
+      - /opt/mora02/output/_default/clipper:/output/clipper
+      - /opt/mora02/output/_default/typer:/output/typer
+      - /opt/mora02/output/_default/tts:/output/tts
       - /opt/mora02/output/_default/socialmedia:/socialmedia
       - /opt/mora02/knowledge/changelog/chathistory:/chathistory
       - /opt/mora02/apps/pilot/workflows:/workflows:ro
+      # Style reference images for IP-Adapter
+      - /opt/mora02/volumes/styles:/data/styles
+      # LLM switcher state (read-only): pilot reads current profile from here
+      - /opt/mora02/llm-switch:/llm-switch:ro
     environment:
       - PILOT_ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
       - PILOT_BASEROW_TOKEN=${BASEROW_TOKEN}
+      - PILOT_DIFY_API_KEY=${DIFY_APP_KEY_DAILY}
       - PILOT_QWEN_URL=http://llama-server:8080
       - PILOT_DIFY_API_URL=http://dify-api-new:5001
       - PILOT_SCRIPT_RUNNER_URL=http://script-runner:8096

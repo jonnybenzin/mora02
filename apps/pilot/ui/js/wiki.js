@@ -8,6 +8,37 @@ var WIKI_BASE = 'http://mora02.local:8092/wiki/';
 var wikiAll = [];
 var wikiActiveTab = 'all';
 
+/* ─── Recursive folder scanner ─────────────────────────────── */
+
+async function wikiScanFolder(path, tabName, depth) {
+  depth = depth || 0;
+  if (depth > 3) return [];
+  try {
+    var resp = await fetch(WIKI_BASE + path + '/');
+    var entries = await resp.json();
+    var files = entries
+      .filter(function(f) { return f.type === 'file' && /\.(md|txt|html)$/i.test(f.name); })
+      .map(function(f) {
+        return {
+          name: f.name,
+          folder: tabName,
+          url: WIKI_BASE + path + '/' + f.name,
+          mtime: f.mtime || '',
+          size: f.size || 0,
+        };
+      });
+    var subdirs = entries.filter(function(f) {
+      return f.type === 'directory' && !f.name.startsWith('.');
+    });
+    var subResults = await Promise.all(subdirs.map(function(d) {
+      var subPath = path + '/' + d.name.replace(/\/$/, '');
+      return wikiScanFolder(subPath, tabName, depth + 1);
+    }));
+    subResults.forEach(function(r) { files = files.concat(r); });
+    return files;
+  } catch (e) { return []; }
+}
+
 /* ─── Init ──────────────────────────────────────────────────── */
 
 async function initWiki() {
@@ -28,21 +59,9 @@ async function initWiki() {
   /* Render tabs */
   wikiRenderTabs(folders);
 
-  /* Fetch all folders in parallel */
+  /* Fetch all folders in parallel (with recursive subfolder scan) */
   var fetches = folders.map(function(folder) {
-    return fetch(WIKI_BASE + folder + '/').then(function(r) { return r.json(); }).then(function(files) {
-      return files
-        .filter(function(f) { return f.type === 'file' && /\.(md|txt|html)$/i.test(f.name); })
-        .map(function(f) {
-          return {
-            name: f.name,
-            folder: folder,
-            url: WIKI_BASE + folder + '/' + f.name,
-            mtime: f.mtime || '',
-            size: f.size || 0,
-          };
-        });
-    }).catch(function() { return []; });
+    return wikiScanFolder(folder, folder);
   });
 
   var results = await Promise.all(fetches);

@@ -38,6 +38,29 @@ function animateContent() {
   });
 }
 
+var autoFocusMap = {
+  'chat':             '#chat-input',
+  'imagegen':         '#img-prompt',
+  'expander':         '#exp-prompt',
+  'video-generate':   '#vid-prompt',
+  'musicgen':         '#mus-tags',
+  'ttsgen':           '#tts-text',
+  'typer':            '#typer-text',
+  'pixeltext':        '#px-words',
+  'post':             '#post-name',
+  'wiki':             '#wiki-search',
+  'persona-create':   '#pc-name',
+};
+
+function autoFocusPage(page) {
+  var sel = autoFocusMap[page];
+  if (!sel) return;
+  setTimeout(function() {
+    var el = document.querySelector(sel);
+    if (el) el.focus();
+  }, 80);
+}
+
 async function navigate(page) {
   if (page === activePage) return;
 
@@ -51,6 +74,7 @@ async function navigate(page) {
     CONTENT.innerHTML = homeHTML; animateContent();
     CONTENT.className = 'pg-home';
     initLogo(); // re-init interactive logo
+    setTimeout(function() { var hi = document.querySelector('.home-inp'); if (hi) hi.focus(); }, 80);
   } else {
     try {
       const resp = await fetch(`pages/${page}.html`);
@@ -60,12 +84,18 @@ async function navigate(page) {
         if (page === 'chat') initChat();
         if (typeof initToolPage === 'function') initToolPage(page);
         if (page === 'imagegen' && typeof initImageGen === 'function') initImageGen();
+        if (page === 'expander' && typeof initExpander === 'function') initExpander();
+        if (page === 'video-generate' && typeof initVideoGen === 'function') initVideoGen();
+        if (page === 'ttsgen' && typeof initTtsGen === 'function') initTtsGen();
+        if (page === 'musicgen' && typeof initMusicGen === 'function') initMusicGen();
         if (typeof initSettingsPage === 'function') initSettingsPage(page);
         if (page === "files" && typeof initFiles === "function") initFiles();
         if (page === "wiki" && typeof initWiki === "function") initWiki();
         if (page === "dashboard" && typeof initDashboard === "function") initDashboard();
         if (page === "styleguide" && typeof initStyleGuide === "function") initStyleGuide();
         if (page === "xray") initXray();
+        // Auto-focus primary input field
+        autoFocusPage(page);
       } else {
         CONTENT.innerHTML = `<div class="pg-placeholder"><h2>${page.toUpperCase()}</h2><p>Coming soon</p></div>`; animateContent();
         CONTENT.className = 'pg-content';
@@ -195,6 +225,14 @@ document.addEventListener('click', function(e) {
       navigate('chat');
       break;
 
+    case 'home-send':
+      var homeInput = document.querySelector('.home-inp');
+      if (homeInput && homeInput.value.trim()) {
+        window._pendingChatMessage = homeInput.value.trim();
+        navigate('chat');
+      }
+      break;
+
     case 'navigate':
       navigate(target.dataset.page);
       break;
@@ -211,31 +249,91 @@ document.addEventListener('click', function(e) {
     case 'close-mobile':
       closeMob();
       break;
+
+    case 'open-feedback':
+      fbOpen();
+      break;
+
+    case 'close-feedback':
+      fbClose();
+      break;
+
+    case 'fb-capture':
+      fbCapture();
+      break;
+
+    case 'fb-remove-screenshot':
+      fbRemoveScreenshot();
+      break;
+
+    case 'fb-submit':
+      fbSubmit();
       break;
   }
 });
 
 // Close mobile overlay on backdrop click
-document.getElementById('mob-ov')?.addEventListener('click', function(e) {
-  if (e.target === this) this.classList.remove('open');
+// Close menu: tap anywhere outside drawer OR tap close button
+document.addEventListener('click', function(e) {
+  var ov = document.getElementById('mob-ov');
+  if (!ov || !ov.classList.contains('open')) return;
+  // Tap on overlay background (not inside drawer)
+  if (e.target === ov || e.target.closest('.mob-close')) {
+    closeMob();
+  }
 });
 
-// Home input: Enter to navigate to chat
+// Home input: command palette + Enter to navigate to chat
+(function() {
+  function wireHomePalette() {
+    var inp = document.querySelector('.home-inp');
+    var pal = document.getElementById('home-cmd-palette');
+    if (inp && pal && !inp._cmdWired) {
+      inp._cmdWired = true;
+      inp.addEventListener('input', function() {
+        if (typeof cmdPaletteRender === 'function') cmdPaletteRender(inp, pal);
+      });
+    }
+  }
+  wireHomePalette();
+  // Re-wire after navigation back to home
+  var _origNav = window.navigate;
+  if (_origNav) {
+    window.navigate = function() {
+      _origNav.apply(this, arguments);
+      setTimeout(wireHomePalette, 100);
+    };
+  }
+})();
+
 document.addEventListener('keydown', function(e) {
-  if (e.target.classList.contains('home-inp') && e.key === 'Enter') {
-    e.preventDefault();
-    const text = e.target.value.trim();
-    if (text) {
-      // Navigate to chat and send the message
-      window._pendingChatMessage = text;
-      navigate('chat');
+  if (e.target.classList.contains('home-inp')) {
+    if (typeof cmdPaletteIsOpen === 'function' && cmdPaletteIsOpen()) {
+      if (e.key === 'ArrowUp')   { e.preventDefault(); cmdPaletteNav('up'); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); cmdPaletteNav('down'); return; }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        if (cmdActiveIdx >= 0) { e.preventDefault(); cmdPaletteSelect(cmdActiveIdx); return; }
+      }
+      if (e.key === 'Escape') { e.preventDefault(); cmdPaletteClose(); return; }
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var text = e.target.value.trim();
+      if (text) {
+        window._pendingChatMessage = text;
+        navigate('chat');
+      }
     }
   }
 });
 
 /* ─── INIT ──────────────────────────────────────────────────── */
 
-initSession().then(function() { if (typeof loadMonthlyCost === "function") loadMonthlyCost(); });
+initSession().then(function() {
+  if (typeof loadMonthlyCost === "function") loadMonthlyCost();
+  if (typeof llmLoadProfiles === "function") llmLoadProfiles();
+  if (typeof bucketInitDelegation === "function") bucketInitDelegation();
+});
 
 /* ─── MOBILE MENU ──────────────────────────────────────────── */
 function openMob() {
@@ -246,13 +344,20 @@ function openMob() {
     drawer.innerHTML = scroll.innerHTML;
     if (foot) drawer.innerHTML += foot.innerHTML;
   }
-  document.querySelector('.app').classList.add('mob-open');
+  // Pure overlay — do NOT push .app with transform
   document.getElementById('mob-ov').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  // Re-wire data-action clicks inside cloned drawer
+  drawer.querySelectorAll('[data-action]').forEach(function(el) {
+    el.addEventListener('click', function(e) {
+      closeMob();
+    });
+  });
 }
 
 function closeMob() {
-  document.querySelector('.app').classList.remove('mob-open');
   document.getElementById('mob-ov').classList.remove('open');
+  document.body.style.overflow = '';
 }
 
 /* ─── CHAT: Scroll to bottom button ───────────────────────── */
@@ -334,6 +439,182 @@ async function selectPersona(item) {
     }
   }
 }
+
+/* ─── FEEDBACK / BUG REPORTER ──────────────────────────────── */
+
+var fbScreenshotData = null;
+
+function fbOpen() {
+  var ov = document.getElementById('fb-overlay');
+  if (!ov) return;
+  ov.classList.add('fb-open');
+
+  // Reset form
+  var desc = document.getElementById('fb-desc');
+  if (desc) desc.value = '';
+  var typeEl = document.getElementById('fb-type');
+  if (typeEl) typeEl.value = 'bug';
+  var sevEl = document.getElementById('fb-severity');
+  if (sevEl) sevEl.value = 'medium';
+  fbRemoveScreenshot();
+
+  // Fill meta info
+  fbUpdateMeta();
+}
+
+function fbClose() {
+  var ov = document.getElementById('fb-overlay');
+  if (ov) ov.classList.remove('fb-open');
+}
+
+function fbUpdateMeta() {
+  var el = document.getElementById('fb-meta');
+  if (!el) return;
+  var parts = [];
+  parts.push('Page: ' + (activePage || 'home'));
+  parts.push('Session: ' + (sessionId || 'n/a'));
+  // Get current model from active LLM item
+  var activeModel = document.querySelector('[data-action="select-llm"].act');
+  var modelName = activeModel ? (activeModel.dataset.model || '?') : '?';
+  parts.push('Model: ' + modelName);
+  // Persona
+  var personaName = 'neutral';
+  if (activePersonaId) {
+    var personaEl = document.querySelector('[data-action="select-persona"].act .mi-lbl');
+    if (personaEl) personaName = personaEl.textContent.toLowerCase();
+  }
+  parts.push('Persona: ' + personaName);
+  el.textContent = parts.join(' · ');
+}
+
+async function fbCapture() {
+  var statusEl = document.getElementById('fb-screenshot-status');
+  if (statusEl) statusEl.textContent = 'Capturing...';
+
+  // Hide the feedback overlay temporarily so it's not in the screenshot
+  var ov = document.getElementById('fb-overlay');
+  if (ov) ov.style.display = 'none';
+  var floatBtn = document.getElementById('fb-float');
+  if (floatBtn) floatBtn.style.display = 'none';
+
+  try {
+    // Small delay to let DOM repaint without the overlay
+    await new Promise(function(r) { setTimeout(r, 100); });
+
+    if (typeof html2canvas !== 'function') {
+      if (statusEl) statusEl.textContent = 'html2canvas not loaded';
+      return;
+    }
+
+    var canvas = await html2canvas(document.body, {
+      scale: 1,
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#000',
+    });
+
+    fbScreenshotData = canvas.toDataURL('image/png');
+
+    // Show preview
+    var preview = document.getElementById('fb-screenshot-preview');
+    var img = document.getElementById('fb-screenshot-img');
+    if (preview && img) {
+      img.src = fbScreenshotData;
+      preview.style.display = 'block';
+    }
+    if (statusEl) statusEl.textContent = '';
+  } catch (e) {
+    console.error('Screenshot failed:', e);
+    if (statusEl) statusEl.textContent = 'Failed — try manual upload';
+  } finally {
+    // Restore overlay
+    if (ov) { ov.style.display = ''; }
+    if (floatBtn) { floatBtn.style.display = ''; }
+  }
+}
+
+function fbRemoveScreenshot() {
+  fbScreenshotData = null;
+  var preview = document.getElementById('fb-screenshot-preview');
+  if (preview) preview.style.display = 'none';
+  var statusEl = document.getElementById('fb-screenshot-status');
+  if (statusEl) statusEl.textContent = '';
+}
+
+async function fbSubmit() {
+  var desc = document.getElementById('fb-desc');
+  var text = desc ? desc.value.trim() : '';
+  if (!text) {
+    var statusEl = document.getElementById('fb-screenshot-status');
+    if (statusEl) statusEl.textContent = 'Please add a description';
+    return;
+  }
+
+  var submitBtn = document.querySelector('[data-action="fb-submit"]');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'SENDING...'; }
+
+  // Gather current model
+  var activeModel = document.querySelector('[data-action="select-llm"].act');
+  var modelName = activeModel ? (activeModel.dataset.model || '') : '';
+
+  // Gather current persona
+  var personaName = '';
+  if (activePersonaId) {
+    var personaEl = document.querySelector('[data-action="select-persona"].act .mi-lbl');
+    if (personaEl) personaName = personaEl.textContent;
+  }
+
+  var payload = {
+    type: document.getElementById('fb-type').value,
+    severity: document.getElementById('fb-severity').value,
+    description: text,
+    page: activePage || 'home',
+    session_id: sessionId || '',
+    model: modelName,
+    persona: personaName,
+  };
+
+  if (fbScreenshotData) {
+    payload.screenshot = fbScreenshotData;
+  }
+
+  try {
+    var resp = await fetch(API_BASE + '/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    var data = await resp.json();
+    if (data.success) {
+      // Brief success state then close
+      if (submitBtn) { submitBtn.textContent = 'SENT!'; }
+      setTimeout(function() { fbClose(); }, 600);
+    } else {
+      if (submitBtn) { submitBtn.textContent = 'ERROR — TRY AGAIN'; }
+    }
+  } catch (e) {
+    console.error('Feedback submit failed:', e);
+    if (submitBtn) { submitBtn.textContent = 'ERROR — TRY AGAIN'; }
+  } finally {
+    setTimeout(function() {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'SEND FEEDBACK'; }
+    }, 2000);
+  }
+}
+
+// Close on backdrop click
+document.addEventListener('click', function(e) {
+  var ov = document.getElementById('fb-overlay');
+  if (ov && e.target === ov) fbClose();
+});
+
+// Close on Escape
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var ov = document.getElementById('fb-overlay');
+    if (ov && ov.classList.contains('fb-open')) fbClose();
+  }
+});
 
 // Load on startup
 loadPersonas();

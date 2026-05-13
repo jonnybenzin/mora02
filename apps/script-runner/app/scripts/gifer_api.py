@@ -152,13 +152,21 @@ def create_gif_from_files(
         # Save GIF
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
+        import json as _json
+        gif_comment = _json.dumps({
+            "tool": "gifer", "quality": quality,
+            "frames": len(frames), "durations_ms": duration_list,
+            "dimensions": f"{target_width}x{target_height}",
+            "source_files": [f.name for f in input_files],
+        })
         frames[0].save(
             output_path,
             save_all=True,
             append_images=frames[1:],
             duration=duration_list,
             loop=0,
-            optimize=preset['optimize']
+            optimize=preset['optimize'],
+            comment=gif_comment.encode('utf-8')
         )
         
         # Get file info

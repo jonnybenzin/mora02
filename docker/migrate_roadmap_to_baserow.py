@@ -7,6 +7,7 @@ Ausführen auf mora02:
     python3 migrate_roadmap_to_baserow.py --clean   # Erst aufräumen, dann neu
 """
 
+import os
 import requests
 import json
 import sys
@@ -14,7 +15,7 @@ import getpass
 
 # === KONFIGURATION ===
 BASEROW_URL = "http://mora02.local:8085"
-DATABASE_TOKEN = "***BASEROW_TOKEN_OLD_REVOKED***"
+DATABASE_TOKEN = os.environ["BASEROW_TOKEN"]
 TABLE_ID = 569
 
 ROW_HEADERS = {

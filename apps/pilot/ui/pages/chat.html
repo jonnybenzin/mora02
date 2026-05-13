@@ -37,7 +37,7 @@
           <div class="code-body"><pre><code><span class="hljs-comment"># Alle Tabellen in der Datenbank finden:</span>
 <span class="hljs-built_in">curl</span> -s <span class="hljs-string">"http://mora02.local:8085/api/database/rows/table/575/?
 user_field_names=true&amp;size=1"</span> \
-  -H <span class="hljs-string">"Authorization: Token ***BASEROW_TOKEN_OLD_REVOKED***"</span> &gt; /
+  -H <span class="hljs-string">"Authorization: Token &lt;YOUR_TOKEN&gt;"</span> &gt; /
 dev/null &amp;&amp; <span class="hljs-built_in">echo</span> <span class="hljs-string">"575: bot_personas ✓"</span>
 
 <span class="hljs-comment"># Welche anderen Tabellen nutzt der Pilot?</span>
@@ -100,13 +100,14 @@ Donec vel rhoncus nulla, at ultricies odio. Integer quis malesuada tortor, conva
   </div>
 
   <!-- SCROLL TO BOTTOM -->
-  <button class="chat-scroll-btn" id="chat-scroll-btn" data-action="scroll-bottom">
+  <button class="chat-scroll-btn" id="chat-scroll-btn" data-action="scroll-bottom" tabindex="-1">
     <svg fill="currentColor" width="16" height="16"><use href="icons/sprite.svg#i-chev-down"/></svg>
   </button>
 
   <!-- INPUT BAR -->
   <div class="chat-input-bar">
     <div class="chat-stats" id="chat-stats"></div>
+    <div class="cmd-palette" id="cmd-palette" style="display:none"></div>
     <div class="chat-input-inner">
       <textarea class="chat-input-field" id="chat-input" rows="1" placeholder="Message... or use /commands"></textarea>
       <div class="chat-input-row">

@@ -95,7 +95,7 @@ server:
   # If your instance owns a /etc/searxng/settings.yml file, then set the following
   # values there.
 
-  secret_key: "***SEARXNG_SECRET_OLD_REVOKED***"  # Is overwritten by ${SEARXNG_SECRET}
+  secret_key: "CHANGE_ME_local_default_rotate_before_public"  # Should be overwritten by SEARXNG_SECRET env (see docker-compose.yml)
   # Proxy image results through SearXNG. Is overwritten by ${SEARXNG_IMAGE_PROXY}
   image_proxy: false
   # 1.0 and 1.1 are supported

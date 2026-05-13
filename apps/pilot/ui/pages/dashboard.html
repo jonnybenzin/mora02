@@ -2,13 +2,29 @@
 
   <div class="tool-head">
     <span class="tool-title">DASHBOARD</span>
-    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+    <button class="tool-close" data-action="navigate" data-page="home" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
   </div>
 
   <div class="tool-desc">System status and service health. <button class="tool-action-btn" data-action="dash-refresh" style="margin-left:var(--sp-12)">REFRESH</button></div>
 
+  <!-- LLM PROFILE SWITCHER -->
+  <div class="img-field-lbl">LLM PROFILE (LOCAL)</div>
+  <div class="dash-llm-current" id="dash-llm-current">Loading profiles…</div>
+  <div class="dash-llm-toggles" id="dash-llm-toggles"></div>
+  <div class="dash-llm-bar">
+    <div style="flex:1"></div>
+    <button class="dash-llm-free-btn" data-action="dash-vram-free" title="Release VRAM held by ComfyUI without stopping it">FREE GPU MEMORY</button>
+  </div>
+  <div class="dash-llm-status" id="dash-llm-status"></div>
+
+  <!-- TTS ENGINE -->
+  <div class="img-field-lbl">TTS ENGINE (ON-DEMAND GPU)</div>
+  <div class="dash-llm-current" id="dash-tts-current">Loading...</div>
+  <div class="dash-llm-toggles" id="dash-tts-toggles"></div>
+  <div class="dash-llm-status" id="dash-tts-status"></div>
+
   <!-- LLM -->
-  <div class="img-field-lbl">LLM</div>
+  <div class="img-field-lbl">LLM STATUS</div>
   <div class="dash-row" id="dash-llm"></div>
 
   <!-- SERVICES -->

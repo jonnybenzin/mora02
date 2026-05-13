@@ -5,16 +5,18 @@ def starts_with_any(text: str, prefixes: list[str]) -> bool:
 
 def classify_input(user_input: str) -> dict:
     s = user_input.strip()
-    if starts_with_any(s, ["/new", "/show", "/list", "/find", "/edit",
-                           "/draft", "/write", "/proofread", "/review",
-                           "/apply", "/status", "/delete", "/publish"]):
-        return {"type": "social", "raw": s}
+    if s.lower().startswith("/post"):
+        return {"type": "post", "raw": s}
     if s.lower().startswith("/rd"):
         return {"type": "roadmap", "raw": s}
-    if starts_with_any(s, ["/gif", "/typer", "/clip", "/stock"]):
+    if starts_with_any(s, ["/gif", "/typ", "/clip", "/stock"]):
         return {"type": "script", "raw": s}
-    if starts_with_any(s, ["/img", "/vid"]):
+    if starts_with_any(s, ["/img", "/vid", "/expand"]):
         return {"type": "comfyui", "raw": s}
+    if starts_with_any(s, ["/music", "/voice"]):
+        return {"type": "tool_widget", "raw": s}
+    if s.lower().startswith("/pix"):
+        return {"type": "pixeltext", "raw": s}
     if s.lower().startswith("/search"):
         return {"type": "search", "raw": s}
     if s.lower().startswith("/ctx"):

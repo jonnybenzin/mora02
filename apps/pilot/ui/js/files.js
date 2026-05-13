@@ -18,6 +18,9 @@ async function initFiles() {
 
   var results = await Promise.allSettled([
     filesLoadImages(),
+    filesLoadVideos(),
+    filesLoadMusic(),
+    filesLoadTTS(),
     filesLoadTool('gifer', 'gif'),
     filesLoadTool('clipper', 'mp4'),
     filesLoadTool('typer', 'png'),
@@ -63,6 +66,75 @@ async function filesLoadImages() {
           type: 'images',
           url: FILES_BASE + '/comfyui/wip/' + f.name,
           thumb: FILES_BASE + '/comfyui/wip/' + f.name,
+          mtime: f.mtime || '',
+        });
+      }
+    });
+    return items;
+  } catch (e) { return []; }
+}
+
+/* ─── Load ComfyUI videos ──────────────────────────────────── */
+
+async function filesLoadVideos() {
+  try {
+    var resp = await fetch(FILES_BASE + '/comfyui/wip/video/');
+    var data = await resp.json();
+    var items = [];
+    data.forEach(function(f) {
+      if (f.type === 'file' && /\.(mp4|webm)$/i.test(f.name)) {
+        items.push({
+          name: f.name,
+          type: 'video',
+          url: FILES_BASE + '/comfyui/wip/video/' + f.name,
+          thumb: FILES_BASE + '/comfyui/wip/video/' + f.name,
+          isVideo: true,
+          mtime: f.mtime || '',
+        });
+      }
+    });
+    return items;
+  } catch (e) { return []; }
+}
+
+/* ─── Load ComfyUI music ──────────────────────────────────── */
+
+async function filesLoadMusic() {
+  try {
+    var resp = await fetch(FILES_BASE + '/comfyui/wip/music/');
+    var data = await resp.json();
+    var items = [];
+    data.forEach(function(f) {
+      if (f.type === 'file' && /\.(mp3|wav|flac|ogg)$/i.test(f.name)) {
+        items.push({
+          name: f.name,
+          type: 'music',
+          url: FILES_BASE + '/comfyui/wip/music/' + f.name,
+          thumb: null,
+          isAudio: true,
+          mtime: f.mtime || '',
+        });
+      }
+    });
+    return items;
+  } catch (e) { return []; }
+}
+
+/* ─── Load TTS audio ─────────────────────────────────────── */
+
+async function filesLoadTTS() {
+  try {
+    var resp = await fetch(FILES_BASE + '/tool-assets/tts/');
+    var data = await resp.json();
+    var items = [];
+    data.forEach(function(f) {
+      if (f.type === 'file' && /\.(mp3|wav)$/i.test(f.name)) {
+        items.push({
+          name: f.name,
+          type: 'tts',
+          url: FILES_BASE + '/tool-assets/tts/' + f.name,
+          thumb: null,
+          isAudio: true,
           mtime: f.mtime || '',
         });
       }
@@ -142,20 +214,40 @@ function filesRenderMore() {
     var typeLabel = item.type === 'images' ? 'IMAGE' : item.type.toUpperCase();
     var card = document.createElement('div');
     card.className = 'files-card';
-    card.innerHTML =
-      '<div class="files-thumb" data-action="files-preview" data-url="' + item.url + '"' +
-        (item.thumb ? ' data-thumb="' + item.thumb + '"' : '') +
-        ' style="background:var(--c-grey2)">' +
-        '<span style="color:var(--tx-disabled);font-size:10px">' + typeLabel + '</span>' +
-        '<div class="files-actions">' +
-          '<button class="files-action" data-action="files-download" data-url="' + item.url + '" data-name="' + filesEsc(item.name) + '" title="Download"><svg fill="currentColor"><use href="icons/sprite.svg#i-download"/></svg></button>' +
-          '<button class="files-action" data-action="files-copy" data-url="' + item.url + '" title="Copy URL"><svg fill="currentColor"><use href="icons/sprite.svg#i-copy"/></svg></button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="files-info">' +
-        '<span class="files-name">' + filesEsc(item.name) + '</span>' +
-        '<span class="files-meta">' + typeLabel + '</span>' +
+    var bucketType = item.isAudio ? 'audio' : item.isVideo ? 'video' : item.type === 'gifer' ? 'animation' : 'image';
+    var bucketBtn = '<button class="files-action" data-bucket-add data-bucket-type="' + bucketType + '" data-bucket-url="' + item.url + '" data-bucket-source="files" data-bucket-label="' + filesEsc(item.name) + '" title="Add to Bucket"><svg fill="currentColor" viewBox="0 0 16 16"><path d="M2 4h12v1H2zm1 2h10l-.8 8H3.8zm3 2v4h1V8zm3 0v4h1V8z"/></svg></button>';
+
+    var actionsHtml =
+      '<div class="files-actions">' +
+        '<button class="files-action" data-action="files-download" data-url="' + item.url + '" data-name="' + filesEsc(item.name) + '" title="Download"><svg fill="currentColor"><use href="icons/sprite.svg#i-download"/></svg></button>' +
+        '<button class="files-action" data-action="files-copy" data-url="' + item.url + '" title="Copy URL"><svg fill="currentColor"><use href="icons/sprite.svg#i-copy"/></svg></button>' +
+        bucketBtn +
+        '<button class="files-action files-action-delete" data-action="files-delete" data-url="' + item.url + '" title="Delete"><svg fill="currentColor"><use href="icons/sprite.svg#i-delete"/></svg></button>' +
       '</div>';
+
+    if (item.isAudio) {
+      card.innerHTML =
+        '<div class="files-thumb" style="background:url(\'img/music-placeholder.png\') center/cover">' +
+          '<audio class="files-audio-player" controls preload="none" src="' + item.url + '"></audio>' +
+        '</div>' +
+        actionsHtml +
+        '<div class="files-info">' +
+          '<span class="files-name">' + filesEsc(item.name) + '</span>' +
+          '<span class="files-meta">' + typeLabel + '</span>' +
+        '</div>';
+    } else {
+      card.innerHTML =
+        '<div class="files-thumb" data-action="files-preview" data-url="' + item.url + '"' +
+          (item.thumb ? ' data-thumb="' + item.thumb + '"' : '') +
+          ' style="background:var(--c-grey2)">' +
+          '<span style="color:var(--tx-disabled);font-size:10px">' + typeLabel + '</span>' +
+        '</div>' +
+        actionsHtml +
+        '<div class="files-info">' +
+          '<span class="files-name">' + filesEsc(item.name) + '</span>' +
+          '<span class="files-meta">' + typeLabel + '</span>' +
+        '</div>';
+    }
     grid.appendChild(card);
   });
 
@@ -238,6 +330,54 @@ function filesVideoLightbox(url) {
   document.body.appendChild(overlay);
 }
 
+/* ─── Delete confirm dialog ─────────────────────────────────── */
+
+function filesConfirmDelete(url, card) {
+  var overlay = document.createElement('div');
+  overlay.className = 'lightbox open';
+  overlay.innerHTML =
+    '<div class="files-confirm">' +
+      '<p class="files-confirm-msg">Are you sure you want to delete this file?<br>This cannot be undone.</p>' +
+      '<div class="files-confirm-btns">' +
+        '<button class="files-confirm-yes">YES, DELETE</button>' +
+        '<button class="files-confirm-no">NO, KEEP</button>' +
+      '</div>' +
+    '</div>';
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.remove();
+  });
+  overlay.querySelector('.files-confirm-no').addEventListener('click', function() {
+    overlay.remove();
+  });
+  overlay.querySelector('.files-confirm-yes').addEventListener('click', function() {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'DELETING...';
+    fetch(API_BASE + '/api/files/delete', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url }),
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.success) {
+        card.remove();
+        filesAll = filesAll.filter(function(f) { return f.url !== url; });
+        filesShown = Math.max(0, filesShown - 1);
+        var filtered = filesGetFiltered();
+        var typeSel = document.getElementById('files-type');
+        var suffix = (typeSel && typeSel.value !== 'all') ? ' of ' + filesAll.length : '';
+        filesSetCount(filtered.length + suffix + ' files');
+      } else {
+        alert('Delete failed: ' + (data.error || 'unknown error'));
+      }
+      overlay.remove();
+    }).catch(function(err) {
+      alert('Delete failed: ' + err.message);
+      overlay.remove();
+    });
+  });
+  document.body.appendChild(overlay);
+}
+
 /* ─── Events ────────────────────────────────────────────────── */
 
 document.addEventListener('click', function(e) {
@@ -256,6 +396,11 @@ document.addEventListener('click', function(e) {
       break;
     case 'files-copy':
       navigator.clipboard.writeText(t.dataset.url).catch(function(){});
+      break;
+    case 'files-delete':
+      e.stopPropagation();
+      var card = t.closest('.files-card');
+      if (card) filesConfirmDelete(t.dataset.url, card);
       break;
     case 'files-load-more':
       filesRenderMore();

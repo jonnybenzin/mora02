@@ -5,7 +5,7 @@ For use with Script Runner FastAPI service
 """
 
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
 from typing import Dict, Any
 
 # Font directory inside container
@@ -156,9 +156,16 @@ def create_text_frame(
             draw.text((x, y), line, font=pil_font, fill=text_color)
             y += line_height
         
-        # Save
+        # Save with metadata
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        img.save(output_path, 'PNG')
+        import json as _json
+        pnginfo = PngImagePlugin.PngInfo()
+        pnginfo.add_text("mora02", _json.dumps({
+            "tool": "typer", "text": text[:500], "template": template,
+            "font": font, "fontsize": fontsize, "layout": layout,
+            "dimensions": f"{width}x{height}",
+        }))
+        img.save(output_path, 'PNG', pnginfo=pnginfo)
         
         return {
             "success": True,

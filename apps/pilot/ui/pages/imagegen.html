@@ -2,10 +2,14 @@
 
   <div class="tool-head">
     <span class="tool-title">IMAGE GEN</span>
-    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+    <button class="tool-close" data-action="navigate" data-page="home" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
   </div>
 
   <div class="tool-desc">Generate images via ComfyUI. Choose a workflow, write your prompt. 4 variants are generated — pick one to revise or download.</div>
+
+  <div class="tool-collapse-head" id="img-settings-toggle" data-action="img-toggle-settings" style="display:none">
+    <span class="tool-collapse-arrow">&#9654;</span> SETTINGS &amp; REGENERATION
+  </div>
 
   <div id="img-prompt-section">
 
@@ -15,6 +19,7 @@
           <option value="photo" selected>Juggernaut XL (Photo)</option>
           <option value="concept">DreamShaper XL (Concept)</option>
           <option value="epic">Epic Realism XL</option>
+          <option value="nanban">Nano Banana 2 (Gemini)</option>
           <option value="flux">FLUX Schnell</option>
           <option value="sd15">SD 1.5 (Legacy)</option>
         </select>
@@ -30,28 +35,54 @@
       </div>
     </div>
 
+    <div class="sp-row">
+      <div class="fl-field fl-field-grow">
+        <select class="fl-select" id="img-style">
+          <option value="" selected>No Style Reference</option>
+        </select>
+        <label class="fl-label">STYLE REFERENCE</label>
+      </div>
+      <button class="sp-manage-btn" id="sp-manage-btn" data-action="sp-open-modal" title="Manage Styles">+</button>
+    </div>
+    <div class="sp-active-info" id="sp-active-info" style="display:none">
+      <span id="sp-active-name"></span>
+      <span id="sp-active-count"></span>
+      <input type="range" id="sp-weight-slider" min="0" max="100" value="80" class="sp-slider">
+      <span id="sp-weight-label" class="sp-weight-lbl">0.8</span>
+      <select class="sp-type-select" id="sp-weight-type">
+        <option value="style transfer">Style Transfer</option>
+        <option value="style transfer precise">Precise Style</option>
+        <option value="style and composition">Style + Composition</option>
+        <option value="linear">Linear</option>
+      </select>
+    </div>
+
     <div class="fl-field">
       <textarea class="fl-input" id="img-prompt" rows="1" placeholder=" "></textarea>
       <label class="fl-label">POSITIVE PROMPT</label>
     </div>
 
-    <div class="fl-field">
-      <textarea class="fl-input" id="img-negative" rows="1" placeholder=" "></textarea>
-      <label class="fl-label">NEGATIVE PROMPT</label>
+    <div class="tool-collapse-head" id="img-additional-toggle" data-action="img-toggle-additional">
+      <span class="tool-collapse-arrow">&#9654;</span> ADDITIONAL SETTINGS
     </div>
-
-    <div class="fl-grid fl-grid-3">
+    <div id="img-additional-body" class="tool-collapse-body" style="display:none">
       <div class="fl-field">
-        <input class="fl-input" id="img-seed" type="text" value="-1" placeholder=" ">
-        <label class="fl-label">SEED</label>
+        <textarea class="fl-input" id="img-negative" rows="1" placeholder=" "></textarea>
+        <label class="fl-label">NEGATIVE PROMPT</label>
       </div>
-      <div class="fl-field">
-        <input class="fl-input" id="img-steps" type="text" value="25" placeholder=" ">
-        <label class="fl-label">STEPS</label>
-      </div>
-      <div class="fl-field">
-        <input class="fl-input" id="img-cfg" type="text" value="7.5" placeholder=" ">
-        <label class="fl-label">CFG</label>
+      <div class="fl-grid fl-grid-3">
+        <div class="fl-field">
+          <input class="fl-input" id="img-seed" type="text" value="-1" placeholder=" ">
+          <label class="fl-label">SEED</label>
+        </div>
+        <div class="fl-field">
+          <input class="fl-input" id="img-steps" type="text" value="25" placeholder=" ">
+          <label class="fl-label">STEPS</label>
+        </div>
+        <div class="fl-field">
+          <input class="fl-input" id="img-cfg" type="text" value="7.5" placeholder=" ">
+          <label class="fl-label">CFG</label>
+        </div>
       </div>
     </div>
 
@@ -62,6 +93,8 @@
       </button>
     </div>
   </div>
+
+  <div id="img-result-area">
 
   <div id="img-variants-section" style="display:none">
     <div class="img-field-lbl">4 VARIANTS — CLICK TO SELECT</div>
@@ -75,6 +108,7 @@
       <button class="tool-action-btn" data-action="img-revise">REVISE</button>
       <button class="tool-action-btn" data-action="img-download">DOWNLOAD</button>
       <button class="tool-action-btn" data-action="img-new">CREATE NEW</button>
+      <button class="tool-action-btn bucket-add-btn" data-action="img-bucket">BUCKET</button>
     </div>
     <div class="tool-result-status" id="img-status"></div>
   </div>
@@ -92,4 +126,56 @@
     </div>
   </div>
 
+  </div><!-- /img-result-area -->
+
+</div>
+
+<!-- Style Pack Modal -->
+<div class="sp-overlay" id="sp-overlay">
+  <div class="sp-panel">
+    <div class="sp-head">
+      <span class="sp-title">STYLE PACKS</span>
+      <button class="sp-close" data-action="sp-close-modal"><svg fill="currentColor" width="12" height="12"><use href="icons/sprite.svg#i-close"/></svg></button>
+    </div>
+    <div class="sp-body">
+      <!-- Existing packs list -->
+      <div id="sp-list" class="sp-list"></div>
+
+      <!-- Create new -->
+      <div class="sp-section-title">NEW STYLE PACK</div>
+      <div class="fl-field">
+        <input class="fl-input" id="sp-name" type="text" placeholder=" ">
+        <label class="fl-label">STYLE NAME</label>
+      </div>
+      <div class="sp-source-toggle">
+        <button class="sp-toggle-btn sp-toggle-active" id="sp-toggle-folder" data-action="sp-toggle-folder">Folder Path</button>
+        <button class="sp-toggle-btn" id="sp-toggle-upload" data-action="sp-toggle-upload">Upload</button>
+      </div>
+      <div id="sp-folder-input">
+        <div class="sp-folder-row">
+          <div class="fl-field fl-field-grow" style="margin-bottom:0">
+            <input class="fl-input" id="sp-folder-path" type="text" placeholder=" ">
+            <label class="fl-label">FOLDER PATH (relative or absolute)</label>
+          </div>
+          <button class="sp-scan-btn" data-action="sp-scan-folder">SCAN</button>
+        </div>
+        <div class="sp-scan-result" id="sp-scan-result"></div>
+        <!-- Quick pick from existing folders -->
+        <div class="sp-quick-folders" id="sp-quick-folders"></div>
+      </div>
+      <div id="sp-upload-input" style="display:none">
+        <div class="tool-upload" id="sp-drop-zone" data-action="sp-drop-click">
+          <svg fill="currentColor" width="20" height="20"><use href="icons/sprite.svg#i-image"/></svg>
+          <span class="tool-upload-lbl">Drop images or click to browse</span>
+        </div>
+        <input type="file" id="sp-file-input" multiple accept="image/*" style="display:none">
+        <div class="sp-upload-count" id="sp-upload-count"></div>
+      </div>
+      <!-- Preview thumbnails -->
+      <div class="sp-preview-grid" id="sp-preview-grid"></div>
+    </div>
+    <div class="sp-foot">
+      <button class="sp-btn-save" id="sp-save-btn" data-action="sp-save" disabled>SAVE STYLE PACK</button>
+    </div>
+  </div>
 </div>

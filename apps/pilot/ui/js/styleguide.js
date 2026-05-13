@@ -158,7 +158,7 @@ function initStyleGuide() {
       '<button class="btn-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-download"></use></svg> DOWNLOAD</button>' +
       '<button class="btn-ico" disabled><svg fill="currentColor"><use href="icons/sprite.svg#i-image"></use></svg> DISABLED</button>' +
     '</div>' +
-    '<div class="sg-typo-meta">Usage: &lt;button class="btn-ico"&gt;&lt;svg&gt;&lt;use href="icons/sprite.svg#i-name"&gt;&lt;/svg&gt; LABEL&lt;/button&gt;<br>' +
+    '<div class="sg-typo-meta">Usage: &lt;button class="btn-ico"&gt;&lt;svg&gt;&lt;use href="icons/sprite.svg#i-apps"&gt;&lt;/svg&gt; LABEL&lt;/button&gt;<br>' +
       'Tokens: --btn-ico-height (44px), --btn-ico-bg, --btn-ico-color, --btn-ico-icon-size (16px)<br>' +
       'Hover: scale(1.03) + bg change. Primary action button for each tool page.</div>';
 

@@ -41,7 +41,7 @@ NGINX_BASE_URL = "http://mora02.local:8092/script-bot-assets"
 
 # Baserow config
 BASEROW_API_URL = "http://baserow:80/api/database/rows/table/568/"
-BASEROW_TOKEN = "***BASEROW_TOKEN_OLD_REVOKED***"
+BASEROW_TOKEN = os.environ["BASEROW_TOKEN"]
 BASEROW_HOST = "mora02.local:8085"
 
 # Stock photo APIs
@@ -155,8 +155,8 @@ def get_session_dir(session_id: str) -> Path:
     return session_dir
 
 def create_timestamp() -> str:
-    """Create timestamp for filenames"""
-    return datetime.now().strftime("%y%m%d%H%M")
+    """Create timestamp for filenames — format: YYMMDD-HHMM"""
+    return datetime.now().strftime("%y%m%d-%H%M")
 
 def container_to_host_path(container_path: str) -> str:
     """Convert container path to host path"""
@@ -277,10 +277,11 @@ async def run_gifer(request: GiferRequest):
     if not image_files:
         return RunResponse(success=False, error="No images found in session")
     
-    # Generate filename with timestamp_session
+    # Generate filename: gif_YYMMDD-HHMM_NNN.gif
     timestamp = create_timestamp()
-    session_short = request.session_id.split("_")[-1][:6] if "_" in request.session_id else request.session_id[:6]
-    output_file = output_dir / f"{timestamp}_{session_short}.gif"
+    existing = len(list(output_dir.glob("gif_*.gif")))
+    counter = existing + 1
+    output_file = output_dir / f"gif_{timestamp}_{counter:03d}.gif"
     
     try:
         from scripts.gifer_api import create_gif_from_files
@@ -319,11 +320,10 @@ async def run_typer(request: TyperRequest):
     # Count existing slides to determine next number
     existing_slides = sorted(output_dir.glob("*.png"))
     slide_num = len(existing_slides) + 1
-    
-    # Generate filename with timestamp_session_NN
+
+    # Generate filename: img_YYMMDD-HHMM_NNN.png
     timestamp = create_timestamp()
-    session_short = request.session_id.split("_")[-1][:6] if "_" in request.session_id else request.session_id[:6]
-    output_file = output_dir / f"{timestamp}_{session_short}_{slide_num:02d}.png"
+    output_file = output_dir / f"img_{timestamp}_{slide_num:03d}.png"
     
     try:
         from scripts.typer_api import create_text_frame
@@ -370,10 +370,11 @@ async def run_clipper(request: ClipperRequest):
     if not media_files:
         return RunResponse(success=False, error="No media files found in session")
     
-    # Generate filename with timestamp_session
+    # Generate filename: clip_YYMMDD-HHMM_NNN.mp4
     timestamp = create_timestamp()
-    session_short = request.session_id.split("_")[-1][:6] if "_" in request.session_id else request.session_id[:6]
-    output_file = output_dir / f"{timestamp}_{session_short}.mp4"
+    existing = len(list(output_dir.glob("clip_*.mp4")))
+    counter = existing + 1
+    output_file = output_dir / f"clip_{timestamp}_{counter:03d}.mp4"
     
     try:
         from scripts.clipper_api import create_clip_from_files
@@ -737,10 +738,10 @@ async def download_stock_image(request: StockDownloadRequest):
         else:
             ext = '.jpg'
         
-        # Create filename and folder
+        # Create filename and folder: img_YYMMDD-HHMM_source_id.ext
         timestamp = create_timestamp()
-        folder_name = f"{timestamp}_{request.source}_{request.image_id}"
-        filename = f"{timestamp}_{request.source}_{request.image_id}{ext}"
+        folder_name = f"img_{timestamp}_{request.source}_{request.image_id}"
+        filename = f"img_{timestamp}_{request.source}_{request.image_id}{ext}"
         
         # Save to final directory
         final_path = FINAL_DIR / request.source / folder_name
@@ -828,7 +829,7 @@ class SaveFileRequest(BaseModel):
 @app.post("/save-file")
 async def save_file(request: SaveFileRequest):
     filename = _re.sub(r'[^\w\-_.]', '_', request.filename)
-    if request.add_timestamp and not _re.match(r'^\d{10}_', filename):
+    if request.add_timestamp and not _re.match(r'^\d{6}-\d{4}_', filename):
         timestamp = create_timestamp()
         filename = f"{timestamp}_{filename}"
     filepath = DOWNLOADS_DIR / filename
@@ -861,3 +862,118 @@ async def list_downloads():
                 "size": f.stat().st_size
             })
     return {"success": True, "files": files}
+
+# ============================================================================
+# ENDPOINTS - LLM PROFILE SWITCHER
+# ============================================================================
+# Talks to the host-side systemd switcher via /llm-switch/ bind mount.
+# Script-Runner has NO docker daemon access — the switch itself runs on the
+# host, triggered by file-drop into /llm-switch/requests/.
+
+from scripts.llm_switcher import (
+    LLMSwitchError,
+    VALID_PROFILE_NAMES as LLM_VALID_PROFILES,
+    get_current_profile as llm_get_current,
+    get_switch_status as llm_get_status,
+    list_profiles as llm_list_profiles,
+    submit_switch as llm_submit_switch,
+)
+
+
+class LLMSwitchRequest(BaseModel):
+    profile: str
+
+
+@app.get("/llm/profiles")
+async def get_llm_profiles():
+    """List all available LLM profiles with metadata and the current one."""
+    return {
+        "profiles": llm_list_profiles(),
+        "current": llm_get_current(),
+    }
+
+
+@app.get("/llm/current")
+async def get_llm_current():
+    """Return just the currently active LLM profile, or null if unknown."""
+    return {"current": llm_get_current()}
+
+
+@app.post("/llm/switch")
+async def post_llm_switch(request: LLMSwitchRequest):
+    """
+    Submit a switch request. Returns immediately with a request_id.
+    Poll GET /llm/switch/{request_id} for the result.
+    """
+    if request.profile not in LLM_VALID_PROFILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid profile: {request.profile}"
+        )
+    try:
+        request_id = llm_submit_switch(request.profile)
+        return {
+            "success": True,
+            "request_id": request_id,
+            "status": "pending",
+            "profile": request.profile,
+        }
+    except LLMSwitchError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/llm/switch/{request_id}")
+async def get_llm_switch_status(request_id: str):
+    """
+    Poll for the result of a switch request. Returns {"status":"pending"}
+    while the host service is still working, or the full result when done.
+    """
+    try:
+        result = llm_get_status(request_id)
+    except LLMSwitchError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if result is None:
+        return {"status": "pending", "request_id": request_id}
+    return {"status": "done", "request_id": request_id, "result": result}
+
+
+# ============================================================================
+# ENDPOINTS - GPU MEMORY RELEASE
+# ============================================================================
+# Soft-release of VRAM from other GPU-using containers on the mora02-net.
+# For now: ComfyUI only (it is the primary culprit for VRAM conflicts).
+# ComfyUI's native POST /free unloads all models without stopping the server,
+# so the container stays up and the next request will lazy-reload.
+# Ollama auto-unloads via idle timeout and is skipped here.
+
+COMFYUI_INTERNAL_URL = "http://comfyui:8188"
+
+
+@app.post("/vram/free")
+async def free_vram():
+    """Release VRAM from GPU-using companion containers (ComfyUI)."""
+    results: dict = {}
+
+    # ComfyUI soft release
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{COMFYUI_INTERNAL_URL}/free",
+                json={"unload_models": True, "free_memory": True},
+            )
+            if resp.status_code < 400:
+                results["comfyui"] = {"ok": True, "status": resp.status_code, "message": "released"}
+            else:
+                results["comfyui"] = {
+                    "ok": False,
+                    "status": resp.status_code,
+                    "message": resp.text[:200],
+                }
+    except httpx.ConnectError:
+        results["comfyui"] = {"ok": False, "message": "comfyui unreachable (container down?)"}
+    except Exception as e:
+        results["comfyui"] = {"ok": False, "message": f"error: {e}"}
+
+    any_ok = any(r.get("ok") for r in results.values())
+    return {"success": any_ok, "results": results}

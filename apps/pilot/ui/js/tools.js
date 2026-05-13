@@ -44,18 +44,70 @@ async function initGifer() {
 
 /* ─── Upload Area Binding ───────────────────────────────────── */
 
-function bindUploadArea(upload, uploadFn, pickFn) {
+function bindUploadArea(upload, uploadFn, pickFn, bucketAcceptTypes) {
   if (!upload) return;
   var doUpload = uploadFn || giferUploadFiles;
   var doPick = pickFn || giferPickFiles;
-  upload.addEventListener('dragover', function(e) { e.preventDefault(); upload.classList.add('dragover'); });
-  upload.addEventListener('dragleave', function() { upload.classList.remove('dragover'); });
+  var acceptTypes = bucketAcceptTypes || ['image'];
+
+  upload.setAttribute('data-bucket-accepts', acceptTypes.join(', '));
+
+  upload.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    /* Bucket drag: show accept/reject feedback */
+    if (e.dataTransfer.types && e.dataTransfer.types.indexOf('application/x-bucket-item') !== -1) {
+      var accepted = typeof bucketDragItem !== 'undefined' && bucketDragItem && acceptTypes.indexOf(bucketDragItem.type) !== -1;
+      if (accepted) {
+        e.dataTransfer.dropEffect = 'copy';
+        upload.classList.add('bucket-drop-active');
+        upload.classList.remove('bucket-drop-reject');
+      } else {
+        e.dataTransfer.dropEffect = 'none';
+        upload.classList.add('bucket-drop-reject');
+        upload.classList.remove('bucket-drop-active');
+      }
+      return;
+    }
+    upload.classList.add('dragover');
+  });
+  upload.addEventListener('dragleave', function() { upload.classList.remove('dragover'); upload.classList.remove('bucket-drop-active'); upload.classList.remove('bucket-drop-reject'); });
   upload.addEventListener('drop', function(e) {
     e.preventDefault();
     upload.classList.remove('dragover');
+    upload.classList.remove('bucket-drop-active');
+    upload.classList.remove('bucket-drop-reject');
+    /* Check for bucket item first */
+    var bucketRaw = e.dataTransfer.getData('application/x-bucket-item');
+    if (bucketRaw) {
+      try {
+        var item = JSON.parse(bucketRaw);
+        if (acceptTypes.indexOf(item.type) !== -1) {
+          bucketUrlToFiles(item.url, function(files) { doUpload(files); });
+        }
+      } catch (err) { console.warn('[tools] bucket drop parse error', err); }
+      return;
+    }
     if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files);
   });
   upload.addEventListener('click', function() { doPick(); });
+}
+
+/* ─── Helper: fetch URL → FileList-like array ──────────────── */
+
+async function bucketUrlToFiles(url, callback) {
+  try {
+    var resp = await fetch(url);
+    var blob = await resp.blob();
+    var ext = url.split('.').pop().split('?')[0] || 'png';
+    var name = url.split('/').pop().split('?')[0] || ('bucket.' + ext);
+    var file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+    /* Wrap in array-like to match FileList interface */
+    var files = [file];
+    files.item = function(i) { return files[i]; };
+    callback(files);
+  } catch (err) {
+    console.warn('[tools] bucket URL fetch failed:', err);
+  }
 }
 
 /* ─── File Pick & Upload ────────────────────────────────────── */
@@ -256,6 +308,7 @@ function giferRenderResult() {
       '<button class="tool-action-btn" data-action="gifer-finalize" id="gifer-finalize-btn">FINALIZE AND SAVE</button>' +
       '<button class="tool-action-btn" data-action="gifer-download">DOWNLOAD</button>' +
       '<button class="tool-action-btn" data-action="gifer-new">CREATE NEW GIF</button>' +
+      '<button class="tool-action-btn bucket-add-btn" data-action="gifer-bucket">BUCKET</button>' +
     '</div>' +
     '<div class="tool-result-status" id="gifer-status"></div>';
 }
@@ -527,7 +580,7 @@ async function initClipper() {
     console.warn('Script-Runner not available');
   }
 
-  bindUploadArea(document.getElementById('clipper-upload'), clipperUploadFiles, clipperPickFiles);
+  bindUploadArea(document.getElementById('clipper-upload'), clipperUploadFiles, clipperPickFiles, ['image', 'video', 'animation']);
   clipperShowArrange();
   clipperHideArrangeDetails();
   updateClipperGenBtn();
@@ -745,6 +798,7 @@ function clipperRenderResult() {
       '<button class="tool-action-btn" data-action="clipper-finalize" id="clipper-finalize-btn">FINALIZE AND SAVE</button>' +
       '<button class="tool-action-btn" data-action="clipper-download">DOWNLOAD</button>' +
       '<button class="tool-action-btn" data-action="clipper-new">CREATE NEW CLIP</button>' +
+      '<button class="tool-action-btn bucket-add-btn" data-action="clipper-bucket">BUCKET</button>' +
     '</div>' +
     '<div class="tool-result-status" id="clipper-status"></div>';
 }
@@ -853,7 +907,7 @@ function clipperNew() {
       '</div>' +
       '<div class="tool-settings" style="display:none">' +
         '<div class="tool-setting"><span class="tool-setting-lbl">RESOLUTION:</span>' +
-          '<select class="tool-select" id="clipper-resolution"><option value="720p">720P</option><option value="1080p" selected>1080P</option><option value="4k">4K</option></select></div>' +
+          '<select class="tool-select" id="clipper-resolution"><option value="1080x1080" selected>Square 1:1 (1080)</option><option value="1080x1350">Portrait 4:5 (1080x1350)</option><option value="1080x1920">Story 9:16 (1080x1920)</option><option value="1920x1080">Landscape 16:9 (1920x1080)</option></select></div>' +
         '<div class="tool-setting"><span class="tool-setting-lbl">TRANSITION:</span>' +
           '<input class="tool-input-sm" id="clipper-transition" type="text" value="1" style="width:40px"><span class="tool-size-x">s</span></div>' +
       '</div>' +
@@ -866,7 +920,7 @@ function clipperNew() {
     '<div class="tool-result" id="clipper-result" style="display:none"></div>';
 
   wrap.appendChild(section);
-  bindUploadArea(document.getElementById('clipper-upload'), clipperUploadFiles, clipperPickFiles);
+  bindUploadArea(document.getElementById('clipper-upload'), clipperUploadFiles, clipperPickFiles, ['image', 'video', 'animation']);
 
   fetch(SCRIPT_API + '/session/create', { method: 'POST' })
     .then(function(r) { return r.json(); })
@@ -1166,11 +1220,49 @@ function typerNew() {
 
 function initToolPage(page) {
   switch (page) {
-    case 'gifer':    initGifer(); break;
-    case 'clipper':  initClipper(); break;
-    case 'typer':    initTyper(); break;
-    case 'imagegen': /* initImageGen(); */ break;
+    case 'gifer':     initGifer(); break;
+    case 'clipper':   initClipper(); break;
+    case 'typer':     initTyper(); break;
+    case 'pixeltext': if (typeof initPixelText === 'function') initPixelText(); break;
+    case 'post':      if (typeof initPost === 'function') initPost(); break;
+    case 'imagegen':  /* initImageGen(); */ break;
+    case 'ttsgen':    if (typeof initTtsGen === 'function') initTtsGen(); break;
+    case 'musicgen':  if (typeof initMusicGen === 'function') initMusicGen(); break;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ADD TO BUCKET — Gifer / Clipper
+   ═══════════════════════════════════════════════════════════════ */
+
+function giferAddToBucket(btn) {
+  var url = giferState.finalUrl || giferState.resultUrl;
+  if (!url) return;
+  bucketAdd({
+    type: 'animation',
+    url: url,
+    thumb: url,
+    source: 'gifer',
+    label: 'GIF'
+  });
+  btn.classList.add('bucket-add-ok');
+  btn.textContent = 'ADDED';
+  setTimeout(function() { btn.classList.remove('bucket-add-ok'); btn.textContent = 'BUCKET'; }, 800);
+}
+
+function clipperAddToBucket(btn) {
+  var url = clipperState.finalUrl || clipperState.resultUrl;
+  if (!url) return;
+  bucketAdd({
+    type: 'video',
+    url: url,
+    thumb: '',
+    source: 'clipper',
+    label: 'Clip'
+  });
+  btn.classList.add('bucket-add-ok');
+  btn.textContent = 'ADDED';
+  setTimeout(function() { btn.classList.remove('bucket-add-ok'); btn.textContent = 'BUCKET'; }, 800);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1188,6 +1280,7 @@ document.addEventListener('click', function(e) {
     case 'gifer-finalize':  giferFinalize(); break;
     case 'gifer-download':  giferDownload(); break;
     case 'gifer-new':       giferNew(); break;
+    case 'gifer-bucket':    giferAddToBucket(target); break;
     case 'gifer-add-more':  giferPickFiles(); break;
     case 'gifer-dur-up':    giferDurChange(idx, 0.5); break;
     case 'gifer-dur-down':  giferDurChange(idx, -0.5); break;
@@ -1196,6 +1289,7 @@ document.addEventListener('click', function(e) {
     case 'clipper-finalize':  clipperFinalize(); break;
     case 'clipper-download':  clipperDownload(); break;
     case 'clipper-new':       clipperNew(); break;
+    case 'clipper-bucket':    clipperAddToBucket(target); break;
     case 'clipper-add-more':  clipperPickFiles(); break;
     case 'clipper-dur-up':    clipperDurChange(idx, 0.5); break;
     case 'clipper-dur-down':  clipperDurChange(idx, -0.5); break;
@@ -1205,5 +1299,18 @@ document.addEventListener('click', function(e) {
     case 'typer-finalize':  typerFinalize(); break;
     case 'typer-download':  typerDownload(); break;
     case 'typer-new':       typerNew(); break;
+    case 'px-mode':         pxSetMode(target.dataset.mode); break;
+    case 'px-trans':        pxSelectTransition(target.dataset.style); break;
+    case 'px-prev-word':    pxPrevWord(); break;
+    case 'px-next-word':    pxNextWord(); break;
+    case 'px-preview':      pxStartPreview(); break;
+    case 'px-render':       pxStartRender(); break;
+    case 'px-cycle-preview':pxCyclePreview(parseInt(target.dataset.delta) || 1); break;
+    case 'post-save':       postSave(); break;
+    case 'post-new':        postNew(); break;
+    case 'post-expand':     postExpand(parseInt(target.closest('[data-id]').dataset.id)); break;
+    case 'post-select':     postSelect(parseInt(target.closest('[data-id]').dataset.id)); break;
+    case 'post-filter':     postSetFilter(target.dataset.filter); break;
+    case 'post-toggle-list':postToggleList(); break;
   }
 });

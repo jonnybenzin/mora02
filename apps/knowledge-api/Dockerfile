@@ -8,6 +8,7 @@ WORKDIR /app
 # System-Dependencies + Docker CLI (statisch)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    ffmpeg \
     && curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz \
     | tar xz --strip-components=1 -C /usr/local/bin docker/docker \
     && rm -rf /var/lib/apt/lists/*

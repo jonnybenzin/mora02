@@ -1,20 +1,26 @@
 import uuid, json, os
 from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request
+from typing import List
+from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
-from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT
+from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT, get_local_profile_label
 from router import classify_input
 from session_manager import store
 from llm_client import stream_llm
-from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search
+from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search, call_pixeltext
 from baserow_client import (
     write_session, read_last_sessions, read_all_sessions,
     read_context, read_known_issues, BASEROW_HEADERS,
     format_sessions_context, format_known_issues, format_context_table,
-    read_personas, create_persona_row, increment_persona_usage,
+    read_personas, create_persona_row, increment_persona_usage, update_persona,
+    write_feedback, list_feedback, update_feedback,
+    save_bucket, list_buckets, delete_bucket,
+    save_style_pack, list_style_packs, get_style_pack,
+    update_style_pack, delete_style_pack,
+    list_posts, create_post, update_post,
 )
 
 app = FastAPI(title="Pilot Bot", version="0.1.0")
@@ -48,7 +54,14 @@ def get_system_prompt(session_id: str, model_key: str) -> str:
     s = get_session_settings(session_id)
     base = s["system_prompt"]
     model = MODELS[model_key]
-    identity = f"\n\n## Your Identity\nYou are currently running as: {model['name']} ({model['icon']})\nModel key: {model_key}\nWhen asked which model you are, state this clearly."
+    # For the local LLM, the "qwen" routing key is a fixed label, but the
+    # actual loaded model rotates via the profile switcher. Read the real
+    # profile from /llm-switch/current.json so the identity block doesn't lie.
+    if model_key == "qwen":
+        identity_name = get_local_profile_label()
+    else:
+        identity_name = model["name"]
+    identity = f"\n\n## Your Identity\nYou are currently running as: {identity_name} ({model['icon']})\nModel key: {model_key}\nWhen asked which model you are, state this clearly."
 
     # Persona injection
     persona = session_personas.get(session_id)
@@ -113,8 +126,8 @@ async def get_cost_summary() -> str:
     out += "\n"
 
     # Monthly breakdown
-    out += "### Monthly\n| Month | Sessions | Qwen | Haiku | Sonnet | Opus | Total |\n"
-    out += "|-------|----------|------|-------|--------|------|-------|\n"
+    out += "### Monthly\n| Month | Sessions | Qwen | Haiku | Sonnet | Opus | NanBan | Total |\n"
+    out += "|-------|----------|------|-------|--------|------|--------|-------|\n"
     for row in sorted([r for r in months if r.get("month")], key=lambda r: r.get("month", ""), reverse=True)[:6]:
         m = row.get("month", "?")
         s = int(float(row.get("sessions_total") or 0))
@@ -122,9 +135,10 @@ async def get_cost_summary() -> str:
         h = float(row.get("cost_haiku") or 0)
         sn = float(row.get("cost_sonnet") or 0)
         o = float(row.get("cost_opus") or 0)
+        nb = float(row.get("cost_nanban") or 0)
         t = float(row.get("cost_total") or 0)
         bold = "**" if m == current_month else ""
-        out += f"| {bold}{m}{bold} | {s} | ${q:.2f} | ${h:.2f} | ${sn:.2f} | ${o:.2f} | {bold}${t:.2f}{bold} |\n"
+        out += f"| {bold}{m}{bold} | {s} | ${q:.2f} | ${h:.2f} | ${sn:.2f} | ${o:.2f} | ${nb:.2f} | {bold}${t:.2f}{bold} |\n"
 
     total_all = sum(float(r.get("cost_total") or 0) for r in months if r.get("month"))
     out += f"\n**All time total: ${total_all:.2f}**"
@@ -180,6 +194,95 @@ Run `pilot-sync.sh` on host to refresh system data."""
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "pilot", "port": settings.port}
+
+
+# ── File deletion ────────────────────────────────────────────────
+FILE_PATH_MAP = {
+    "/comfyui/wip/": "/output/comfyui-wip/",
+    "/tool-assets/gifer/": "/output/gifer/",
+    "/tool-assets/clipper/": "/output/clipper/",
+    "/tool-assets/typer/": "/output/typer/",
+    "/tool-assets/tts/": "/output/tts/",
+}
+
+@app.delete("/api/files/delete")
+async def delete_file(request: Request):
+    """Delete a generated asset from the filesystem."""
+    import shutil
+    body = await request.json()
+    url = body.get("url", "")
+
+    # Extract path portion from the full URL (strip http://host:port)
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    url_path = parsed.path  # e.g. /comfyui/wip/image.png
+
+    # Map URL path to container filesystem path
+    local_path = None
+    for prefix, mount in FILE_PATH_MAP.items():
+        if url_path.startswith(prefix):
+            relative = url_path[len(prefix):]
+            local_path = os.path.join(mount, relative)
+            break
+
+    if not local_path:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Unknown file location"})
+
+    # Resolve and validate against path traversal
+    resolved = Path(local_path).resolve()
+    allowed = [Path(m).resolve() for m in FILE_PATH_MAP.values()]
+    if not any(str(resolved).startswith(str(a)) for a in allowed):
+        return JSONResponse(status_code=403, content={"success": False, "error": "Access denied"})
+
+    if not resolved.exists():
+        return JSONResponse(status_code=404, content={"success": False, "error": "File not found"})
+
+    try:
+        if resolved.is_dir():
+            shutil.rmtree(resolved)
+        else:
+            resolved.unlink()
+        return JSONResponse(content={"success": True})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+
+@app.post("/upload/post-media")
+async def upload_post_media(file: UploadFile = File(...)):
+    """Upload media file for social media posts."""
+    import shutil
+    from datetime import datetime
+    try:
+        ts = datetime.now().strftime("%y%m%d%H%M")
+        ext = os.path.splitext(file.filename or "upload")[1] or ".jpg"
+        filename = f"{ts}_post{ext}"
+        dest = f"/socialmedia/{filename}"
+        content = await file.read()
+        with open(dest, "wb") as f:
+            f.write(content)
+        return {"success": True, "filename": filename, "path": dest}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/upload/comfyui")
+async def upload_to_comfyui(image: UploadFile = File(...)):
+    """Proxy image upload to ComfyUI (avoids CORS issues from browser)."""
+    import httpx
+    try:
+        content = await image.read()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "http://comfyui:8188/upload/image",
+                files={"image": (image.filename, content, image.content_type)},
+                data={"overwrite": "true"},
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            return JSONResponse(status_code=resp.status_code,
+                                content={"error": f"ComfyUI upload failed: {resp.text[:200]}"})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/models")
@@ -268,7 +371,7 @@ async def monthly_costs():
     from config import MODELS
     now = datetime.now(timezone.utc)
     current_month = now.strftime("%Y-%m")
-    costs = {"qwen": 0.0, "haiku": 0.0, "sonnet": 0.0, "opus": 0.0}
+    costs = {"qwen": 0.0, "haiku": 0.0, "sonnet": 0.0, "opus": 0.0, "nanban": 0.0}
 
     # 1. Historical: bot_costs table (Baserow 574)
     try:
@@ -317,6 +420,7 @@ async def monthly_costs():
         "haiku": round(costs["haiku"], 4),
         "sonnet": round(costs["sonnet"], 4),
         "opus": round(costs["opus"], 4),
+        "nanban": round(costs["nanban"], 4),
         "total": total,
     }
 
@@ -391,7 +495,15 @@ async def set_prompt(sid: str, request: Request):
 
 
 @app.post("/session/{sid}/end")
-async def end_session(sid: str):
+async def end_session(sid: str, request: Request):
+    # Parse optional JSON body (may contain bucket)
+    bucket_items = []
+    try:
+        body = await request.json()
+        bucket_items = body.get("bucket", []) if isinstance(body, dict) else []
+    except Exception:
+        pass
+
     session = store.get(sid)
     if not session:
         return JSONResponse(status_code=404, content={"error": "Session not found"})
@@ -451,6 +563,8 @@ async def end_session(sid: str):
         "persona_name": persona["name"] if persona else "",
         "models_used": models_used,
     }
+    if bucket_items:
+        row_data["bucket"] = json.dumps(bucket_items, ensure_ascii=False)
 
     baserow_result = await write_session(row_data)
 
@@ -470,6 +584,7 @@ async def end_session(sid: str):
             "summary": summary_data,
             "tokens": {"in": session.total_tokens_in, "out": session.total_tokens_out},
             "cost_usd": session.get_total_cost(),
+            "bucket": bucket_items if bucket_items else None,
             "messages": [
                 {
                     "role": m.role,
@@ -497,6 +612,7 @@ async def end_session(sid: str):
         "tokens": {"in": session.total_tokens_in, "out": session.total_tokens_out},
         "cost_usd": session.get_total_cost(),
         "baserow_saved": baserow_result is not None,
+        "bucket_items": len(bucket_items),
     })
 
 
@@ -569,6 +685,327 @@ async def get_persona(sid: str):
     return {"session_id": sid, "persona": None}
 
 
+@app.patch("/personas/{persona_id}")
+async def update_persona_endpoint(persona_id: int, request: Request):
+    body = await request.json()
+    row = await update_persona(persona_id, body)
+    if not row:
+        return JSONResponse(status_code=500, content={"error": "Failed to update persona"})
+    return {"id": row["id"], "action": "updated"}
+
+
+# ============================================================
+# POSTS (sm_content)
+# ============================================================
+
+@app.get("/posts")
+async def get_posts():
+    return {"results": await list_posts(), "next": None}
+
+
+@app.post("/posts")
+async def create_post_endpoint(request: Request):
+    body = await request.json()
+    row = await create_post(body)
+    if not row:
+        return JSONResponse(status_code=500, content={"error": "Failed to create post"})
+    return row
+
+
+@app.patch("/posts/{post_id}")
+async def update_post_endpoint(post_id: int, request: Request):
+    body = await request.json()
+    row = await update_post(post_id, body)
+    if not row:
+        return JSONResponse(status_code=500, content={"error": "Failed to update post"})
+    return row
+
+
+# ── Feedback / Bug Reporting ─────────────────────────────────
+
+@app.post("/feedback")
+async def submit_feedback(request: Request):
+    """Save a feedback/bug report to Baserow."""
+    body = await request.json()
+    description = (body.get("description") or "").strip()
+    if not description:
+        return JSONResponse(status_code=400, content={"error": "Description is required"})
+
+    fb_type = body.get("type", "bug")
+    severity = body.get("severity", "medium")
+    page = body.get("page", "")
+    now = datetime.now(timezone.utc).isoformat()
+
+    row_data = {
+        "Name": f"[{fb_type.upper()}] {page or 'general'} — {now[:16]}",
+        "Type": fb_type,
+        "Severity": severity,
+        "Description": description,
+        "Page": page,
+        "Session_ID": body.get("session_id", ""),
+        "Model": body.get("model", ""),
+        "Persona": body.get("persona", ""),
+        "Status": "new",
+        "created_at": now,
+    }
+
+    # Screenshot: stored as base64 data URL or external URL
+    screenshot = body.get("screenshot")
+    if screenshot:
+        row_data["Screenshot"] = screenshot
+
+    result = await write_feedback(row_data)
+    if result:
+        return JSONResponse(content={"success": True, "id": result.get("id")})
+    return JSONResponse(status_code=500, content={"success": False, "error": "Failed to save feedback"})
+
+
+@app.get("/feedback/list")
+async def get_feedback_list(status: str = None):
+    """List feedback entries, optionally filtered by status."""
+    entries = await list_feedback(status_filter=status)
+    return {"feedback": entries, "count": len(entries)}
+
+
+@app.patch("/feedback/{row_id}")
+async def patch_feedback(row_id: int, request: Request):
+    """Update a feedback entry (e.g. change status to resolved)."""
+    body = await request.json()
+    result = await update_feedback(row_id, body)
+    if result:
+        return JSONResponse(content={"success": True, "id": row_id})
+    return JSONResponse(status_code=500, content={"success": False, "error": "Update failed"})
+
+
+# ── Bucket Persistence ───────────────────────────────────────
+
+@app.post("/bucket/save")
+async def bucket_save(request: Request):
+    """Save the current bucket with a name."""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    items = body.get("items", [])
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "Name is required"})
+    if not items:
+        return JSONResponse(status_code=400, content={"error": "Bucket is empty"})
+    result = await save_bucket(name, items)
+    if result:
+        return JSONResponse(content={"success": True, "id": result.get("id")})
+    return JSONResponse(status_code=500, content={"success": False, "error": "Failed to save bucket"})
+
+
+@app.get("/bucket/list")
+async def bucket_list():
+    """List all saved buckets."""
+    buckets = await list_buckets()
+    return {"buckets": [
+        {"id": b["id"], "name": b.get("Name", ""), "item_count": b.get("item_count", 0),
+         "created_at": b.get("created_at", "")}
+        for b in buckets
+    ]}
+
+
+@app.get("/bucket/{row_id}")
+async def bucket_get(row_id: int):
+    """Get a single bucket with its items."""
+    import httpx as _httpx
+    async with _httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{settings.baserow_url}/api/database/rows/table/{settings.baserow_table_buckets}/{row_id}/?user_field_names=true",
+            headers=BASEROW_HEADERS)
+        if resp.status_code == 200:
+            row = resp.json()
+            items = []
+            try:
+                items = json.loads(row.get("Items", "[]"))
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return {"id": row["id"], "name": row.get("Name", ""), "items": items,
+                    "item_count": row.get("item_count", 0), "created_at": row.get("created_at", "")}
+    return JSONResponse(status_code=404, content={"error": "Bucket not found"})
+
+
+@app.delete("/bucket/{row_id}")
+async def bucket_delete(row_id: int):
+    """Delete a saved bucket."""
+    ok = await delete_bucket(row_id)
+    if ok:
+        return JSONResponse(content={"success": True})
+    return JSONResponse(status_code=500, content={"success": False, "error": "Delete failed"})
+
+
+# ============================================================
+# STYLE PACKS
+# ============================================================
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
+
+
+def _scan_image_folder(folder_path: str) -> dict:
+    """Scan a folder for image files and return count + first images."""
+    p = Path(folder_path)
+    if not p.is_dir():
+        return {"exists": False, "count": 0, "images": []}
+    images = sorted(
+        f for f in p.iterdir()
+        if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS
+    )
+    return {
+        "exists": True,
+        "count": len(images),
+        "images": [f.name for f in images[:12]],
+    }
+
+
+@app.get("/api/styles")
+async def styles_list():
+    """List all style packs."""
+    packs = await list_style_packs()
+    return JSONResponse(content={"results": packs})
+
+
+@app.post("/api/styles")
+async def styles_create(request: Request):
+    """Create a new style pack from folder path or upload."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "Name is required"})
+
+    source_type = body.get("source_type", "folder")
+    source_path = body.get("source_path", "")
+    style_weight = body.get("style_weight", 0.7)
+    image_count = 0
+
+    if source_type == "folder":
+        # Resolve path: accept relative (to styles_base_path) or absolute
+        if not source_path.startswith("/"):
+            source_path = f"{settings.styles_base_path}/{source_path}"
+        scan = _scan_image_folder(source_path)
+        if not scan["exists"]:
+            return JSONResponse(status_code=400, content={"error": f"Folder not found: {source_path}"})
+        image_count = scan["count"]
+        if image_count == 0:
+            return JSONResponse(status_code=400, content={"error": "No images found in folder"})
+
+    row = await save_style_pack({
+        "name": name,
+        "source_type": source_type,
+        "source_path": source_path,
+        "image_count": image_count,
+        "style_weight": style_weight,
+    })
+    if row:
+        return JSONResponse(content=row)
+    return JSONResponse(status_code=500, content={"error": "Failed to save style pack"})
+
+
+@app.get("/api/styles/scan-folder")
+async def styles_scan_folder(path: str = ""):
+    """Scan a folder for images. Accepts relative (to styles base) or absolute paths."""
+    if not path:
+        return JSONResponse(status_code=400, content={"error": "path parameter required"})
+    if not path.startswith("/"):
+        path = f"{settings.styles_base_path}/{path}"
+    scan = _scan_image_folder(path)
+    return JSONResponse(content=scan)
+
+
+@app.get("/api/styles/{row_id}")
+async def styles_get(row_id: int):
+    """Get style pack details including image list from folder."""
+    pack = await get_style_pack(row_id)
+    if not pack:
+        return JSONResponse(status_code=404, content={"error": "Not found"})
+    # Enrich with current folder scan
+    source_path = pack.get("source_path", "")
+    if source_path:
+        scan = _scan_image_folder(source_path)
+        pack["_images"] = scan.get("images", [])
+        pack["_image_count_actual"] = scan.get("count", 0)
+    return JSONResponse(content=pack)
+
+
+@app.patch("/api/styles/{row_id}")
+async def styles_update(row_id: int, request: Request):
+    """Update a style pack."""
+    body = await request.json()
+    row = await update_style_pack(row_id, body)
+    if row:
+        return JSONResponse(content=row)
+    return JSONResponse(status_code=500, content={"error": "Update failed"})
+
+
+@app.delete("/api/styles/{row_id}")
+async def styles_delete(row_id: int):
+    """Delete a style pack."""
+    ok = await delete_style_pack(row_id)
+    if ok:
+        return JSONResponse(content={"success": True})
+    return JSONResponse(status_code=500, content={"success": False, "error": "Delete failed"})
+
+
+@app.post("/api/styles/upload")
+async def styles_upload(name: str, files: List[UploadFile] = File(...)):
+    """Upload images to create a new style pack.
+
+    Creates folder /data/styles/{name}/, saves all uploaded images,
+    then creates a Baserow entry.
+    """
+    name = name.strip()
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "Name is required"})
+
+    # Sanitize folder name
+    safe_name = "".join(c for c in name if c.isalnum() or c in "-_ ").strip().replace(" ", "_")
+    if not safe_name:
+        return JSONResponse(status_code=400, content={"error": "Invalid name"})
+
+    target_dir = Path(settings.styles_base_path) / safe_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = 0
+    for f in files:
+        if not f.filename:
+            continue
+        ext = Path(f.filename).suffix.lower()
+        if ext not in IMAGE_EXTENSIONS:
+            continue
+        dest = target_dir / f.filename
+        content = await f.read()
+        dest.write_bytes(content)
+        saved += 1
+
+    if saved == 0:
+        return JSONResponse(status_code=400, content={"error": "No valid images uploaded"})
+
+    source_path = str(target_dir)
+    row = await save_style_pack({
+        "name": name,
+        "source_type": "upload",
+        "source_path": source_path,
+        "image_count": saved,
+        "style_weight": 0.7,
+    })
+    if row:
+        return JSONResponse(content=row)
+    return JSONResponse(status_code=500, content={"error": "Files saved but Baserow entry failed"})
+
+
+@app.get("/api/styles/list-folders")
+async def styles_list_folders():
+    """List available subdirectories under the styles base path."""
+    base = Path(settings.styles_base_path)
+    if not base.is_dir():
+        return JSONResponse(content={"folders": [], "base_path": settings.styles_base_path})
+    folders = []
+    for d in sorted(base.iterdir()):
+        if d.is_dir():
+            scan = _scan_image_folder(str(d))
+            folders.append({"name": d.name, "path": str(d), "image_count": scan["count"]})
+    return JSONResponse(content={"folders": folders, "base_path": settings.styles_base_path})
+
 
 async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: int):
     """Increment monthly costs in bot_costs table (574) after every paid API call."""
@@ -624,7 +1061,7 @@ async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: in
                 # Create new month row
                 update_data["month"] = current_month
                 update_data["sessions_total"] = "0"
-                for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus"]:
+                for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus", "cost_nanban"]:
                     if k not in update_data:
                         update_data[k] = "0"
                 await client.post(
@@ -632,6 +1069,62 @@ async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: in
                     headers=BASEROW_HEADERS, json=update_data)
     except Exception as e:
         print(f"[persist_cost] Error: {e}")
+
+
+async def persist_image_cost_to_baserow(flow_key: str, image_count: int):
+    """Increment monthly image generation costs in bot_costs table (574)."""
+    from comfyui_client import load_registry
+    import httpx as _httpx
+
+    registry = load_registry()
+    flow_config = registry["flows"].get(flow_key, {})
+    cost_per_image = flow_config.get("cost_per_image", 0)
+    if cost_per_image == 0 or image_count == 0:
+        print(f"[persist_image_cost] skipped: flow={flow_key}, cost_per_image={cost_per_image}, count={image_count}")
+        return
+
+    cost = cost_per_image * image_count
+    now = datetime.now(timezone.utc)
+    current_month = now.strftime("%Y-%m")
+
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
+                headers=BASEROW_HEADERS)
+            rows = resp.json().get("results", []) if resp.status_code == 200 else []
+
+            row_id = None
+            old_nanban = 0.0
+            old_total = 0.0
+            for row in rows:
+                if row.get("month") == current_month:
+                    row_id = row["id"]
+                    old_nanban = float(row.get("cost_nanban") or 0)
+                    old_total = float(row.get("cost_total") or 0)
+                    break
+
+            update_data = {
+                "cost_nanban": str(round(old_nanban + cost, 4)),
+                "cost_total": str(round(old_total + cost, 4)),
+            }
+
+            if row_id:
+                await client.patch(
+                    f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
+                    headers=BASEROW_HEADERS, json=update_data)
+            else:
+                update_data["month"] = current_month
+                update_data["sessions_total"] = "0"
+                for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus"]:
+                    update_data[k] = "0"
+                await client.post(
+                    f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
+                    headers=BASEROW_HEADERS, json=update_data)
+        print(f"[persist_image_cost] {flow_key}: {image_count} images, ${cost:.4f}")
+    except Exception as e:
+        print(f"[persist_image_cost] Error: {e}")
+
 
 @app.post("/chat/{sid}")
 async def chat(sid: str, request: Request):
@@ -688,11 +1181,36 @@ async def chat(sid: str, request: Request):
             session.add_assistant_message(text, model="searxng")
             return JSONResponse(content={"type": "command_result", "result": text, "model": "searxng"})
 
+    if classification["type"] == "post":
+        session.add_user_message(user_message)
+        return JSONResponse(content={"type": "post_widget"})
+
     if classification["type"] == "ctx":
         session.add_user_message(user_message)
         subcommand = user_message[4:].strip()  # strip "/ctx"
         result = await handle_ctx(session, subcommand)
         return JSONResponse(content={"type": "command_result", "result": result, "model": "context"})
+
+    if classification["type"] == "pixeltext":
+        session.add_user_message(user_message)
+        result_data = await call_pixeltext(classification["raw"])
+        if result_data.get("subtype") == "pixeltext_result":
+            urls = result_data.get("urls", [])
+            files = result_data.get("files", [])
+            rt = result_data.get("render_time_sec")
+            lines = [f"PixelText render done in {rt}s — {len(files)} file(s):"]
+            for u in urls:
+                lines.append(u)
+            text = "\n".join(lines)
+            session.add_assistant_message(text, model="blender-worker")
+            return JSONResponse(content={
+                "type": "command_result",
+                "result": text,
+                "model": "blender-worker",
+            })
+        text = result_data.get("data", str(result_data))
+        session.add_assistant_message(text, model="blender-worker")
+        return JSONResponse(content={"type": "command_result", "result": text, "model": "blender-worker"})
 
     if classification["type"] == "comfyui":
         session.add_user_message(user_message)
@@ -700,10 +1218,22 @@ async def chat(sid: str, request: Request):
         if result_data.get("subtype") == "image_variants":
             session.add_assistant_message(
                 f"Generated {result_data['count']} variants for: {result_data['prompt']}", model="comfyui")
+            await persist_image_cost_to_baserow(result_data.get("flow", ""), result_data.get("count", 0))
             return JSONResponse(content={"type": "image_variants", **result_data})
+        if result_data.get("subtype") == "video_result":
+            msg = f"Generated video for: {result_data.get('prompt', '')}" if result_data.get("video_url") else "Video generation failed"
+            session.add_assistant_message(msg, model="comfyui")
+            return JSONResponse(content={"type": "video_result", **result_data})
+        if result_data.get("subtype") == "expand_result":
+            session.add_assistant_message(
+                f"Expanded image to {result_data.get('target', '1920x1920')}", model="comfyui")
+            return JSONResponse(content={"type": "expand_result", **result_data})
         text = result_data.get("data", str(result_data))
         session.add_assistant_message(text, model="comfyui")
         return JSONResponse(content={"type": "command_result", "result": text, "model": "comfyui"})
+
+    if classification["type"] == "tool_widget":
+        return JSONResponse(content={"type": "tool_widget"})
 
     if classification["type"] == "session_done":
         return JSONResponse(content={"type": "session_done",
@@ -734,6 +1264,269 @@ async def chat(sid: str, request: Request):
         await persist_cost_to_baserow(model_key, usage.get("input_tokens", 0), usage.get("output_tokens", 0))
 
     return EventSourceResponse(event_generator())
+
+
+## ═══════════════════════════════════════════════════════════════
+##  VIDEO GENERATION WITH PROGRESS (SSE)
+## ═══════════════════════════════════════════════════════════════
+
+@app.post("/vid/generate")
+async def vid_generate(request: Request):
+    """Queue a video generation job, return prompt_id immediately."""
+    from comfyui_client import (parse_vid_command, build_video_workflow,
+                                 queue_prompt, resolve_flow, get_flow_info)
+    import random
+    try:
+        body = await request.json()
+        command = body.get("command", "")
+        parsed = parse_vid_command(command)
+        if not parsed["prompt"]:
+            return JSONResponse(status_code=400, content={"error": "No prompt provided"})
+
+        flow = resolve_flow(parsed["flow"])
+        flow_info = get_flow_info(flow)
+        actual_seed = parsed.get("seed") or random.randint(0, 2**32 - 1)
+
+        workflow = build_video_workflow(
+            parsed["prompt"], flow=flow, seed=actual_seed,
+            format=parsed.get("format"), steps=parsed.get("steps"),
+            length=parsed.get("length"), fps=parsed.get("fps"),
+            start_image=parsed.get("start_image"), end_image=parsed.get("end_image"),
+        )
+        prompt_id = await queue_prompt(workflow)
+
+        return JSONResponse(content={
+            "prompt_id": prompt_id,
+            "seed": actual_seed,
+            "flow": flow,
+            "flow_name": flow_info["name"],
+            "prompt": parsed["prompt"],
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/vid/status/{prompt_id}")
+async def vid_status(prompt_id: str):
+    """Simple poll endpoint: check if a ComfyUI job is done."""
+    import httpx
+    COMFYUI_URL = "http://comfyui:8188"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{COMFYUI_URL}/history/{prompt_id}")
+            if r.status_code == 200:
+                data = r.json()
+                if prompt_id in data:
+                    from comfyui_client import extract_video_filenames
+                    fnames = extract_video_filenames(data[prompt_id])
+                    if fnames:
+                        return {"status": "done", "video_url": f"/comfyui/wip/{fnames[0]}", "filename": fnames[0].split("/")[-1]}
+                    status = data[prompt_id].get("status", {})
+                    if status.get("status_str") == "error":
+                        msgs = status.get("messages", [])
+                        err = msgs[-1][-1].get("exception_message", "Error") if msgs else "Error"
+                        return {"status": "error", "message": err}
+                    return {"status": "error", "message": "No video output"}
+            return {"status": "working"}
+    except Exception as e:
+        return {"status": "working"}
+
+
+## ═══════════════════════════════════════════════════════════════
+##  MUSIC GENERATION WITH ACE-STEP 1.5 (ComfyUI)
+## ═══════════════════════════════════════════════════════════════
+
+@app.post("/upload/comfyui-audio")
+async def upload_audio_to_comfyui(file: UploadFile = File(...)):
+    """Proxy audio upload to ComfyUI input directory for reference audio."""
+    import httpx
+    COMFYUI_URL = "http://comfyui:8188"
+    try:
+        content = await file.read()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{COMFYUI_URL}/upload/image",
+                files={"image": (file.filename, content, file.content_type or "audio/mpeg")},
+                data={"overwrite": "true"},
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            return JSONResponse(status_code=resp.status_code,
+                                content={"error": f"ComfyUI upload failed: {resp.text[:200]}"})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/music/generate")
+async def music_generate(request: Request):
+    """Queue a music generation job via ComfyUI ACE-Step 1.5, return prompt_id."""
+    from comfyui_client import queue_prompt
+    import random, json
+
+    try:
+        body = await request.json()
+        tags = body.get("tags", "")
+        lyrics = body.get("lyrics", "")
+        duration = int(body.get("duration", 30))
+        seed = body.get("seed", -1)
+        steps = int(body.get("steps", 8))
+        bpm = int(body.get("bpm", 120))
+        key = body.get("key", "C major")
+        time_sig = body.get("time_signature", "4")
+        language = body.get("language", "en")
+        ref_audio_filename = body.get("ref_audio_filename", None)
+
+        if not tags and not lyrics:
+            return JSONResponse(status_code=400, content={"error": "Provide tags or lyrics"})
+
+        actual_seed = seed if seed >= 0 else random.randint(0, 2**32 - 1)
+        use_ref = bool(ref_audio_filename)
+
+        # Build API-format workflow (AIO checkpoint)
+        workflow = {
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {
+                    "ckpt_name": "ace_step_1.5_turbo_aio.safetensors"
+                }
+            },
+            "5": {
+                "class_type": "EmptyAceStep1.5LatentAudio",
+                "inputs": {
+                    "seconds": duration,
+                    "batch_size": 1
+                }
+            },
+            "6": {
+                "class_type": "TextEncodeAceStepAudio1.5",
+                "inputs": {
+                    "tags": tags,
+                    "lyrics": lyrics,
+                    "seed": actual_seed,
+                    "bpm": bpm,
+                    "duration": duration,
+                    "timesignature": time_sig,
+                    "language": language,
+                    "keyscale": key,
+                    "generate_audio_codes": True,
+                    "cfg_scale": 2.0,
+                    "temperature": 0.85,
+                    "top_p": 0.9,
+                    "top_k": 0,
+                    "min_p": 0.0,
+                    "clip": ["1", 1]
+                }
+            },
+            "7": {
+                "class_type": "ConditioningZeroOut",
+                "inputs": {
+                    "conditioning": ["6", 0]
+                }
+            },
+            "8": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "seed": actual_seed,
+                    "control_after_generate": "fixed",
+                    "steps": steps,
+                    "cfg": 1,
+                    "sampler_name": "euler",
+                    "scheduler": "simple",
+                    "denoise": 1,
+                    "model": ["1", 0],
+                    "positive": ["6", 0],
+                    "negative": ["7", 0],
+                    "latent_image": ["5", 0]
+                }
+            },
+            "9": {
+                "class_type": "VAEDecodeAudio",
+                "inputs": {
+                    "samples": ["8", 0],
+                    "vae": ["1", 2]
+                }
+            },
+            "10": {
+                "class_type": "SaveAudioMP3",
+                "inputs": {
+                    "filename_prefix": f"music/mus_{datetime.now().strftime('%y%m%d-%H%M')}",
+                    "quality": "V0",
+                    "audio": ["9", 0]
+                }
+            }
+        }
+
+        # Reference audio: encode to latent, inject into conditioning
+        if use_ref:
+            workflow["11"] = {
+                "class_type": "LoadAudio",
+                "inputs": {
+                    "audio": ref_audio_filename,
+                }
+            }
+            workflow["12"] = {
+                "class_type": "VAEEncodeAudio",
+                "inputs": {
+                    "audio": ["11", 0],
+                    "vae": ["1", 2],
+                }
+            }
+            workflow["13"] = {
+                "class_type": "ReferenceTimbreAudio",
+                "inputs": {
+                    "conditioning": ["6", 0],
+                    "latent": ["12", 0],
+                }
+            }
+            # KSampler uses reference-augmented conditioning
+            workflow["8"]["inputs"]["positive"] = ["13", 0]
+
+        prompt_id = await queue_prompt(workflow)
+
+        return JSONResponse(content={
+            "prompt_id": prompt_id,
+            "seed": actual_seed,
+            "tags": tags,
+            "duration": duration,
+            "bpm": bpm,
+            "mode": "reference" if use_ref else "text2music",
+        })
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/music/status/{prompt_id}")
+async def music_status(prompt_id: str):
+    """Poll endpoint: check if a music generation job is done."""
+    import httpx
+    COMFYUI_URL = "http://comfyui:8188"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{COMFYUI_URL}/history/{prompt_id}")
+            if r.status_code == 200:
+                data = r.json()
+                if prompt_id in data:
+                    outputs = data[prompt_id].get("outputs", {})
+                    for node_id, node_output in outputs.items():
+                        # Audio files appear under "audio" key in SaveAudioMP3
+                        audios = node_output.get("audio", [])
+                        for a in audios:
+                            if a.get("type") == "output":
+                                subfolder = a.get("subfolder", "")
+                                fname = a["filename"]
+                                path = f"{subfolder}/{fname}" if subfolder else fname
+                                return {"status": "done", "audio_url": f"/comfyui/wip/{path}", "filename": fname}
+                    status_info = data[prompt_id].get("status", {})
+                    if status_info.get("status_str") == "error":
+                        msgs = status_info.get("messages", [])
+                        err = msgs[-1][-1].get("exception_message", "Error") if msgs else "Error"
+                        return {"status": "error", "message": err}
+                    return {"status": "error", "message": "No audio output found"}
+            return {"status": "working"}
+    except Exception as e:
+        return {"status": "working"}
 
 
 if __name__ == "__main__":

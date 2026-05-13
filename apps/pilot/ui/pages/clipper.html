@@ -2,7 +2,7 @@
 
   <div class="tool-head">
     <span class="tool-title">CLIPPER</span>
-    <button class="tool-close" data-action="navigate" data-page="home"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+    <button class="tool-close" data-action="navigate" data-page="home" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
   </div>
 
   <div class="tool-desc">Create video clips from images with pan, zoom and animation effects. Upload images, set animation style and duration per frame, then generate.</div>
@@ -30,8 +30,8 @@
 
     <div class="fl-grid fl-grid-2">
       <div class="fl-field">
-        <select class="fl-select" id="clipper-resolution"><option value="720p">720p</option><option value="1080p" selected>1080p</option><option value="4k">4K</option></select>
-        <label class="fl-label">RESOLUTION</label>
+        <select class="fl-select" id="clipper-resolution"><option value="1080x1080" selected>Square 1:1 (1080)</option><option value="1080x1350">Portrait 4:5 (1080x1350)</option><option value="1080x1920">Story 9:16 (1080x1920)</option><option value="1920x1080">Landscape 16:9 (1920x1080)</option></select>
+        <label class="fl-label">FORMAT</label>
       </div>
       <div class="fl-field">
         <input class="fl-input" id="clipper-transition" type="text" value="1" placeholder=" ">

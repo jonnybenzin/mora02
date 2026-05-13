@@ -12,7 +12,7 @@
 set -euo pipefail
 
 BASEROW_URL="http://mora02.local:8085"
-DATABASE_TOKEN="***BASEROW_TOKEN_OLD_REVOKED***"
+DATABASE_TOKEN="${BASEROW_TOKEN:?BASEROW_TOKEN environment variable required}"
 EMAIL="jonnybenzin@gmail.com"
 SESSIONS_TABLE_ID=571
 

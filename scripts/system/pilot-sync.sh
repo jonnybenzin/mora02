@@ -4,7 +4,7 @@
 # Usage: bash /opt/mora02/scripts/pilot-sync.sh
 
 BASEROW_URL="http://mora02.local:8085"
-BASEROW_TOKEN="***BASEROW_TOKEN_OLD_REVOKED***"
+BASEROW_TOKEN="${BASEROW_TOKEN:?BASEROW_TOKEN environment variable required}"
 TABLE_CONTEXT=572
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOW_LOCAL=$(date '+%Y-%m-%d %H:%M')
@@ -132,8 +132,9 @@ python3 << 'PYEOF'
 import requests, json, sys
 from datetime import datetime, timezone
 
+import os
 BASEROW_URL = "http://mora02.local:8085"
-TOKEN = "***BASEROW_TOKEN_OLD_REVOKED***"
+TOKEN = os.environ["BASEROW_TOKEN"]
 H = {"Authorization": f"Token {TOKEN}", "Content-Type": "application/json"}
 TABLE_SESSIONS = 571
 TABLE_COSTS = 574

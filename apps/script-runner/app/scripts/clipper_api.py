@@ -65,10 +65,14 @@ def direction_to_vector(degrees: float, intensity: float) -> tuple:
     dy = math.sin(radians) * intensity
     return dx, dy
 
+def aspect_crop(width: int, height: int) -> str:
+    """Crop input to match target aspect ratio (cover/fill mode)"""
+    return f"crop=if(gt(iw/ih\,{width}/{height})\,ih*{width}/{height}\,iw):if(gt(iw/ih\,{width}/{height})\,ih\,iw*{height}/{width})"
+
 def build_animation_filter(anim_type: str, direction: float, intensity: float, duration: float, width: int, height: int, fps: int) -> str:
     frames = max(int(duration * fps), 2)
     if anim_type == 'none':
-        return f'scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2'
+        return f'{aspect_crop(width, height)},scale={width}:{height}'
     dx, dy = direction_to_vector(direction, intensity)
     ease_expr = f"((on/{frames})*(on/{frames})*(3-2*(on/{frames})))"
     if anim_type == 'pan':
@@ -79,7 +83,8 @@ def build_animation_filter(anim_type: str, direction: float, intensity: float, d
         delta_y = dy / 100
         x_expr = f"iw*({start_x}+{delta_x}*{ease_expr})-iw/2/{zoom}"
         y_expr = f"ih*({start_y}+{delta_y}*{ease_expr})-ih/2/{zoom}"
-        return f"zoompan=z={zoom}:x='{x_expr}':y='{y_expr}':d={frames}:s={width}x{height}:fps={fps}"
+        ac = aspect_crop(width, height)
+        return f"{ac},zoompan=z={zoom}:x='{x_expr}':y='{y_expr}':d={frames}:s={width}x{height}:fps={fps}"
     elif anim_type in ('zoom_in', 'zoom_out'):
         focus_x = max(0.2, min(0.8, 0.5 + (dx / 200)))
         focus_y = max(0.2, min(0.8, 0.5 + (dy / 200)))
@@ -90,15 +95,16 @@ def build_animation_filter(anim_type: str, direction: float, intensity: float, d
             z_expr = f"{zoom_amount}-({zoom_amount}-1)*{ease_expr}"
         x_expr = f"iw*{focus_x}-(iw/zoom/2)"
         y_expr = f"ih*{focus_y}-(ih/zoom/2)"
-        return f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={frames}:s={width}x{height}:fps={fps}"
-    return f'scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2'
+        ac = aspect_crop(width, height)
+        return f"{ac},zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={frames}:s={width}x{height}:fps={fps}"
+    return f'{aspect_crop(width, height)},scale={width}:{height}'
 
 def get_video_duration(video_path: Path) -> float:
     cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(video_path)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     try:
         return float(result.stdout.strip())
-    except:
+    except (ValueError, TypeError):
         return 0
 
 def video_has_audio(video_path: Path) -> bool:
@@ -182,7 +188,7 @@ def create_clip_from_files(
                         cmd = [
                             'ffmpeg', '-y',
                             '-i', str(m['path']),
-                            '-vf', f'scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2',
+                            '-vf', f'{aspect_crop(width, height)},scale={width}:{height}',
                             '-c:v', 'libx264',
                             '-preset', PRESET,
                             '-crf', str(CRF_QUALITY),
@@ -199,7 +205,7 @@ def create_clip_from_files(
                             '-i', str(m['path']),
                             '-f', 'lavfi',
                             '-i', 'anullsrc=r=44100:cl=stereo',
-                            '-vf', f'scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2',
+                            '-vf', f'{aspect_crop(width, height)},scale={width}:{height}',
                             '-c:v', 'libx264',
                             '-preset', PRESET,
                             '-crf', str(CRF_QUALITY),
@@ -229,6 +235,14 @@ def create_clip_from_files(
                     for clip in clip_paths:
                         f.write(f"file '{clip}'\n")
                 
+                import json as _json
+                clip_meta = _json.dumps({
+                    "tool": "clipper", "resolution": resolution,
+                    "animation": animation, "direction": direction,
+                    "intensity": intensity, "transition": transition,
+                    "clips": len(clip_paths),
+                    "source_files": [f.name for f in input_files],
+                })
                 cmd = [
                     'ffmpeg', '-y',
                     '-f', 'concat',
@@ -239,6 +253,8 @@ def create_clip_from_files(
                     '-crf', str(CRF_QUALITY),
                     '-c:a', 'aac',
                     '-b:a', '128k',
+                    '-metadata', f'comment={clip_meta}',
+                    '-metadata', 'artist=mora02 (clipper)',
                     str(output_path)
                 ]
                 subprocess.run(cmd, capture_output=True, text=True)

@@ -1,20 +1,68 @@
+import json
+from pathlib import Path
+from typing import Optional
+
 from pydantic_settings import BaseSettings
+
+# ----------------------------------------------------------------------------
+# LLM profile state — single source of truth is /llm-switch/current.json,
+# written by /opt/mora02/scripts/llm-switch.sh on every successful switch.
+# This file is mounted read-only into the pilot container.
+# ----------------------------------------------------------------------------
+
+_LLM_CURRENT_STATE_FILE = Path("/llm-switch/current.json")
+
+# Human-readable labels, must stay in sync with
+# apps/script-runner/app/scripts/llm_switcher.py PROFILES.
+_LOCAL_PROFILE_LABELS = {
+    "qwen3-14b": "Qwen3 14B",
+    "qwen3-8b": "Qwen3 8B",
+    "qwen25-7b": "Qwen2.5 7B",
+    "qwen25-coder": "Qwen2.5 Coder",
+    "nous-hermes": "Nous-Hermes",
+    "magistral": "Magistral",
+}
+
+
+def get_local_profile_name() -> Optional[str]:
+    """Return the currently active local-LLM profile key, or None if unknown."""
+    try:
+        data = json.loads(_LLM_CURRENT_STATE_FILE.read_text())
+        name = data.get("profile")
+        return name if isinstance(name, str) and name else None
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+
+def get_local_profile_label() -> str:
+    """Return a human label for the current local profile, or 'Local LLM'."""
+    name = get_local_profile_name()
+    if not name:
+        return "Local LLM"
+    return _LOCAL_PROFILE_LABELS.get(name, name)
 
 
 class Settings(BaseSettings):
     qwen_url: str = "http://mora02.local:8080"
     anthropic_api_key: str = ""
     dify_api_url: str = "http://dify-new-api:5001"
-    dify_api_key: str = "***DIFY_APP_KEY_DAILY_OLD_REVOKED***"
+    dify_api_key: str = ""
     script_runner_url: str = "http://script-runner:8096"
+    blender_worker_url: str = "http://blender-worker:8097"
+    pixeltext_assets_url: str = "http://mora02.local:8092/pixeltext"
     comfyui_url: str = "http://mora02.local:8188"
     searxng_url: str = "http://searxng:8080"
     baserow_url: str = "http://baserow:80"
-    baserow_token: str = "***BASEROW_TOKEN_OLD_REVOKED***"
+    baserow_token: str = ""
     baserow_table_sessions: int = 571
     baserow_table_context: int = 572
     baserow_table_personas: int = 575
     baserow_table_known_issues: int = 573
+    baserow_table_feedback: int = 576
+    baserow_table_buckets: int = 577
+    baserow_table_style_packs: int = 578
+    baserow_table_posts: int = 557
+    styles_base_path: str = "/data/styles"
     host: str = "0.0.0.0"
     port: int = 8098
     max_history: int = 100
@@ -73,7 +121,7 @@ DEFAULT_SYSTEM_PROMPT = """You are the Pilot Bot of the Mora02 Creative Factory.
 ## System
 - Hardware: RTX 5090 (32GB VRAM), Ryzen 9 7950X, 64GB RAM
 - OS: Ubuntu 24.04
-- Local LLM: Qwen3-14B @ Port 8080 (~15.5 GB VRAM)
+- Local LLM: llama.cpp @ Port 8080 (profile-switchable from the dashboard)
 - Free VRAM: ~17 GB for ComfyUI
 - Stack: Docker Compose, ~26 containers
 
@@ -86,12 +134,7 @@ DEFAULT_SYSTEM_PROMPT = """You are the Pilot Bot of the Mora02 Creative Factory.
 When a natural language request maps to an action, suggest the matching command.
 
 ### Social Media
-/new "Title" - Create new idea
-/show [id] - Show post details
-/list [status] - List posts by status
-/draft [id] text - Save draft
-/write [id] - LLM generates draft
-/publish [id] - Publish post
+/post - Open Post Editor
 
 ### Roadmap
 /rd - Active items
@@ -102,9 +145,10 @@ When a natural language request maps to an action, suggest the matching command.
 
 ### Creative
 /gif - Create GIF
-/typer - Text frames
+/typ - Text frames
 /clip - Video clip
 /stock [query] - Stock photo search
+/pix TEXT - Render 3D pixel-cube typography in Blender (single word, MP4). For multi-word/styling use the PIXELTEXT tool page.
 
 ### Search & AI
 /search [query] - Web search (SearXNG, local)
@@ -118,7 +162,7 @@ When a natural language request maps to an action, suggest the matching command.
 ## Baserow API Reference
 
 Base URL: http://mora02.local:8085/api/database/rows/table/{TABLE_ID}/
-Auth: Authorization: Token ***BASEROW_TOKEN_OLD_REVOKED***
+Auth: Authorization: Token <BASEROW_TOKEN>  # injected from env at runtime
 Always append: ?user_field_names=true
 
 Tables:

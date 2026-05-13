@@ -20,7 +20,7 @@
 .msg-time{color:var(--c-grey6)}
 
 /* Body — Inter only */
-.msg-body{font-family:var(--typo-body-font);font-size:var(--typo-body-size);font-weight:var(--typo-body-weight);color:var(--typo-body-color);line-height:var(--typo-body-line-h);width:100%}
+.msg-body{font-family:var(--typo-body-font);font-size:var(--typo-body-size);font-weight:var(--typo-body-weight);color:var(--typo-body-color);line-height:var(--typo-body-line-h);width:100%;user-select:text;-webkit-user-select:text}
 .msg-body h1,.msg-body h2,.msg-body h3,.msg-body h4{font-family:var(--typo-h2-font);font-weight:var(--typo-h2-weight);color:var(--typo-h2-color);margin:var(--sp-10) 0 var(--sp-10)}
 .msg-body>h3:first-child,.msg-body>h4:first-child{margin-top:0}
 .msg-body h3{font-size:var(--fs-md)}
@@ -86,8 +86,18 @@
 .chat-btn-send:hover{opacity:var(--op-send)}
 .chat-btn-end{background:var(--c-black);border:none;color:var(--tx-muted);font-family:var(--typo-btn-font);font-size:var(--typo-btn-size);font-weight:var(--typo-btn-weight);letter-spacing:var(--typo-btn-spacing);padding:var(--sp-10) var(--sp-20);white-space:nowrap;flex-shrink:0;width:auto;height:auto}
 .chat-btn-end:hover{color:var(--tx-primary)}
+
+/* ─── COMMAND PALETTE ──────────────────────────────────────── */
+.cmd-palette{max-width:610px;margin:0 auto;background:var(--c-grey1);border:1px solid var(--c-grey3);max-height:360px;overflow-y:auto;padding:var(--sp-20)}
+.home-in .cmd-palette{max-width:none;margin:0;border:none;border-bottom:1px solid var(--c-grey3)}
+.cmd-palette-group{padding:var(--sp-10) 0 var(--sp-6) 0;color:var(--tx-disabled);font-family:var(--typo-btn-font);font-size:10px;font-weight:var(--typo-btn-weight);letter-spacing:var(--typo-btn-spacing);text-transform:uppercase}
+.cmd-palette-item{display:flex;align-items:baseline;gap:var(--sp-10);padding:var(--sp-4) 0;cursor:pointer}
+.cmd-palette-item:hover,.cmd-palette-item.cmd-active{background:var(--c-grey2)}
+.cmd-palette-cmd{color:var(--tx-primary);font-family:var(--typo-input-font);font-size:var(--typo-input-size);font-weight:600;min-width:60px}
+.cmd-palette-desc{color:var(--tx-muted);font-family:var(--typo-input-font);font-size:12px}
+
 /* ═══════════════════════════════════════════════════════════════
-   CHAT.CSS — Additions for chat.js dynamic elements
+   Chat — Additions for chat.js dynamic elements
    APPEND these rules to the END of your existing chat.css
    ═══════════════════════════════════════════════════════════════ */
 

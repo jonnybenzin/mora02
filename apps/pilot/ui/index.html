@@ -2,12 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>MORA02 Pilot</title>
-<link rel="stylesheet" href="css/design-tokens.css">
-<link rel="stylesheet" href="css/pilot.css">
-<link rel="stylesheet" href="css/chat.css">
-<link rel="stylesheet" href="css/tools.css">
+<link rel="stylesheet" href="css/design-tokens.css?v=m6">
+<link rel="stylesheet" href="css/pilot.css?v=m6">
+<link rel="stylesheet" href="css/chat.css?v=m6">
+<link rel="stylesheet" href="css/tools.css?v=m10">
+<link rel="stylesheet" href="css/m2-loader.css?v=m1">
+<link rel="stylesheet" href="css/mobile.css?v=m6">
 <link rel="apple-touch-icon" href="/pilot/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -19,7 +21,7 @@
 <div id="sprite-mount"></div>
 
 <div class="app">
-<nav class="sb" id="sb">
+<nav class="sb c" id="sb">
   <div class="sb-head"><div class="sb-logo">
     <img class="logo-f" src="icons/logo-full.svg" alt="MORA02" width="140" height="20">
     <img class="logo-s" src="icons/logo-small.svg" alt="M2" width="20" height="44">
@@ -47,11 +49,17 @@
     <div class="sec open"><div class="sec-h" data-action="toggle-section"><div class="sec-l"><div class="sec-ico" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="sec-lbl">Apps</span></div><div class="sec-r"><div class="sec-chev"><svg fill="currentColor"><use href="icons/sprite.svg#i-chev"/></svg></div></div></div>
     <div class="sec-body">
       <div class="mi" data-action="navigate" data-page="imagegen"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">IMAGE GEN</span></div></div>
+      <div class="mi" data-action="navigate" data-page="expander"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">EXPANDER</span></div></div>
       <div class="mi" data-action="navigate" data-page="gifer"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">GIFER</span></div></div>
       <div class="mi" data-action="navigate" data-page="clipper"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">CLIPPER</span></div></div>
       <div class="mi" data-action="navigate" data-page="typer"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">TYPER</span></div></div>
+      <div class="mi" data-action="navigate" data-page="pixeltext"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">PIXELTEXT</span></div></div>
       <div class="mi" data-action="navigate" data-page="excalidraw"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">EXCALIDRAW</span></div></div>
-      <div class="mi dis"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">VIDEO GEN</span></div><div class="mi-r"><span class="mi-badge">COMING SOON</span></div></div>
+      <div class="mi" data-action="navigate" data-page="video-generate"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">VIDEO GEN</span></div></div>
+      <div class="mi" data-action="navigate" data-page="ttsgen"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-audio"/></svg></div><span class="mi-lbl">TTS GEN</span></div></div>
+      <div class="mi" data-action="navigate" data-page="musicgen"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-music"/></svg></div><span class="mi-lbl">MUSIC GEN</span></div></div>
+      <div class="mi" data-action="navigate" data-page="post"><div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg></div><span class="mi-lbl">POST EDITOR</span></div></div>
+      <div class="mi" data-action="external" data-url="http://mora02.local:8101"><div class="mi-l"><div class="mi-ico"><svg fill="none" stroke="var(--c-teal)" stroke-width="1.4" viewBox="0 0 16 16"><path d="M3 13l2-5L11 3l2 2-5 6z"/><path d="M10 4l2 2"/></svg></div><span class="mi-lbl">PENPOT</span></div></div>
     </div></div>
 
     <!-- Library -->
@@ -79,8 +87,9 @@
     <div class="istrip-spacer"></div>
     <div class="si" id="si-llm" style="color:var(--m-qwen)"><svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="select-llm" data-model="qwen" data-color="m-qwen"><div class="mi-l"><span class="mi-lbl">QWEN</span></div></div><div class="mi" data-action="select-llm" data-model="haiku" data-color="m-haiku"><div class="mi-l"><span class="mi-lbl">HAIKU</span></div><div class="mi-r">€</div></div><div class="mi" data-action="select-llm" data-model="sonnet" data-color="m-sonnet"><div class="mi-l"><span class="mi-lbl">SONNET</span></div><div class="mi-r">€€</div></div><div class="mi" data-action="select-llm" data-model="opus" data-color="m-opus"><div class="mi-l"><span class="mi-lbl">OPUS</span></div><div class="mi-r">€€€</div></div></div></div></div>
     <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-persona"/></svg><div class="si-fly"><div class="si-fly-in" id="persona-fly"><!-- Filled by app.js --></div></div></div>
-    <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="navigate" data-page="imagegen"><div class="mi-l"><span class="mi-lbl">IMAGE GEN</span></div></div><div class="mi" data-action="navigate" data-page="gifer"><div class="mi-l"><span class="mi-lbl">GIFER</span></div></div><div class="mi" data-action="navigate" data-page="clipper"><div class="mi-l"><span class="mi-lbl">CLIPPER</span></div></div><div class="mi" data-action="navigate" data-page="typer"><div class="mi-l"><span class="mi-lbl">TYPER</span></div></div><div class="mi" data-action="navigate" data-page="excalidraw"><div class="mi-l"><span class="mi-lbl">EXCALIDRAW</span></div></div></div></div></div>
+    <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-apps"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="navigate" data-page="imagegen"><div class="mi-l"><span class="mi-lbl">IMAGE GEN</span></div></div><div class="mi" data-action="navigate" data-page="gifer"><div class="mi-l"><span class="mi-lbl">GIFER</span></div></div><div class="mi" data-action="navigate" data-page="clipper"><div class="mi-l"><span class="mi-lbl">CLIPPER</span></div></div><div class="mi" data-action="navigate" data-page="typer"><div class="mi-l"><span class="mi-lbl">TYPER</span></div></div><div class="mi" data-action="navigate" data-page="pixeltext"><div class="mi-l"><span class="mi-lbl">PIXELTEXT</span></div></div><div class="mi" data-action="navigate" data-page="excalidraw"><div class="mi-l"><span class="mi-lbl">EXCALIDRAW</span></div></div><div class="mi" data-action="navigate" data-page="video-generate"><div class="mi-l"><span class="mi-lbl">VIDEO GEN</span></div></div><div class="mi" data-action="navigate" data-page="ttsgen"><div class="mi-l"><span class="mi-lbl">TTS GEN</span></div></div><div class="mi" data-action="navigate" data-page="musicgen"><div class="mi-l"><span class="mi-lbl">MUSIC GEN</span></div></div><div class="mi" data-action="navigate" data-page="post"><div class="mi-l"><span class="mi-lbl">POST EDITOR</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8101"><div class="mi-l"><span class="mi-lbl">PENPOT</span></div></div></div></div></div>
     <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-library"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="navigate" data-page="wiki"><div class="mi-l"><span class="mi-lbl">WIKI</span></div></div><div class="mi" data-action="navigate" data-page="files"><div class="mi-l"><span class="mi-lbl">FILES</span></div></div></div></div></div>
+    <div class="si bucket-si" id="bucket-si" style="color:var(--c-orange);display:none"><svg fill="currentColor" viewBox="0 0 16 16"><path d="M2 4h12v1H2zm1 2h10l-.8 8H3.8zm3 2v4h1V8zm3 0v4h1V8z"/></svg><span class="bucket-badge" id="bucket-badge" style="display:none">0</span></div>
     <div class="si-sep"></div>
     <div class="si" style="color:var(--tx-muted)"><svg fill="currentColor"><use href="icons/sprite.svg#i-core"/></svg><div class="si-fly"><div class="si-fly-in"><div class="mi" data-action="navigate" data-page="dashboard"><div class="mi-l"><span class="mi-lbl">DASHBOARD</span></div></div><div class="mi" data-action="navigate" data-page="xray"><div class="mi-l"><span class="mi-lbl">X RAY</span></div></div><div class="mi" data-action="navigate" data-page="styleguide"><div class="mi-l"><span class="mi-lbl">STYLE GUIDE</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8085"><div class="mi-l"><span class="mi-lbl">BASEROW</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8090"><div class="mi-l"><span class="mi-lbl">DIFY</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8089"><div class="mi-l"><span class="mi-lbl">ACTIVE PIECES</span></div></div><div class="mi" data-action="external" data-url="http://mora02.local:8188"><div class="mi-l"><span class="mi-lbl">COMFY UI</span></div></div></div></div></div>
   </div>
@@ -90,10 +99,10 @@
 </nav>
 
 <main class="main">
-  <button class="tog" id="tog" data-action="toggle-sidebar"><svg fill="currentColor"><use href="icons/sprite.svg#i-arrow-l"/></svg></button>
+  <button class="tog" id="tog" data-action="toggle-sidebar" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-arrow-r"/></svg></button>
 
   <div class="mob-bar">
-    <button class="mob-hamburger" data-action="open-mobile"><svg fill="currentColor"><use href="icons/sprite.svg#i-hamburger"/></svg></button>
+    <button class="mob-hamburger" data-action="open-mobile" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-hamburger"/></svg></button>
     <img src="icons/logo-m2-horizontal.svg" class="mob-logo-img" alt="M2">
   </div>
 
@@ -102,27 +111,129 @@
     <!-- Homepage (default) — replaced when navigating -->
     <div class="hero" id="hero"><canvas id="lc"></canvas></div>
     <div class="home-in">
+      <div class="cmd-palette" id="home-cmd-palette" style="display:none"></div>
       <textarea class="home-inp" rows="1" placeholder="Whats up today?" autofocus></textarea>
       <div class="home-in-row">
-        <button class="btn-at" data-action="home-attach"><svg fill="currentColor"><use href="icons/sprite.svg#i-plus"/></svg></button>
+        <button class="btn-at" data-action="home-attach" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-plus"/></svg></button>
         <div style="flex:1"></div>
-        <button class="btn-send"><svg fill="currentColor"><use href="icons/sprite.svg#i-arrow-up"/></svg></button>
+        <button class="btn-send" data-action="home-send"><svg fill="currentColor"><use href="icons/sprite.svg#i-arrow-up"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bucket Float Button (left edge, visible when items > 0) -->
+  <button class="bucket-float" id="bucket-float" style="display:none" tabindex="-1">
+    <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 4h12v1H2zm1 2h10l-.8 8H3.8zm3 2v4h1V8zm3 0v4h1V8z"/></svg>
+    <span class="bucket-badge" id="bucket-badge-float" style="display:none">0</span>
+  </button>
+
+  <!-- Feedback Float Button (right edge, always visible) -->
+  <button class="fb-float" id="fb-float" data-action="open-feedback" tabindex="-1">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 3h12v8H5l-3 3V3z"/><path d="M5 6h6M5 8.5h4"/></svg>
+  </button>
+
+  <!-- Feedback Modal -->
+  <div class="fb-overlay" id="fb-overlay">
+    <div class="fb-panel">
+      <div class="fb-head">
+        <span class="fb-title">FEEDBACK</span>
+        <button class="fb-close" data-action="close-feedback"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </div>
+
+      <div class="fb-body">
+        <div class="fl-grid-2">
+          <div class="fl-field">
+            <label class="fl-label">Type</label>
+            <select class="fl-select" id="fb-type">
+              <option value="bug">Bug</option>
+              <option value="ui-ux">UI / UX</option>
+              <option value="feature">Feature Idea</option>
+            </select>
+          </div>
+          <div class="fl-field">
+            <label class="fl-label">Severity</label>
+            <select class="fl-select" id="fb-severity">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="fl-field">
+          <label class="fl-label">Description</label>
+          <textarea class="fl-input fb-desc" id="fb-desc" rows="4" placeholder="What's wrong or could be better?"></textarea>
+        </div>
+
+        <div class="fb-screenshot-area">
+          <div class="fb-screenshot-row">
+            <button class="fb-btn-secondary" data-action="fb-capture">SCREENSHOT</button>
+            <span class="fb-screenshot-status" id="fb-screenshot-status"></span>
+          </div>
+          <div class="fb-screenshot-preview" id="fb-screenshot-preview" style="display:none">
+            <img id="fb-screenshot-img" alt="screenshot">
+            <button class="fb-screenshot-remove" data-action="fb-remove-screenshot"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+        </div>
+
+        <div class="fb-meta" id="fb-meta">
+          <!-- Auto-filled: page, session, model, persona -->
+        </div>
+      </div>
+
+      <div class="fb-foot">
+        <button class="fb-btn-primary" data-action="fb-submit">SEND FEEDBACK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bucket Overlay -->
+  <div class="bucket-overlay" id="bucket-overlay">
+    <div class="bucket-panel">
+      <div class="bucket-header">
+        <span class="bucket-title">BUCKET</span>
+        <div class="bucket-header-btns">
+          <button class="bucket-header-btn" id="bucket-save-btn">SAVE</button>
+          <button class="bucket-header-btn" id="bucket-load-btn">LOAD</button>
+          <button class="bucket-header-btn" id="bucket-clear">CLEAR</button>
+          <button class="bucket-close-btn" id="bucket-close"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+        </div>
+      </div>
+      <!-- Save form (hidden by default) -->
+      <div class="bucket-save-form" id="bucket-save-form" style="display:none">
+        <input class="bucket-save-input" id="bucket-save-name" type="text" placeholder="Bucket name...">
+        <button class="bucket-save-confirm" id="bucket-save-confirm">SAVE BUCKET</button>
+      </div>
+      <!-- Saved buckets list (hidden by default) -->
+      <div class="bucket-saved-list" id="bucket-saved-list" style="display:none"></div>
+      <div class="bucket-grid" id="bucket-grid">
+        <div class="bucket-empty">Bucket is empty</div>
       </div>
     </div>
   </div>
 </main>
 </div>
 
+<script src="js/m2-loader.js?v=m1"></script>
 <script src="js/marked.min.js"></script>
-<script src="js/chat.js"></script>
-<script src="js/tools.js"></script>
-<script src="js/imagegen.js"></script>
-<script src="js/settings.js"></script>
-<script src="js/files.js"></script>
-<script src="js/wiki.js"></script>
-<script src="js/dashboard.js"></script>
-<script src="js/styleguide.js"></script>
-<script src="js/app.js"></script>
+<script src="js/vendor/html2canvas.min.js"></script>
+<script src="js/llm.js?v=m6"></script>
+<script src="js/chat.js?v=m10"></script>
+<script src="js/tools.js?v=m10"></script>
+<script src="js/imagegen.js?v=m10"></script>
+<script src="js/expander.js?v=m2"></script>
+<script src="js/videogen.js?v=m10"></script>
+<script src="js/pixeltext.js?v=m10"></script>
+<script src="js/bucket.js?v=m1"></script>
+<script src="js/ttsgen.js?v=m1"></script>
+<script src="js/musicgen.js?v=m1"></script>
+<script src="js/post.js?v=m11"></script>
+<script src="js/settings.js?v=m8"></script>
+<script src="js/files.js?v=m8"></script>
+<script src="js/wiki.js?v=m8"></script>
+<script src="js/dashboard.js?v=m9"></script>
+<script src="js/styleguide.js?v=m8"></script>
+<script src="js/app.js?v=m8"></script>
 <script src="js/logo.js"></script>
 <div class="mob-ov" id="mob-ov">
   <div class="mob-dr">
