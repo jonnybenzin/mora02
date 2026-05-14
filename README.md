@@ -1,10 +1,10 @@
-# Mora02
+# mora02
 
 A locally-hosted creative AI factory I run on a single workstation. Around 26 Docker containers stitched together with a fair amount of duct tape.
 
 ## What is this
 
-Mora02 is my one-machine pipeline for creative work:
+mora02 is a one-machine pipeline for creative work:
 
 - Chat with a **Pilot bot** that routes prompts to the right model (local Qwen or Claude in the cloud) and remembers context across sessions
 - Generate images and short videos via **ComfyUI** workflows
@@ -14,13 +14,13 @@ Mora02 is my one-machine pipeline for creative work:
 - Run multi-agent workflows in **Dify** when chains get too gnarly for the Pilot
 - Use **Penpot** + **ExcaliDraw** for design work, all on the same machine
 
-The whole thing comes up with `docker compose up -d`. There's no SaaS in the loop except for the Anthropic API (and even that's behind a router that prefers local Qwen first).
+The whole thing comes up with `docker compose up -d`. There's no cloud services in the loop except for the Anthropic API and gemini API (nano banana). Both available only when actively selected.
 
 ## Why does this exist
 
-I wanted a creative environment that doesn't leak my data to ten different cloud providers, doesn't get arbitrarily expensive when I'm experimenting, and stays available even when half the internet is down. Building it has also been the most fun side project I've worked on in years.
+My long term goal is to create machine or a chain of machines (call it a factory) that supports creative work in a good way. What "in a good way" exactly means is to be explored. I want an environment that is open, that doesn't leak data to ten different cloud providers, doesn't get arbitrarily expensive when experimenting, and stays available even when half the internet is down. Building it has also been the most fun side project I've worked on in years.
 
-## What's inside the box
+## What's inside
 
 | Service | What it does | Port |
 |---|---|---|
@@ -91,11 +91,9 @@ Won't run unmodified on anything significantly smaller, especially without a CUD
 
 Honestly, probably not without surgery. This is my personal lab, not a deployable product. The Compose file has paths hardcoded under `/opt/mora02/`, several services assume the `mora02.local` hostname, and the LLM profiles expect specific Qwen model files in place.
 
-If you want to fork and adapt, start with `docker/.env.example` and `docker/docker-compose.yml`. The architecture notes and build commands are in [`CLAUDE.md`](CLAUDE.md).
-
 ## Status
 
-Phase 0 of a longer refactor just shipped (this commit) — secrets out of code, env-driven config, history rewritten. Next up: extracting shared logic into a `mora02_core` Python library so the apps stop duplicating Baserow / LLM / ComfyUI clients. Single-author, evenings and weekends.
+Phase 0 of a longer refactor just shipped (this commit) — secrets out of code, env-driven config, history rewritten. Next up: extracting shared logic into a `mora02_core` Python library so the apps stop duplicating Baserow / LLM / ComfyUI clients. Single-author, vibe coded on evenings and weekends.
 
 ## License
 
