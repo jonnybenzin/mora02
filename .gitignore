@@ -87,3 +87,12 @@ docker/activepieces/
 
 # Screendesign (Playwright-Screenshots & Design-Input)
 apps/pilot/ui/screendesign/
+
+# Personal / not for public repo (decided 2026-05-14)
+CLAUDE.md
+apps/matrix-tool/
+apps/chatterbox-api/
+docs/system/
+docs/claude_inputs/
+x_briefing/
+llm-switch/
