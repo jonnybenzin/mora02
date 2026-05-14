@@ -68,7 +68,6 @@ None of these are in the repo (weights are huge, license-bound, or both). They l
 - Video: **Wan2.1 I2V 14B** (480p + 720p), **AnimateDiff** (mm_sd_v14)
 - LoRAs: lightx2v T2V/I2V step-distilled, add-detail-xl, IP-Adapter FaceID Plus v2
 - Auxiliary: **CLIP ViT-H/14** (LAION-2B), **umt5-xxl** text encoder, **4x-UltraSharp** upscaler
-- Detection: **YOLOv8m** (face), **SAM ViT-B** (segmentation)
 
 **Speech & Audio:**
 - **Piper** (German TTS, local)
