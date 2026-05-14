@@ -14,7 +14,7 @@ mora02 is a one-machine pipeline for creative work:
 - Run multi-agent workflows in **Dify** when chains get too gnarly for the Pilot
 - Use **Penpot** + **ExcaliDraw** for design work, all on the same machine
 
-The whole thing comes up with `docker compose up -d`. There's no cloud services in the loop except for the Anthropic API and gemini API (nano banana). Both available only when actively selected.
+The whole thing comes up with `docker compose up -d`. There's no cloud services in the loop except for the Anthropic API and gemini API (nano banana). Both triggered only when actively selected.
 
 ## Why does this exist
 
