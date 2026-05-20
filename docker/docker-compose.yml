@@ -211,8 +211,10 @@ services:
     ports:
       - "8188:8188"
     environment:
-      - CLI_ARGS=--listen 0.0.0.0 --port 8188 --highvram --preview-method none
+      - CLI_ARGS=--listen 0.0.0.0 --port 8188 --normalvram --reserve-vram 1.0 --preview-method none
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - FAL_KEY=${FAL_KEY}
     volumes:
       - /opt/mora02/volumes:/data
       - /opt/mora02/docker/ComfyUI/workflows:/app/ComfyUI/user/default/workflows
@@ -940,8 +942,8 @@ services:
 # ============================================================================
   pilot:
     build:
-      context: ../apps/pilot
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: apps/pilot/Dockerfile
     image: pilot:latest
     container_name: pilot
     restart: unless-stopped
@@ -964,12 +966,20 @@ services:
       # LLM switcher state (read-only): pilot reads current profile from here
       - /opt/mora02/llm-switch:/llm-switch:ro
     environment:
-      - PILOT_ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - PILOT_BASEROW_TOKEN=${BASEROW_TOKEN}
       - PILOT_DIFY_API_KEY=${DIFY_APP_KEY_DAILY}
-      - PILOT_QWEN_URL=http://llama-server:8080
       - PILOT_DIFY_API_URL=http://dify-api-new:5001
       - PILOT_SCRIPT_RUNNER_URL=http://script-runner:8096
+      # mora02_core library env (no PILOT_ prefix)
+      - BASEROW_TOKEN=${BASEROW_TOKEN}
+      - BASEROW_URL=http://baserow:80
+      - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
+      - QWEN_URL=http://llama-server:8080
+      - COMFYUI_URL=http://comfyui:8188
+      - COMFYUI_INPUT_DIR=/comfyui-input
+      - COMFYUI_WORKFLOWS_DIR=/workflows
+      - COMFYUI_STYLES_DIR=/data/styles
     networks:
       - mora02-net
     healthcheck:

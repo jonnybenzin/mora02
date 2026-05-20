@@ -9,11 +9,11 @@ from sse_starlette.sse import EventSourceResponse
 from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT, get_local_profile_label
 from router import classify_input
 from session_manager import store
-from llm_client import stream_llm
+from mora02_core.llm import stream_llm
 from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search, call_pixeltext
-from baserow_client import (
+from mora02_core.baserow import (
     write_session, read_last_sessions, read_all_sessions,
-    read_context, read_known_issues, BASEROW_HEADERS,
+    read_context, read_known_issues, headers as _baserow_headers,
     format_sessions_context, format_known_issues, format_context_table,
     read_personas, create_persona_row, increment_persona_usage, update_persona,
     write_feedback, list_feedback, update_feedback,
@@ -22,6 +22,11 @@ from baserow_client import (
     update_style_pack, delete_style_pack,
     list_posts, create_post, update_post,
 )
+
+# Backward-compat alias: app.py has ~9 spots doing direct httpx calls with
+# BASEROW_HEADERS. Phase 1.x future cleanup will migrate them to api.update/
+# api.query/etc. For now, evaluate once at startup like the old client did.
+BASEROW_HEADERS = _baserow_headers()
 
 app = FastAPI(title="Pilot Bot", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
@@ -54,10 +59,10 @@ def get_system_prompt(session_id: str, model_key: str) -> str:
     s = get_session_settings(session_id)
     base = s["system_prompt"]
     model = MODELS[model_key]
-    # For the local LLM, the "qwen" routing key is a fixed label, but the
-    # actual loaded model rotates via the profile switcher. Read the real
-    # profile from /llm-switch/current.json so the identity block doesn't lie.
-    if model_key == "qwen":
+    # For local LLMs the routing key is fixed but the actual loaded model
+    # rotates via the profile switcher — read the real name from
+    # /llm-switch/current.json so the identity block doesn't lie.
+    if model["type"] == "openai_compatible":
         identity_name = get_local_profile_label()
     else:
         identity_name = model["name"]
@@ -514,7 +519,10 @@ async def end_session(sid: str, request: Request):
             "result": "Session too short to summarize (< 2 messages)."
         })
 
-    model_key = session.current_model if session.current_model != "qwen" else "haiku"
+    # Summaries always run via a cloud model — local LLMs (openai_compatible)
+    # don't reliably emit valid JSON. Fall back to haiku for any local profile.
+    current = session.current_model
+    model_key = current if MODELS.get(current, {}).get("type") != "openai_compatible" else "haiku"
     history = session.get_history_for_llm()
     history.append({"role": "user", "content": END_SESSION_PROMPT})
 
@@ -1009,12 +1017,10 @@ async def styles_list_folders():
 
 async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: int):
     """Increment monthly costs in bot_costs table (574) after every paid API call."""
-    if model_key == "qwen" or (tokens_in == 0 and tokens_out == 0):
+    m = MODELS.get(model_key)
+    if not m or m.get("type") == "openai_compatible" or (tokens_in == 0 and tokens_out == 0):
         return
     import httpx as _httpx
-    m = MODELS.get(model_key)
-    if not m:
-        return
     cost = (tokens_in / 1_000_000) * m["cost_input_per_1m"] +            (tokens_out / 1_000_000) * m["cost_output_per_1m"]
     if cost == 0:
         return
@@ -1216,8 +1222,12 @@ async def chat(sid: str, request: Request):
         session.add_user_message(user_message)
         result_data = await call_comfyui(classification["raw"])
         if result_data.get("subtype") == "image_variants":
-            session.add_assistant_message(
-                f"Generated {result_data['count']} variants for: {result_data['prompt']}", model="comfyui")
+            if result_data.get("count", 0) == 0:
+                session.add_assistant_message(
+                    result_data.get("error", "Image generation failed"), model="comfyui")
+            else:
+                session.add_assistant_message(
+                    f"Generated {result_data['count']} variants for: {result_data['prompt']}", model="comfyui")
             await persist_image_cost_to_baserow(result_data.get("flow", ""), result_data.get("count", 0))
             return JSONResponse(content={"type": "image_variants", **result_data})
         if result_data.get("subtype") == "video_result":
@@ -1228,6 +1238,10 @@ async def chat(sid: str, request: Request):
             session.add_assistant_message(
                 f"Expanded image to {result_data.get('target', '1920x1920')}", model="comfyui")
             return JSONResponse(content={"type": "expand_result", **result_data})
+        if result_data.get("subtype") == "upscale_result":
+            session.add_assistant_message(
+                f"Upscaled image by {result_data.get('factor', 2)}x", model="comfyui")
+            return JSONResponse(content={"type": "upscale_result", **result_data})
         text = result_data.get("data", str(result_data))
         session.add_assistant_message(text, model="comfyui")
         return JSONResponse(content={"type": "command_result", "result": text, "model": "comfyui"})

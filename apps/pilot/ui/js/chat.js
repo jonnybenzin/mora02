@@ -258,9 +258,11 @@ function renderComfyResult(data) {
   var html = msgHeadHTML('COMFYUI', 'var(--c-purple)') + '<div class="msg-body">';
   if (data.result) html += '<p>' + escapeHTML(data.result) + '</p>';
   if (data.prompt) html += '<p>' + escapeHTML(data.prompt) + '</p>';
+  if (data.error) html += '<p style="color:var(--c-red,#e66)">' + escapeHTML(data.error) + '</p>';
   if (data.images && data.images.length) {
     html += '<div class="stock-grid">';
-    data.images.forEach(function(url, idx) {
+    data.images.forEach(function(img, idx) {
+      var url = (typeof img === 'string') ? img : (img && img.url) || '';
       html += '<div class="stock-item" data-fullurl="' + url + '">' +
         '<img src="' + url + '" loading="lazy">' +
         '<div class="stock-meta"><button class="bucket-add-btn bucket-add-btn-sm" data-bucket-add data-bucket-type="image" data-bucket-url="' + url + '" data-bucket-source="comfyui" data-bucket-label="ComfyUI #' + (idx + 1) + '">+BUCKET</button></div>' +
@@ -374,6 +376,7 @@ var TOOL_WIDGETS = [
   { match: '/post',  page: 'post',           label: 'POST EDITOR',  init: 'initPost' },
   { match: '/img',   page: 'imagegen',       label: 'IMAGE GEN',    init: 'initImageGen' },
   { match: '/expand', page: 'expander',     label: 'EXPANDER',     init: 'initExpander' },
+  { match: '/upscale', page: 'upscaler',    label: 'UPSCALER',     init: 'initUpscaler' },
   { match: '/vid',   page: 'video-generate', label: 'VIDEO GEN',    init: 'initVideoGen' },
   { match: '/gif',   page: 'gifer',          label: 'GIFER',        init: 'initGifer' },
   { match: '/clip',  page: 'clipper',        label: 'CLIPPER',      init: 'initClipper' },
@@ -513,6 +516,8 @@ function setupScrollObserver() {
 
 var CMD_LIST = [
   { cmd: '/img',    desc: 'Generate image via ComfyUI',                    group: 'AI Generate' },
+  { cmd: '/expand', desc: 'Outpaint image to 1920x1920 via FLUX',          group: 'AI Generate' },
+  { cmd: '/upscale',desc: 'Upscale image 2-4x (UltraSharp + SDXL tile)',    group: 'AI Generate' },
   { cmd: '/vid',    desc: 'Generate video via ComfyUI',                    group: 'AI Generate' },
   { cmd: '/pix',    desc: 'Render 3D pixel-cube text in Blender',          group: 'Creative' },
   { cmd: '/gif',    desc: 'Create GIF from images',                        group: 'Creative' },

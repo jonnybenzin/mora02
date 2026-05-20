@@ -1,50 +1,15 @@
-import json
-from pathlib import Path
-from typing import Optional
-
 from pydantic_settings import BaseSettings
 
-# ----------------------------------------------------------------------------
-# LLM profile state — single source of truth is /llm-switch/current.json,
-# written by /opt/mora02/scripts/llm-switch.sh on every successful switch.
-# This file is mounted read-only into the pilot container.
-# ----------------------------------------------------------------------------
-
-_LLM_CURRENT_STATE_FILE = Path("/llm-switch/current.json")
-
-# Human-readable labels, must stay in sync with
-# apps/script-runner/app/scripts/llm_switcher.py PROFILES.
-_LOCAL_PROFILE_LABELS = {
-    "qwen3-14b": "Qwen3 14B",
-    "qwen3-8b": "Qwen3 8B",
-    "qwen25-7b": "Qwen2.5 7B",
-    "qwen25-coder": "Qwen2.5 Coder",
-    "nous-hermes": "Nous-Hermes",
-    "magistral": "Magistral",
-}
-
-
-def get_local_profile_name() -> Optional[str]:
-    """Return the currently active local-LLM profile key, or None if unknown."""
-    try:
-        data = json.loads(_LLM_CURRENT_STATE_FILE.read_text())
-        name = data.get("profile")
-        return name if isinstance(name, str) and name else None
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
-
-
-def get_local_profile_label() -> str:
-    """Return a human label for the current local profile, or 'Local LLM'."""
-    name = get_local_profile_name()
-    if not name:
-        return "Local LLM"
-    return _LOCAL_PROFILE_LABELS.get(name, name)
+# Re-exports from mora02_core.llm (Phase 1.3) — legacy callers do
+# `from config import MODELS`/`get_local_profile_label`; keep those working.
+from mora02_core.llm import (  # noqa: F401
+    MODELS,
+    get_local_profile_label,
+    get_local_profile_name,
+)
 
 
 class Settings(BaseSettings):
-    qwen_url: str = "http://mora02.local:8080"
-    anthropic_api_key: str = ""
     dify_api_url: str = "http://dify-new-api:5001"
     dify_api_key: str = ""
     script_runner_url: str = "http://script-runner:8096"
@@ -72,42 +37,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
-MODELS = {
-    "qwen": {
-        "name": "Qwen3-14B",
-        "endpoint": f"{settings.qwen_url}/v1/chat/completions",
-        "type": "openai_compatible",
-        "cost_input_per_1m": 0.0,
-        "cost_output_per_1m": 0.0,
-        "supports_vision": False,
-        "icon": "\U0001f3e0",
-    },
-    "haiku": {
-        "name": "claude-haiku-4-5-20251001",
-        "type": "anthropic",
-        "cost_input_per_1m": 0.80,
-        "cost_output_per_1m": 4.00,
-        "supports_vision": True,
-        "icon": "\u26a1",
-    },
-    "sonnet": {
-        "name": "claude-sonnet-4-5-20250929",
-        "type": "anthropic",
-        "cost_input_per_1m": 3.00,
-        "cost_output_per_1m": 15.00,
-        "supports_vision": True,
-        "icon": "\U0001f3af",
-    },
-    "opus": {
-        "name": "claude-opus-4-6",
-        "type": "anthropic",
-        "cost_input_per_1m": 15.00,
-        "cost_output_per_1m": 75.00,
-        "supports_vision": True,
-        "icon": "\U0001f9e0",
-    },
-}
 
 DEFAULT_SYSTEM_PROMPT = """You are the Pilot Bot of the Mora02 Creative Factory.
 

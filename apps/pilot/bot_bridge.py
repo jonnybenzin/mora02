@@ -3,6 +3,40 @@ import json
 from config import settings
 
 
+def _wrap_image_assets(result: dict) -> dict:
+    """Mirror result['assets'] (list[Asset], phase 1.4) into result['images']
+    so the chat frontend keeps its {filename,url,variant} shape.
+
+    Drops the assets key from the result — JSONResponse can't serialize
+    dataclasses, and the frontend doesn't need them.
+    """
+    assets = result.pop("assets", [])
+    images = []
+    for a in assets:
+        item = {
+            "filename": a.filename,
+            "url": a.metadata.get("url", str(a.path)),
+        }
+        if "variant" in a.metadata:
+            item["variant"] = a.metadata["variant"]
+        images.append(item)
+    result["images"] = images
+    return result
+
+
+def _wrap_video_asset(result: dict) -> dict:
+    """Same idea as _wrap_image_assets, but the video subtype expects
+    flat video_url + filename instead of an images list."""
+    assets = result.pop("assets", [])
+    if assets:
+        a = assets[0]
+        result["video_url"] = a.metadata.get("url", str(a.path))
+        result["filename"] = a.filename.split("/")[-1]
+    else:
+        result.setdefault("video_url", None)
+    return result
+
+
 async def call_runner(command: str) -> str:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
@@ -63,6 +97,8 @@ async def call_comfyui(command: str) -> dict:
         return await call_comfyui_video(command)
     if stripped.startswith("/expand"):
         return await call_comfyui_expand(command)
+    if stripped.startswith("/upscale") or stripped.startswith("/up "):
+        return await call_comfyui_upscale(command)
     from comfyui_client import (
         generate_images, parse_img_command,
         prepare_style_images_via_api, IPADAPTER_FLOWS,
@@ -80,7 +116,7 @@ async def call_comfyui(command: str) -> dict:
             from comfyui_client import resolve_flow
             resolved_flow = resolve_flow(parsed["flow"])
             if resolved_flow in IPADAPTER_FLOWS:
-                from baserow_client import get_style_pack_by_name
+                from mora02_core.baserow import get_style_pack_by_name
                 pack = await get_style_pack_by_name(style_name)
                 if pack and pack.get("source_path"):
                     style_images = await prepare_style_images_via_api(
@@ -101,11 +137,12 @@ async def call_comfyui(command: str) -> dict:
             seed=parsed.get("seed"),
             upscale=parsed.get("upscale", False),
             facedetail=parsed.get("facedetail", False),
+            testrun=parsed.get("testrun", False),
             style_images=style_images,
             style_weight=style_weight,
             style_type=style_type,
         )
-        return result
+        return _wrap_image_assets(result)
     except Exception as e:
         return {"subtype": "text", "data": f"ComfyUI Error: {str(e)}"}
 
@@ -178,7 +215,7 @@ async def call_comfyui_video(command: str) -> dict:
             start_image=parsed.get("start_image"),
             end_image=parsed.get("end_image"),
         )
-        return result
+        return _wrap_video_asset(result)
     except Exception as e:
         return {"subtype": "text", "data": f"ComfyUI Video Error: {str(e)}"}
 
@@ -231,6 +268,73 @@ async def call_comfyui_expand(command: str) -> dict:
             steps=steps,
             feathering=feathering,
         )
-        return result
+        return _wrap_image_assets(result)
     except Exception as e:
         return {"subtype": "text", "data": f"Expander Error: {str(e)}"}
+
+
+async def call_comfyui_upscale(command: str) -> dict:
+    from comfyui_client import upscale_image
+    try:
+        # Parse: /upscale [image-url] --factor [2|3|4] --denoise [0.1-0.4]
+        #                  --prompt [hint] --seed [n] --steps [n] --cfg [n]
+        parts = command.strip().split()
+        image_url = ""
+        prompt = ""
+        factor = 2.0
+        denoise = None
+        seed = None
+        steps = None
+        cfg = None
+
+        i = 1  # skip /upscale (or /up)
+        prompt_tokens = []
+        while i < len(parts):
+            p = parts[i].lower()
+            if p.startswith("http") or p.startswith("/comfyui/") or p.startswith("/output/"):
+                image_url = parts[i]
+            elif p == "--prompt" and i + 1 < len(parts):
+                i += 1
+                while i < len(parts) and not parts[i].startswith("--"):
+                    prompt_tokens.append(parts[i])
+                    i += 1
+                prompt = " ".join(prompt_tokens)
+                continue
+            elif p == "--factor" and i + 1 < len(parts):
+                i += 1
+                try: factor = float(parts[i])
+                except ValueError: pass
+            elif p == "--denoise" and i + 1 < len(parts):
+                i += 1
+                try: denoise = float(parts[i])
+                except ValueError: pass
+            elif p == "--seed" and i + 1 < len(parts):
+                i += 1
+                try: seed = int(parts[i])
+                except ValueError: pass
+            elif p == "--steps" and i + 1 < len(parts):
+                i += 1
+                try: steps = int(parts[i])
+                except ValueError: pass
+            elif p == "--cfg" and i + 1 < len(parts):
+                i += 1
+                try: cfg = float(parts[i])
+                except ValueError: pass
+            i += 1
+
+        if not image_url:
+            return {"subtype": "text",
+                    "data": "Usage: /upscale [image-url] --factor [2|3|4] --denoise [0.1-0.4] --prompt [hint] --seed [n]"}
+
+        result = await upscale_image(
+            image_url=image_url,
+            factor=factor,
+            prompt=prompt,
+            denoise=denoise,
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+        )
+        return _wrap_image_assets(result)
+    except Exception as e:
+        return {"subtype": "text", "data": f"Upscaler Error: {str(e)}"}

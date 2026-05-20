@@ -1,0 +1,51 @@
+# Volumes, runtime data, large model files — NOT for any Docker build
+volumes/
+output/
+backups/
+data/
+
+# Knowledge / personal / archive — not in any container
+knowledge/
+docs/
+x_briefing/
+llm-switch/
+
+# AI model weights (huge, license-bound, not for image)
+ai-models/
+ai_models/
+
+# Other apps' build trees (Docker builds each app from repo root but each
+# app should COPY only its own apps/<name>/ — listing here keeps unrelated
+# huge dirs out of the build context send).
+apps/batch-imagegen/
+apps/blender-worker/
+apps/_archive/
+
+# Per-service container data
+docker/ComfyUI/
+docker/penpot/
+docker/activepieces/
+docker/open-webui/
+
+# Git, OS, editor, language caches
+.git/
+.gitignore
+.gitleaks-report.json
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.coverage
+node_modules/
+venv/
+venv_rag/
+scripts/venv/
+.venv/
+.DS_Store
+Thumbs.db
+
+# Personal Claude Code + tooling
+.claude/
+.playwright-mcp/
+CLAUDE.md
