@@ -1,4 +1,5 @@
 import uuid, json, os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List
@@ -11,6 +12,7 @@ from router import classify_input
 from session_manager import store
 from mora02_core.llm import stream_llm
 from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search, call_pixeltext
+from mora02_core.baserow import api as baserow_api
 from mora02_core.baserow import (
     write_session, read_last_sessions, read_all_sessions,
     read_context, read_known_issues, headers as _baserow_headers,
@@ -28,7 +30,84 @@ from mora02_core.baserow import (
 # api.query/etc. For now, evaluate once at startup like the old client did.
 BASEROW_HEADERS = _baserow_headers()
 
-app = FastAPI(title="Pilot Bot", version="0.1.0")
+
+async def _check_schema_drift() -> None:
+    """Boot-check: every MODELS entry needs a `cost_<key>` column in bot_costs.
+
+    Missing columns get reported as `bot_feedback` rows the user sees via
+    `/feedback`, with step-by-step instructions. Existing reminders for
+    columns that have since been added are auto-resolved.
+    """
+    try:
+        live_fields = await baserow_api.list_fields("bot_costs")
+    except Exception as e:
+        print(f"[schema-drift] skipped (Baserow unreachable): {e}")
+        return
+    live_names = {f["name"] for f in live_fields}
+
+    expected = {f"cost_{k}": k for k in MODELS.keys()}
+    missing = {col: k for col, k in expected.items() if col not in live_names}
+
+    try:
+        existing = await baserow_api.query(
+            "bot_feedback",
+            filter={"Type": "missing-schema-column", "Status": "new"},
+            all_pages=True,
+        )
+    except Exception as e:
+        print(f"[schema-drift] couldn't list existing feedback: {e}")
+        existing = []
+
+    existing_by_col: dict[str, int] = {}
+    for row in existing:
+        desc = row.get("Description") or ""
+        for col in expected.keys():
+            if col in desc:
+                existing_by_col[col] = row["id"]
+                break
+
+    for col, model_key in missing.items():
+        if col in existing_by_col:
+            continue
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
+        desc = (
+            f"Baserow Table 574 (bot_costs) fehlt Spalte {col}.\n"
+            f"Das Modell '{model_key}' wurde in lib/.../llm/models.py "
+            f"eingetragen, aber die Kosten-Spalte in Baserow existiert nicht.\n"
+            f"\n"
+            f"→ Was tun:\n"
+            f"  1. http://mora02.local:8085/database/113/table/574 öffnen\n"
+            f"  2. '+' am rechten Tabellen-Rand → 'Number'-Feld anlegen\n"
+            f"  3. Name: {col}\n"
+            f"  4. Dezimalstellen: 6\n"
+            f"  5. Speichern\n"
+            f"\n"
+            f"Sobald die Spalte existiert, verschwindet diese Meldung beim\n"
+            f"nächsten Pilot-Boot automatisch."
+        )
+        await baserow_api.insert("bot_feedback", {
+            "Name": f"[schema] {col} missing — {ts}",
+            "Type": "missing-schema-column",
+            "Severity": "medium",
+            "Description": desc,
+            "Page": "boot-check",
+            "Status": "new",
+        })
+        print(f"[schema-drift] reminder created: {col}")
+
+    for col, row_id in existing_by_col.items():
+        if col not in missing:
+            await baserow_api.update("bot_feedback", row_id, {"Status": "resolved"})
+            print(f"[schema-drift] auto-resolved: {col}")
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    await _check_schema_drift()
+    yield
+
+
+app = FastAPI(title="Pilot Bot", version="0.1.0", lifespan=_lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 

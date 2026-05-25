@@ -167,3 +167,21 @@ async def delete(
             headers=_headers(),
         )
         return resp.status_code == 204
+
+
+async def list_fields(table: str, *, user_id: str = "default") -> list[dict]:
+    """Return live field definitions for the named table.
+
+    Each entry has keys ``id``, ``name``, ``type``. Read-only — for full
+    schema export use the installer module instead.
+    """
+    tid = _table_id(table)
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{_url()}/api/database/fields/table/{tid}/",
+            headers=_headers(),
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        log.warning("list_fields(%s) failed: %d %s", table, resp.status_code, resp.text[:200])
+        return []
