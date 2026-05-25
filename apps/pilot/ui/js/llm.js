@@ -1,12 +1,15 @@
 /* ═══════════════════════════════════════════════════════════════
-   MORA02 PILOT — LLM Profile Module
+   MORA02 PILOT — LLM Profile + Menu Module
    ═══════════════════════════════════════════════════════════════
-   Talks to script-runner at :8096 for local LLM profile switching.
-   Keeps the active profile label in sync across menu and chat
-   rendering. Routing key stays "qwen" — this is purely cosmetic.
+   - Renders the LLM dropdown from Pilot's /models endpoint
+     (single source of truth: lib/.../llm/models.py MODELS dict)
+   - Talks to script-runner at :8096 for local LLM profile switching
+   - Keeps the active local-profile label in sync across menu and
+     chat rendering. Routing key stays "qwen" — purely cosmetic.
    ═══════════════════════════════════════════════════════════════ */
 
 var LLM_API_BASE = 'http://mora02.local:8096';
+var PILOT_API_BASE = (typeof API_BASE !== 'undefined') ? API_BASE : 'http://mora02.local:8098';
 var LLM_FALLBACK_LABEL = 'LOCAL LLM';
 
 // Global state
@@ -14,7 +17,70 @@ window.llmState = {
   profiles: [],         // array of profile objects from script-runner
   current: null,        // current profile object (or null if unknown)
   loaded: false,
+  models: [],           // array of model entries from Pilot /models
 };
+
+/* ─── Render LLM dropdown from /models ───────────────────────── */
+
+async function renderLLMMenu() {
+  var listEl = document.getElementById('llm-list');
+  var flyEl = document.getElementById('llm-fly-list');
+  if (!listEl && !flyEl) return;
+
+  try {
+    var resp = await fetch(PILOT_API_BASE + '/models');
+    if (!resp.ok) throw new Error('status ' + resp.status);
+    window.llmState.models = await resp.json();
+  } catch (e) {
+    console.warn('LLM models load failed:', e);
+    return;
+  }
+
+  function buildMi(m, isFirst, withIcon) {
+    var div = document.createElement('div');
+    div.className = 'mi' + (isFirst ? ' act' : '');
+    div.setAttribute('data-action', 'select-llm');
+    div.setAttribute('data-model', m.key);
+    div.setAttribute('data-color', m.color);
+
+    var left = document.createElement('div');
+    left.className = 'mi-l';
+    if (withIcon) {
+      var ico = document.createElement('div');
+      ico.className = 'mi-ico';
+      ico.style.color = 'var(--' + m.color + ')';
+      ico.innerHTML = '<svg fill="currentColor"><use href="icons/sprite.svg#i-bot"/></svg>';
+      left.appendChild(ico);
+    }
+    var lbl = document.createElement('span');
+    lbl.className = 'mi-lbl';
+    if (isFirst && withIcon) lbl.style.color = 'var(--' + m.color + ')';
+    lbl.textContent = m.label;
+    left.appendChild(lbl);
+    div.appendChild(left);
+
+    if (m.tier) {
+      var right = document.createElement('div');
+      right.className = 'mi-r';
+      right.textContent = m.tier;
+      div.appendChild(right);
+    }
+    return div;
+  }
+
+  if (listEl) {
+    listEl.innerHTML = '';
+    window.llmState.models.forEach(function(m, i) {
+      listEl.appendChild(buildMi(m, i === 0, true));
+    });
+  }
+  if (flyEl) {
+    flyEl.innerHTML = '';
+    window.llmState.models.forEach(function(m, i) {
+      flyEl.appendChild(buildMi(m, i === 0, false));
+    });
+  }
+}
 
 /* ─── Fetch profiles & current ──────────────────────────────── */
 
@@ -95,4 +161,7 @@ async function llmSwitchProfile(profileName) {
 
 /* ─── Init on startup ───────────────────────────────────────── */
 
-llmLoadProfiles();
+(async function llmInit() {
+  await renderLLMMenu();
+  llmLoadProfiles();
+})();

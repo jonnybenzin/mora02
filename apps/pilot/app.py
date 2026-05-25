@@ -292,11 +292,21 @@ async def upload_to_comfyui(image: UploadFile = File(...)):
 
 @app.get("/models")
 async def list_models():
-    return {k: {"name": m["name"], "icon": m["icon"],
-                "supports_vision": m["supports_vision"],
-                "cost_input_per_1m": m["cost_input_per_1m"],
-                "cost_output_per_1m": m["cost_output_per_1m"]}
-            for k, m in MODELS.items()}
+    # Ordered list. Iteration order = UI dropdown order.
+    return [
+        {
+            "key": k,
+            "name": m["name"],
+            "label": m["label"],
+            "color": m["color"],
+            "tier": m["tier"],
+            "icon": m["icon"],
+            "supports_vision": m["supports_vision"],
+            "cost_input_per_1m": m["cost_input_per_1m"],
+            "cost_output_per_1m": m["cost_output_per_1m"],
+        }
+        for k, m in MODELS.items()
+    ]
 
 
 @app.get("/posts/list")

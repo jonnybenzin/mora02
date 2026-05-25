@@ -19,6 +19,10 @@ LOCAL_PROFILE_LABELS = {
     "magistral": "Magistral",
 }
 
+# `label`, `color`, `tier` drive UI rendering. `color` is the CSS-var key
+# (defined in apps/pilot/ui/css/design-tokens.css as `--<color>`).
+# `tier` is a free-form price marker shown right-aligned in the dropdown.
+# Dict iteration order = UI dropdown order.
 MODELS = {
     "qwen": {
         "name": "Qwen3-14B",
@@ -28,6 +32,9 @@ MODELS = {
         "cost_output_per_1m": 0.0,
         "supports_vision": False,
         "icon": "\U0001f3e0",
+        "label": "QWEN",
+        "color": "m-qwen",
+        "tier": "",
     },
     "haiku": {
         "name": "claude-haiku-4-5-20251001",
@@ -36,6 +43,9 @@ MODELS = {
         "cost_output_per_1m": 4.00,
         "supports_vision": True,
         "icon": "⚡",
+        "label": "HAIKU",
+        "color": "m-haiku",
+        "tier": "€",
     },
     "sonnet": {
         "name": "claude-sonnet-4-5-20250929",
@@ -44,6 +54,9 @@ MODELS = {
         "cost_output_per_1m": 15.00,
         "supports_vision": True,
         "icon": "\U0001f3af",
+        "label": "SONNET",
+        "color": "m-sonnet",
+        "tier": "€€",
     },
     "opus": {
         "name": "claude-opus-4-6",
@@ -52,5 +65,8 @@ MODELS = {
         "cost_output_per_1m": 75.00,
         "supports_vision": True,
         "icon": "\U0001f9e0",
+        "label": "OPUS",
+        "color": "m-opus",
+        "tier": "€€€",
     },
 }
