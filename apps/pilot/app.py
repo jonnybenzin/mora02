@@ -10,7 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT, get_local_profile_label
 from router import classify_input
 from session_manager import store
-from mora02_core.llm import stream_llm
+from mora02_core.llm import LOCAL_PROFILE_LABELS, stream_llm
 from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search, call_pixeltext
 from mora02_core.baserow import api as baserow_api
 from mora02_core.baserow import (
@@ -101,9 +101,133 @@ async def _check_schema_drift() -> None:
             print(f"[schema-drift] auto-resolved: {col}")
 
 
+async def _check_profile_label_drift() -> None:
+    """Boot-check: LOCAL_PROFILE_LABELS in lib must match script-runner's
+    PROFILES (the canonical list). Cosmetic drift only — affects the
+    identity-name shown in system prompt — but surfaces as a reminder so
+    new profiles don't lose their human label silently.
+    """
+    import httpx as _httpx
+    try:
+        async with _httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{settings.script_runner_url}/llm/profiles")
+        if resp.status_code != 200:
+            print(f"[profile-drift] skipped: script-runner returned {resp.status_code}")
+            return
+        canonical = resp.json().get("profiles", [])
+    except Exception as e:
+        print(f"[profile-drift] skipped (script-runner unreachable): {e}")
+        return
+
+    canonical_by_name = {p["name"]: p.get("label", p["name"]) for p in canonical}
+    missing_in_lib = {n: lbl for n, lbl in canonical_by_name.items() if n not in LOCAL_PROFILE_LABELS}
+    stale_in_lib = [n for n in LOCAL_PROFILE_LABELS if n not in canonical_by_name]
+    mismatched = {
+        n: (LOCAL_PROFILE_LABELS[n], canonical_by_name[n])
+        for n in LOCAL_PROFILE_LABELS
+        if n in canonical_by_name and LOCAL_PROFILE_LABELS[n] != canonical_by_name[n]
+    }
+
+    try:
+        existing = await baserow_api.query(
+            "bot_feedback",
+            filter={"Type": "profile-label-drift", "Status": "new"},
+            all_pages=True,
+        )
+    except Exception as e:
+        print(f"[profile-drift] couldn't list existing feedback: {e}")
+        existing = []
+
+    existing_by_profile: dict[str, int] = {}
+    for row in existing:
+        desc = row.get("Description") or ""
+        # Heuristic: profile name appears in description as `'<name>'`
+        for name in set(list(canonical_by_name) + list(LOCAL_PROFILE_LABELS)):
+            if f"'{name}'" in desc:
+                existing_by_profile[name] = row["id"]
+                break
+
+    def _make_desc(kind: str, name: str, detail: str) -> str:
+        return (
+            f"LOCAL_PROFILE_LABELS in lib/.../llm/models.py {kind} '{name}'.\n"
+            f"{detail}\n"
+            f"\n"
+            f"→ Was tun:\n"
+            f"  1. /opt/mora02/lib/mora02_core/src/mora02_core/llm/models.py öffnen\n"
+            f"  2. LOCAL_PROFILE_LABELS-Dict editieren (siehe Detail oben)\n"
+            f"  3. Pilot rebuilden: docker compose --profile qwen3-14b up -d --build pilot\n"
+            f"\n"
+            f"Sobald lib + script-runner übereinstimmen, verschwindet diese\n"
+            f"Meldung beim nächsten Pilot-Boot automatisch."
+        )
+
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
+    seen: set[str] = set()
+
+    for name, lbl in missing_in_lib.items():
+        seen.add(name)
+        if name in existing_by_profile:
+            continue
+        await baserow_api.insert("bot_feedback", {
+            "Name": f"[profile] {name} missing label — {ts}",
+            "Type": "profile-label-drift",
+            "Severity": "low",
+            "Description": _make_desc(
+                "fehlt fuer", name,
+                f"script-runner kennt das Profil mit Label '{lbl}', lib aber nicht. "
+                f"Eintragen: '{name}': '{lbl}'",
+            ),
+            "Page": "boot-check",
+            "Status": "new",
+        })
+        print(f"[profile-drift] reminder created (missing): {name}")
+
+    for name in stale_in_lib:
+        seen.add(name)
+        if name in existing_by_profile:
+            continue
+        await baserow_api.insert("bot_feedback", {
+            "Name": f"[profile] {name} stale — {ts}",
+            "Type": "profile-label-drift",
+            "Severity": "low",
+            "Description": _make_desc(
+                "ist veraltet fuer", name,
+                f"Profil '{name}' steht in lib aber script-runner kennt es nicht (mehr). "
+                f"Entweder aus LOCAL_PROFILE_LABELS loeschen, oder script-runner PROFILES nachpflegen.",
+            ),
+            "Page": "boot-check",
+            "Status": "new",
+        })
+        print(f"[profile-drift] reminder created (stale): {name}")
+
+    for name, (lib_lbl, canon_lbl) in mismatched.items():
+        seen.add(name)
+        if name in existing_by_profile:
+            continue
+        await baserow_api.insert("bot_feedback", {
+            "Name": f"[profile] {name} label mismatch — {ts}",
+            "Type": "profile-label-drift",
+            "Severity": "low",
+            "Description": _make_desc(
+                "hat falsches Label fuer", name,
+                f"lib sagt '{lib_lbl}', script-runner sagt '{canon_lbl}'. "
+                f"script-runner ist die Source of Truth — aendern: '{name}': '{canon_lbl}'",
+            ),
+            "Page": "boot-check",
+            "Status": "new",
+        })
+        print(f"[profile-drift] reminder created (mismatch): {name}")
+
+    for name, row_id in existing_by_profile.items():
+        if name not in seen:
+            await baserow_api.update("bot_feedback", row_id, {"Status": "resolved"})
+            print(f"[profile-drift] auto-resolved: {name}")
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     await _check_schema_drift()
+    await _check_profile_label_drift()
     yield
 
 
