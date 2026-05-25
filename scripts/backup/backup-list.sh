@@ -19,8 +19,8 @@ gnome-terminal --geometry=140x35 -- bash -c '
         echo "⚠ Achtung: Du hast mehr als 500 Backups im Borg-Repository."
         echo "   Bitte denke darüber nach, alte Backups zu reduzieren."
         echo "   Siehe Anleitung: /opt/mora02/knowledge/archive/202512261053_borg_reduction.md"
-        echo "   Dry Run: /opt/mora02/scripts/borg-prune-dryrun.sh"
-        echo "   Live (nicht ohne dryrun!): /opt/mora02/scripts/borg-prune-live.sh"
+        echo "   Dry Run: /opt/mora02/scripts/backup/borg-prune-dryrun.sh"
+        echo "   Live (nicht ohne dryrun!): /opt/mora02/scripts/backup/borg-prune-live.sh"
         echo
     fi
 

@@ -6,8 +6,8 @@ gnome-terminal -- bash -c '
     echo
     cd /opt/mora02/docker
 
-    echo "Starte Container..."
-    docker compose up -d
+    echo "Starte Container (inkl. QWEN3-14B LLM-Profil)..."
+    docker compose --profile qwen3-14b up -d
     echo
     echo "═══════════════════════════════════════"
     echo "Aktueller Status:"

@@ -6,8 +6,11 @@ gnome-terminal -- bash -c '
     echo
     cd /opt/mora02/docker
 
-    echo "Stoppe Container..."
-    docker compose down
+    echo "Stoppe ALLE Container (inkl. aller LLM-Profile)..."
+    docker compose --profile "*" down --remove-orphans
+    # Sicherheitsnetz: llama-server kann vom llm-switch standalone
+    # gestartet worden sein und dem Profil-Tracking entgehen.
+    docker rm -f llama-server 2>/dev/null || true
     echo
     echo "═══════════════════════════════════════"
     echo "Aktueller Status:"

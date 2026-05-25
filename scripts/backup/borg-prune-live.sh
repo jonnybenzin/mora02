@@ -7,7 +7,6 @@
 # - dann 1 pro Monat (älter als 1 Jahr)
 
 REPO="/home/jonnybenzin/synology-backup"
-export BORG_PASSPHRASE='MaGGan99@'
 
 echo "═══════════════════════════════════════"
 echo "   BORG PRUNE – LIVE (LOESCHT ALTES)"
@@ -17,8 +16,8 @@ echo "Repository: $REPO"
 echo
 echo "Regel:"
 echo "  - keep-within=7d"
-echo "  - keep-daily=30"
-echo "  - keep-weekly=52"
+echo "  - keep-daily=14"
+echo "  - keep-weekly=8"
 echo "  - keep-monthly=12"
 echo
 read -p "Bist du sicher, dass du fortfahren willst? [ja/NEIN]: " CONFIRM
@@ -28,12 +27,13 @@ if [ "$CONFIRM" != "ja" ]; then
   exit 0
 fi
 
-borg prune --list \
+# Borg-Repo gehört root (NFS-Mount via Synology) → sudo + Passphrase im Subshell.
+sudo bash -c "export BORG_PASSPHRASE='MaGGan99@'; borg prune --list \
   --keep-within=7d \
-  --keep-daily=30 \
-  --keep-weekly=52 \
+  --keep-daily=14 \
+  --keep-weekly=8 \
   --keep-monthly=12 \
-  "$REPO"
+  '$REPO'"
 
 echo
 echo "Fertig. Alte Backups wurden gemaess der Regel entfernt."
