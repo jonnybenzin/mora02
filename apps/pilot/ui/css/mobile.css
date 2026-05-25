@@ -1,0 +1,220 @@
+/* ═══════════════════════════════════════════════════════════════
+   MORA02 PILOT — Mobile Overrides
+   ═══════════════════════════════════════════════════════════════
+   LOADED LAST — wins by source order. No !important needed.
+   All rules scoped to @media(max-width:768px).
+   ═══════════════════════════════════════════════════════════════ */
+
+@media(max-width:768px){
+
+/* ─── 1. GLOBAL: prevent scroll, zoom, overscroll ──────────── */
+html,body{
+  overflow-x:hidden;
+  overscroll-behavior:none;
+  -webkit-text-size-adjust:100%;
+  touch-action:pan-y;
+}
+
+/* ─── 2. LAYOUT: sidebar hidden, mob-bar visible ──────────── */
+.sb,.tog{display:none!important}
+.mob-bar{
+  display:flex;
+  padding-top:env(safe-area-inset-top,20px);
+  height:calc(var(--mob-bar-h) + env(safe-area-inset-top,20px));
+}
+.main{
+  width:100%;
+  max-width:100vw;
+  overflow-x:hidden;
+}
+
+/* ─── 3. MOBILE MENU: pure overlay, NO push ────────────────── */
+/* Kill the push pattern completely */
+.app.mob-open{transform:none}
+.app.mob-open .main::after{display:none}
+.app.mob-open .mob-hamburger{visibility:visible}
+
+/* Overlay = fixed backdrop */
+.mob-ov{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:var(--z-mob-ov);
+  background:rgba(0,0,0,.5);
+  touch-action:none;
+}
+.mob-ov.open{display:block}
+
+/* Drawer slides in from left */
+.mob-dr{
+  position:fixed;
+  top:0;left:0;
+  width:var(--sb-w);
+  height:100%;
+  background:var(--sf-sidebar);
+  z-index:calc(var(--z-mob-ov) + 10);
+  display:flex;
+  flex-direction:column;
+  transform:translateX(-100%);
+  transition:transform var(--tr-slow);
+  border-right:1px solid var(--bd-sidebar);
+  overflow:visible;
+  touch-action:pan-y;
+}
+.mob-dr-scroll{overflow-y:auto;-webkit-overflow-scrolling:touch}
+.mob-ov.open .mob-dr{transform:translateX(0)}
+
+/* Drawer header: below safe area */
+.mob-dr-head{
+  padding-top:env(safe-area-inset-top,20px);
+  min-height:calc(var(--sb-head-h) + env(safe-area-inset-top,20px));
+}
+
+/* X close button: visible outside drawer */
+.mob-close{
+  position:absolute;
+  top:env(safe-area-inset-top,10px);
+  left:calc(var(--sb-w) + 8px);
+  width:48px;
+  height:48px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border:none;
+  background:var(--c-black);
+  color:var(--tx-secondary);
+  cursor:pointer;
+  z-index:calc(var(--z-mob-ov) + 30);
+  border-radius:0;
+}
+.mob-close svg{width:16px;height:16px}
+
+/* Drawer menu items: 44px touch targets */
+.mob-dr-scroll .mi{padding:var(--sp-10) var(--sp-20);min-height:44px}
+.mob-dr-scroll .sec-h{padding:var(--sp-10) var(--sp-20);min-height:44px}
+.mob-dr-scroll .p-sub-i{
+  padding:var(--sp-10) 0 var(--sp-10) var(--sp-26);
+  min-height:44px;
+  display:flex;
+  align-items:center;
+}
+
+/* ─── 4. HOMEPAGE ──────────────────────────────────────────── */
+.pg-home{
+  padding:var(--sp-10);
+  gap:var(--sp-20);
+  padding-bottom:calc(var(--sp-20) + env(safe-area-inset-bottom,0px));
+}
+.hero{display:none}
+.home-in{max-width:100%}
+.home-inp{font-size:16px}  /* prevents iOS auto-zoom */
+.home-in-row .btn-at,
+.home-in-row .btn-send{
+  width:44px;
+  height:44px;
+  min-width:44px;
+  min-height:44px;
+}
+.cards{flex-direction:column;gap:var(--sp-10)}
+
+/* ─── 5. CONTENT AREA (tool pages) ─────────────────────────── */
+.pg-content{padding:var(--sp-10) var(--sp-8)}
+
+/* ─── 6. CHAT: full width ─────────────────────────────────── */
+.chat-messages{
+  max-width:100%;
+  padding:var(--sp-16) var(--sp-8) 160px;
+  gap:var(--sp-16);
+}
+.msg-user{max-width:85%}
+.msg-body{font-size:15px}
+.code-block{max-width:calc(100vw - 32px)}
+
+/* Chat input — full viewport width, fixed to bottom */
+.chat-wrap .chat-input-bar{
+  position:fixed!important;
+  bottom:0!important;
+  left:0!important;
+  right:0!important;
+  width:100vw!important;
+  z-index:50;
+  padding:0;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  background:var(--c-grey1);
+}
+.chat-wrap .chat-input-inner{
+  max-width:100%!important;
+  width:100%;
+  margin:0;
+  padding:var(--sp-6) var(--sp-8);
+}
+.chat-wrap .chat-input-field{font-size:16px;padding:var(--sp-8)}
+
+/* Chat buttons: 44px touch targets */
+.chat-btn{width:44px;height:44px;min-width:44px;min-height:44px}
+.chat-btn-end{min-height:44px;padding:var(--sp-8) var(--sp-16)}
+.chat-scroll-btn{width:44px;height:44px}
+
+/* ─── 7. TOOL PAGES: full width ────────────────────────────── */
+.tool-wrap{
+  max-width:100%;
+  padding:var(--sp-16) var(--sp-10);
+}
+
+/* Floating label grids: stack on narrow screens */
+.fl-grid-2{grid-template-columns:1fr}
+.fl-grid-3{grid-template-columns:1fr 1fr}
+
+/* Floating label inputs: 16px to prevent iOS zoom */
+.fl-input,.fl-select{font-size:16px}
+
+/* Tool settings row */
+.tool-settings{flex-direction:column;gap:var(--sp-10)}
+.tool-setting{width:100%}
+.tool-setting-right{margin-left:0}
+
+/* Upload zone: taller touch target */
+.tool-upload{padding:var(--sp-30) var(--sp-16);min-height:80px}
+
+/* Tool action buttons */
+.btn-ico{min-height:44px}
+.tool-action-btn{min-height:44px;padding:var(--sp-10) var(--sp-16)}
+.tool-result-btns{flex-wrap:wrap}
+.tool-result-actions{flex-direction:column;gap:var(--sp-8)}
+.tool-result-actions .tool-btn{width:100%}
+
+/* Close button on tool pages */
+.tool-close{width:32px;height:32px;min-width:32px;min-height:32px}
+.tool-close svg{width:12px;height:12px}
+
+/* ─── 8. IMAGE GEN ─────────────────────────────────────────── */
+.img-grid{grid-template-columns:1fr 1fr}
+.img-preview-actions{flex-direction:column}
+.img-preview-actions .tool-btn{width:100%}
+
+/* ─── 9. FILES ─────────────────────────────────────────────── */
+.files-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+
+/* ─── 10. WIKI ─────────────────────────────────────────────── */
+.wiki-tabs{gap:var(--sp-2)}
+.wiki-tab{padding:var(--sp-6) var(--sp-10);min-height:44px}
+
+/* ─── 11. DASHBOARD ────────────────────────────────────────── */
+.dash-card{padding:var(--sp-8) var(--sp-10)}
+
+/* ─── 12. XRAY ─────────────────────────────────────────────── */
+div:has(> #xray-frame){height:calc(100vh - var(--mob-bar-h) - env(safe-area-inset-top,20px))}
+#xray-frame{padding-left:0}
+
+/* ─── 13. STYLE GUIDE ──────────────────────────────────────── */
+.sg-swatches{gap:var(--sp-2)}
+.sg-swatch{width:60px;height:45px}
+.sg-icons{grid-template-columns:repeat(auto-fill,minmax(80px,1fr))}
+
+/* ─── 14. GENERAL TOUCH TARGETS ────────────────────────────── */
+.mob-hamburger{width:44px;height:44px;min-width:44px;min-height:44px}
+.mi{min-height:44px}
+.sec-h{min-height:44px}
+select,input[type="text"],textarea{font-size:16px}
+
+}

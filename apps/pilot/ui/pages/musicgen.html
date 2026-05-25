@@ -1,0 +1,106 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">MUSIC GEN</span>
+    <button class="tool-close" data-action="navigate" data-page="home" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Generate music via ComfyUI + ACE-Step 1.5. Describe the style, add optional lyrics, set duration.</div>
+
+  <div id="mus-prompt-section">
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="mus-tags" rows="2" placeholder=" "></textarea>
+      <label class="fl-label">STYLE TAGS (e.g. "cinematic orchestral, epic, dramatic, 100bpm")</label>
+    </div>
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="mus-lyrics" rows="4" placeholder=" "></textarea>
+      <label class="fl-label">LYRICS (optional — leave empty for instrumental)</label>
+    </div>
+
+    <!-- Reference audio (optional) -->
+    <div class="fl-field">
+      <div id="mus-drop-zone" style="border:1px dashed var(--bd);padding:var(--sp-12);text-align:center;border-radius:var(--r-sm);cursor:pointer;min-height:48px;display:flex;align-items:center;justify-content:center;">
+        <span id="mus-drop-label" style="opacity:.5">Reference audio (optional) — drop file or click</span>
+        <input type="file" id="mus-audio-file" accept="audio/*" style="display:none">
+      </div>
+    </div>
+
+    <div class="fl-grid fl-grid-3">
+      <div class="fl-field">
+        <input class="fl-input" id="mus-duration" type="text" value="30" placeholder=" ">
+        <label class="fl-label">DURATION (s)</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="mus-bpm" type="text" value="120" placeholder=" ">
+        <label class="fl-label">BPM</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="mus-seed" type="text" value="-1" placeholder=" ">
+        <label class="fl-label">SEED</label>
+      </div>
+    </div>
+
+    <div class="fl-grid fl-grid-3">
+      <div class="fl-field">
+        <select class="fl-select" id="mus-key">
+          <option value="C major" selected>C major</option>
+          <option value="A minor">A minor</option>
+          <option value="G major">G major</option>
+          <option value="E minor">E minor</option>
+          <option value="D major">D major</option>
+          <option value="B minor">B minor</option>
+          <option value="F major">F major</option>
+          <option value="D minor">D minor</option>
+          <option value="Bb major">Bb major</option>
+          <option value="Eb major">Eb major</option>
+          <option value="Ab major">Ab major</option>
+        </select>
+        <label class="fl-label">KEY</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="mus-timesig">
+          <option value="4" selected>4/4</option>
+          <option value="3">3/4</option>
+          <option value="6">6/8</option>
+        </select>
+        <label class="fl-label">TIME SIG</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="mus-language">
+          <option value="en" selected>English</option>
+          <option value="de">Deutsch</option>
+          <option value="zh">Chinese</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+        </select>
+        <label class="fl-label">LYRICS LANG</label>
+      </div>
+    </div>
+
+    <div class="tool-actions">
+      <button class="btn-ico" data-action="mus-generate" id="mus-generate-btn">
+        <svg fill="currentColor" width="16" height="16"><use href="icons/sprite.svg#i-music"/></svg>
+        GENERATE
+      </button>
+    </div>
+
+  </div>
+
+  <div id="mus-progress-section" style="display:none">
+    <div class="tool-result-head">GENERATING...</div>
+    <div class="tool-result-status" id="mus-progress-info">Queued, waiting for ComfyUI...</div>
+  </div>
+
+  <div id="mus-result-section" style="display:none">
+    <div class="tool-result-head" id="mus-result-badge">MUSIC READY</div>
+    <div id="mus-player"></div>
+    <div class="tool-result-btns" id="mus-btns">
+      <button class="tool-action-btn" data-action="mus-download">DOWNLOAD</button>
+      <button class="tool-action-btn" data-action="mus-new">CREATE NEW</button>
+    </div>
+    <div class="tool-result-status" id="mus-status"></div>
+  </div>
+
+</div>

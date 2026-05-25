@@ -1,0 +1,46 @@
+/* ============================================================
+   M2 Pixel Loader
+   Mora02 Pilot Cockpit — waiting animation
+   Usage: startM2(element, cellSize?, speed?)
+   ============================================================ */
+
+/* Sizes — use via modifier class or inline style */
+
+/* S: inline / chat input */
+.m2-loader-s {
+  --m2-cell: 7px;
+  --m2-gap:  0px;
+}
+
+/* M: chat overlay — default */
+.m2-loader,
+.m2-loader-m {
+  --m2-cell: 12px;
+  --m2-gap:  0px;
+}
+
+/* L: ComfyUI / splash */
+.m2-loader-l {
+  --m2-cell: 20px;
+  --m2-gap:  0px;
+}
+
+/* Grid */
+.m2-grid {
+  display: grid;
+  grid-template-columns: repeat(5, var(--m2-cell, 12px));
+  gap: var(--m2-gap, 0px);
+}
+
+/* Pixel cell */
+.m2-cell {
+  width:      var(--m2-cell, 12px);
+  height:     var(--m2-cell, 12px);
+  background: transparent;
+  transition: background 0.07s, box-shadow 0.07s;
+}
+
+.m2-cell.on {
+  background: #dedede;
+  box-shadow: 0 0 10px rgba(220, 220, 220, 0.5);
+}

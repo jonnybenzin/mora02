@@ -42,6 +42,7 @@ var autoFocusMap = {
   'chat':             '#chat-input',
   'imagegen':         '#img-prompt',
   'expander':         '#exp-prompt',
+  'upscaler':         '#up-prompt',
   'video-generate':   '#vid-prompt',
   'musicgen':         '#mus-tags',
   'ttsgen':           '#tts-text',
@@ -85,6 +86,7 @@ async function navigate(page) {
         if (typeof initToolPage === 'function') initToolPage(page);
         if (page === 'imagegen' && typeof initImageGen === 'function') initImageGen();
         if (page === 'expander' && typeof initExpander === 'function') initExpander();
+        if (page === 'upscaler' && typeof initUpscaler === 'function') initUpscaler();
         if (page === 'video-generate' && typeof initVideoGen === 'function') initVideoGen();
         if (page === 'ttsgen' && typeof initTtsGen === 'function') initTtsGen();
         if (page === 'musicgen' && typeof initMusicGen === 'function') initMusicGen();

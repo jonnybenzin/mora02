@@ -1,0 +1,100 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">VIDEO GEN</span>
+    <button class="tool-close" data-action="navigate" data-page="home" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Generate videos via ComfyUI + WAN 2.2. Choose a workflow, write your prompt. Result plays inline — download or start a new generation.</div>
+
+  <div id="vid-prompt-section">
+
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <select class="fl-select" id="vid-flow">
+          <option value="wan-t2v" selected>WAN 2.2 Text-to-Video</option>
+          <option value="wan-i2v">WAN 2.2 Image-to-Video</option>
+          <option value="wan-i2i2v">WAN 2.2 Start+End Frame</option>
+        </select>
+        <label class="fl-label">WORKFLOW</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="vid-format">
+          <option value="1080x1080" selected>1:1 1080×1080</option>
+          <option value="1280x720">16:9 1280×720</option>
+          <option value="720x1280">9:16 720×1280</option>
+          <option value="512x512">1:1 512×512</option>
+        </select>
+        <label class="fl-label">FORMAT</label>
+      </div>
+    </div>
+
+    <div id="vid-upload-section" style="display:none">
+      <div class="tool-upload" id="vid-startframe-drop">
+        <svg fill="currentColor"><use href="icons/sprite.svg#i-plus"/></svg>
+        <span class="tool-upload-lbl">CLICK OR DRAG & DROP START FRAME</span>
+      </div>
+    </div>
+
+    <div id="vid-upload-end-section" style="display:none">
+      <div class="tool-upload" id="vid-endframe-drop">
+        <svg fill="currentColor"><use href="icons/sprite.svg#i-plus"/></svg>
+        <span class="tool-upload-lbl">CLICK OR DRAG & DROP END FRAME</span>
+      </div>
+    </div>
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="vid-prompt" rows="1" placeholder=" "></textarea>
+      <label class="fl-label">PROMPT</label>
+    </div>
+
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <input class="fl-input" id="vid-frames" type="text" value="125" placeholder=" ">
+        <label class="fl-label">FRAMES</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="vid-fps" type="text" value="25" placeholder=" ">
+        <label class="fl-label">FPS</label>
+      </div>
+    </div>
+
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <input class="fl-input" id="vid-seed" type="text" value="-1" placeholder=" ">
+        <label class="fl-label">SEED</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="vid-steps" type="text" value="4" placeholder=" ">
+        <label class="fl-label">STEPS</label>
+      </div>
+    </div>
+
+    <div class="tool-actions">
+      <button class="btn-ico" data-action="vid-generate" id="vid-generate-btn">
+        <svg fill="currentColor" width="16" height="16"><use href="icons/sprite.svg#i-mpg"/></svg>
+        GENERATE
+      </button>
+    </div>
+  </div>
+
+  <div id="vid-progress-section" style="display:none">
+    <div class="vid-progress-wrap">
+      <div class="vid-progress-bar" id="vid-progress-bar"></div>
+    </div>
+    <div class="vid-progress-info" id="vid-progress-info"></div>
+  </div>
+
+  <div id="vid-result-section" style="display:none">
+    <div class="tool-result-head" id="vid-preview-badge"></div>
+    <div id="vid-preview-video"></div>
+    <div class="tool-result-btns" id="vid-btns">
+      <button class="tool-action-btn" data-action="vid-download">DOWNLOAD</button>
+      <button class="tool-action-btn" data-action="vid-new">CREATE NEW</button>
+      <button class="tool-action-btn bucket-add-btn" data-action="vid-bucket">BUCKET</button>
+      <button class="tool-action-btn" data-action="vid-last-frame">LAST FRAME → BUCKET</button>
+    </div>
+    <div class="tool-result-status" id="vid-status"></div>
+  </div>
+
+</div>

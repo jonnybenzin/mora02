@@ -1,0 +1,28 @@
+{
+  "1": {
+    "inputs": {
+      "prompt": "",
+      "aspect_ratio": "1:1",
+      "num_images": 1,
+      "safety_tolerance": "5",
+      "enable_safety_checker": false,
+      "raw": false,
+      "sync_mode": false,
+      "seed": -1
+    },
+    "class_type": "FluxUltra_fal",
+    "_meta": {
+      "title": "Flux 1.1 Pro Ultra (fal.ai)"
+    }
+  },
+  "2": {
+    "inputs": {
+      "filename_prefix": "img",
+      "images": ["1", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

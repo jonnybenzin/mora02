@@ -1,0 +1,83 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">UPSCALER</span>
+    <button class="tool-close" data-action="navigate" data-page="home" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">High-end image upscaling. ESRGAN pre-pass (4x-UltraSharp) + SDXL tile-diffusion refiner (Juggernaut XL). Drop an image from the bucket, choose factor, upscale.</div>
+
+  <div id="up-input-section">
+
+    <div class="tool-upload" id="up-drop-zone" data-bucket-accepts="image">
+      <svg fill="currentColor" width="20" height="20"><use href="icons/sprite.svg#i-image"/></svg>
+      <span class="tool-upload-lbl">Drop image from bucket or click to browse</span>
+    </div>
+    <input type="file" id="up-file-input" accept="image/*" style="display:none">
+
+    <div id="up-preview" style="display:none">
+      <div class="img-field-lbl">SOURCE IMAGE</div>
+      <div id="up-preview-img" style="position:relative;margin-bottom:var(--sp-16)"></div>
+    </div>
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="up-prompt" rows="1" placeholder=" "></textarea>
+      <label class="fl-label">STYLE HINT (optional)</label>
+    </div>
+
+    <div class="tool-collapse-head" id="up-settings-toggle" data-action="up-toggle-settings">
+      <span class="tool-collapse-arrow">&#9654;</span> SETTINGS
+    </div>
+    <div id="up-settings-body" style="display:none">
+      <div class="fl-grid fl-grid-3">
+        <div class="fl-field">
+          <select class="fl-input" id="up-factor">
+            <option value="2" selected>2x</option>
+            <option value="3">3x</option>
+            <option value="4">4x</option>
+          </select>
+          <label class="fl-label">FACTOR</label>
+        </div>
+        <div class="fl-field">
+          <input class="fl-input" id="up-denoise" type="text" value="0.2" placeholder=" ">
+          <label class="fl-label">DENOISE (0.1-0.4)</label>
+        </div>
+        <div class="fl-field">
+          <input class="fl-input" id="up-seed" type="text" value="-1" placeholder=" ">
+          <label class="fl-label">SEED</label>
+        </div>
+      </div>
+      <div class="fl-grid fl-grid-3">
+        <div class="fl-field">
+          <input class="fl-input" id="up-steps" type="text" value="20" placeholder=" ">
+          <label class="fl-label">STEPS</label>
+        </div>
+        <div class="fl-field">
+          <input class="fl-input" id="up-cfg" type="text" value="6.0" placeholder=" ">
+          <label class="fl-label">CFG</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-actions">
+      <button class="btn-ico" data-action="up-generate" id="up-generate-btn" disabled>
+        <svg fill="currentColor" width="16" height="16"><use href="icons/sprite.svg#i-image"/></svg>
+        UPSCALE
+      </button>
+    </div>
+  </div>
+
+  <div id="up-result-area">
+    <div id="up-result-section" style="display:none">
+      <div class="tool-result-head" id="up-result-badge"></div>
+      <div id="up-result-img"></div>
+      <div class="tool-result-btns" id="up-btns">
+        <button class="tool-action-btn" data-action="up-download">DOWNLOAD</button>
+        <button class="tool-action-btn bucket-add-btn" data-action="up-bucket">ADD TO BUCKET</button>
+        <button class="tool-action-btn" data-action="up-new">NEW UPSCALE</button>
+      </div>
+      <div class="tool-result-status" id="up-status"></div>
+    </div>
+  </div>
+
+</div>

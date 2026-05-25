@@ -1,0 +1,31 @@
+{
+  "1": {
+    "inputs": {
+      "model_name": "gemini-2.5-flash-image",
+      "prompt": "",
+      "image_count": 1,
+      "use_search": false,
+      "use_image_search": false,
+      "aspect_ratio": "1:1",
+      "image_size": "2K",
+      "temperature": 1.0
+    },
+    "class_type": "NanoBanana2AIO",
+    "_meta": {
+      "title": "Nano Banana 2"
+    }
+  },
+  "2": {
+    "inputs": {
+      "filename_prefix": "img",
+      "images": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

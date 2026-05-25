@@ -1,0 +1,25 @@
+{
+  "1": {
+    "inputs": {
+      "prompt": "",
+      "api_key": "",
+      "base_url": "https://api.openai.com",
+      "model_name": "dall-e-3",
+      "size": "1024x1024",
+      "num_images": 1,
+      "quality": "high",
+      "custom_model": "gpt-image-1",
+      "seed": 0
+    },
+    "class_type": "APIImage_OpenAIGenerate",
+    "_meta": { "title": "GPT Image 1 (OpenAI)" }
+  },
+  "2": {
+    "inputs": {
+      "filename_prefix": "img",
+      "images": ["1", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
+  }
+}

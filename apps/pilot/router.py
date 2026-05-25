@@ -11,7 +11,7 @@ def classify_input(user_input: str) -> dict:
         return {"type": "roadmap", "raw": s}
     if starts_with_any(s, ["/gif", "/typ", "/clip", "/stock"]):
         return {"type": "script", "raw": s}
-    if starts_with_any(s, ["/img", "/vid", "/expand"]):
+    if starts_with_any(s, ["/img", "/vid", "/expand", "/upscale", "/up "]):
         return {"type": "comfyui", "raw": s}
     if starts_with_any(s, ["/music", "/voice"]):
         return {"type": "tool_widget", "raw": s}

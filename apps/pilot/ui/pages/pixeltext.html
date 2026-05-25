@@ -1,0 +1,292 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">PIXELTEXT</span>
+    <button class="tool-close" data-action="navigate" data-page="home" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Render 3D pixel-cube typography animations in Blender. Pick single text or a list of words with transitions. Preview the cube layout before launching the full render.</div>
+
+  <div id="px-arrange">
+
+    <!-- MODE TABS -->
+    <div class="px-mode-tabs">
+      <button class="px-mode-tab px-active" data-action="px-mode" data-mode="multi">MULTI</button>
+      <button class="px-mode-tab" data-action="px-mode" data-mode="single">SINGLE</button>
+    </div>
+
+    <!-- TEMPLATE -->
+    <div class="fl-field" style="margin-bottom:var(--sp-10)">
+      <select class="fl-select" id="px-template">
+        <option value="">No template (built-in scene)</option>
+      </select>
+      <label class="fl-label">SCENE TEMPLATE</label>
+    </div>
+
+    <!-- MULTI INPUT -->
+    <div id="px-multi-input">
+      <div class="fl-field">
+        <textarea class="fl-input" id="px-words" rows="4" placeholder=" ">MORA02
+CREATIVE
+FACTORY</textarea>
+        <label class="fl-label">WORDS (ONE PER LINE)</label>
+      </div>
+    </div>
+
+    <!-- SINGLE INPUT -->
+    <div id="px-single-input" style="display:none">
+      <div class="fl-field">
+        <input class="fl-input" id="px-single-text" type="text" value="MORA02" maxlength="40" placeholder=" ">
+        <label class="fl-label">TEXT</label>
+      </div>
+    </div>
+
+    <!-- LIVE PIXEL PREVIEW -->
+    <div class="px-canvas-wrap">
+      <canvas id="px-canvas"></canvas>
+      <div class="px-canvas-nav" id="px-canvas-nav" style="display:none">
+        <button class="px-nav-btn" data-action="px-prev-word">◀</button>
+        <span class="px-nav-lbl" id="px-canvas-label">1/3</span>
+        <button class="px-nav-btn" data-action="px-next-word">▶</button>
+      </div>
+    </div>
+
+    <!-- TRANSITIONS (multi only) -->
+    <div id="px-transition-section">
+      <div class="px-section-lbl">TRANSITION</div>
+      <div class="px-trans-grid">
+        <button class="px-trans-card px-selected" data-action="px-trans" data-style="shuffle">
+          <div class="px-trans-name">SHUFFLE</div>
+          <div class="px-trans-desc">random in/out</div>
+        </button>
+        <button class="px-trans-card" data-action="px-trans" data-style="fade">
+          <div class="px-trans-name">FADE</div>
+          <div class="px-trans-desc">random stagger</div>
+        </button>
+        <button class="px-trans-card" data-action="px-trans" data-style="wave">
+          <div class="px-trans-name">WAVE</div>
+          <div class="px-trans-desc">left → right</div>
+        </button>
+      </div>
+
+      <div class="fl-grid fl-grid-2">
+        <div class="fl-field">
+          <input class="fl-input" id="px-hold-sec" type="number" value="2" min="0.5" max="10" step="0.5" placeholder=" ">
+          <label class="fl-label">HOLD (SEC)</label>
+        </div>
+        <div class="fl-field">
+          <input class="fl-input" id="px-trans-sec" type="number" value="1" min="0.3" max="5" step="0.1" placeholder=" ">
+          <label class="fl-label">TRANSITION (SEC)</label>
+        </div>
+      </div>
+
+      <div class="px-timeline" id="px-timeline">Timeline: 3 words × 4.0s = 12.0s @ 30fps = 360 frames</div>
+    </div>
+
+    <!-- COLORS + MATERIAL (hidden when template active) -->
+    <div id="px-appearance-section">
+      <div class="px-section-lbl">COLORS</div>
+      <div class="fl-grid fl-grid-2">
+        <div class="fl-field">
+          <div class="px-color-row">
+            <input class="px-color-pick" type="color" id="px-cube-color-pick" value="#FFFFFF">
+            <input class="fl-input px-color-text" id="px-cube-color" type="text" value="#FFFFFF" placeholder=" ">
+            <label class="fl-label">CUBE COLOR</label>
+          </div>
+        </div>
+        <div class="fl-field">
+          <div class="px-color-row">
+            <input class="px-color-pick" type="color" id="px-bg-color-pick" value="#000000">
+            <input class="fl-input px-color-text" id="px-bg-color" type="text" value="#000000" placeholder=" ">
+            <label class="fl-label">BG COLOR</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-section-lbl">MATERIAL</div>
+      <div class="px-slider-field">
+        <div class="px-slider-row">
+          <span class="px-slider-lbl">EMISSION</span>
+          <span class="px-slider-val" id="px-emission-val">0</span>
+        </div>
+        <input class="px-slider" type="range" id="px-emission" min="0" max="10" step="0.5" value="0">
+      </div>
+    </div>
+
+    <div class="px-slider-field">
+        <div class="px-slider-row">
+          <span class="px-slider-lbl">GAP</span>
+          <span class="px-slider-val" id="px-gap-val">0</span>
+        </div>
+        <input class="px-slider" type="range" id="px-gap" min="0" max="1.0" step="0.05" value="0">
+    </div>
+
+    <!-- CAMERA -->
+    <div class="px-section-lbl">CAMERA</div>
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <select class="fl-select" id="px-camera-type">
+          <option value="ORTHO">Orthographic (flat)</option>
+          <option value="PERSP" selected>Perspective (3D)</option>
+        </select>
+        <label class="fl-label">CAMERA TYPE</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="px-camera-dist" type="number" value="0" min="0" step="1" placeholder=" ">
+        <label class="fl-label">DISTANCE (0 = AUTO)</label>
+      </div>
+    </div>
+    <div class="px-slider-field">
+      <div class="px-slider-row">
+        <span class="px-slider-lbl">SPREAD</span>
+        <span class="px-slider-val" id="px-spread-val">1.0</span>
+      </div>
+      <input class="px-slider" type="range" id="px-spread" min="0.5" max="5.0" step="0.5" value="1.0">
+    </div>
+
+    <!-- RENDER -->
+    <div class="px-section-lbl">RENDER</div>
+    <div class="fl-grid fl-grid-3">
+      <div class="fl-field">
+        <input class="fl-input" id="px-render-w" type="number" value="1080" min="320" max="3840" step="1" placeholder=" ">
+        <label class="fl-label">WIDTH</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="px-render-h" type="number" value="1080" min="240" max="2160" step="1" placeholder=" ">
+        <label class="fl-label">HEIGHT</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="px-render-format">
+          <option value="MP4" selected>MP4</option>
+          <option value="PNG">PNG SEQUENCE</option>
+        </select>
+        <label class="fl-label">FORMAT</label>
+      </div>
+    </div>
+    <div class="fl-grid fl-grid-3">
+      <div class="fl-field">
+        <select class="fl-select" id="px-fps">
+          <option value="24">24</option>
+          <option value="30" selected>30</option>
+          <option value="60">60</option>
+        </select>
+        <label class="fl-label">FPS</label>
+      </div>
+      <div class="fl-field">
+        <select class="fl-select" id="px-quality">
+          <option value="low">Low (16 smp, fast)</option>
+          <option value="mid" selected>Mid (64 smp)</option>
+          <option value="high">High (128 smp)</option>
+        </select>
+        <label class="fl-label">QUALITY</label>
+      </div>
+      <div class="fl-field" id="px-single-duration-group" style="display:none">
+        <input class="fl-input" id="px-single-duration" type="number" value="5" min="1" max="30" step="1" placeholder=" ">
+        <label class="fl-label">DURATION (SEC)</label>
+      </div>
+    </div>
+    <div class="px-toggle-row">
+      <span class="px-toggle-lbl">MOTION BLUR</span>
+      <label class="px-toggle">
+        <input type="checkbox" id="px-motion-blur">
+        <span class="px-toggle-slider"></span>
+      </label>
+    </div>
+    <div class="px-slider-field" id="px-mblur-shutter-group" style="display:none">
+      <div class="px-slider-row">
+        <span class="px-slider-lbl">SHUTTER</span>
+        <span class="px-slider-val" id="px-mblur-shutter-val">0.5</span>
+      </div>
+      <input class="px-slider" type="range" id="px-mblur-shutter" min="0.1" max="2.0" step="0.1" value="0.5">
+    </div>
+    <div class="px-toggle-row">
+      <span class="px-toggle-lbl">LOOP</span>
+      <label class="px-toggle">
+        <input type="checkbox" id="px-loop">
+        <span class="px-toggle-slider"></span>
+      </label>
+    </div>
+
+    <!-- HOLD EFFECTS -->
+    <div class="px-section-lbl">HOLD EFFECTS</div>
+    <div class="px-toggle-row">
+      <span class="px-toggle-lbl">PULSE</span>
+      <label class="px-toggle">
+        <input type="checkbox" id="px-effect-pulse">
+        <span class="px-toggle-slider"></span>
+      </label>
+    </div>
+    <div class="fl-grid fl-grid-2">
+      <div class="px-slider-field">
+        <div class="px-slider-row">
+          <span class="px-slider-lbl">PULSE MIN</span>
+          <span class="px-slider-val" id="px-pulse-min-val">0.7</span>
+        </div>
+        <input class="px-slider" type="range" id="px-pulse-min" min="0.3" max="1.0" step="0.05" value="0.7">
+      </div>
+      <div class="px-slider-field">
+        <div class="px-slider-row">
+          <span class="px-slider-lbl">PULSE MAX</span>
+          <span class="px-slider-val" id="px-pulse-max-val">1.3</span>
+        </div>
+        <input class="px-slider" type="range" id="px-pulse-max" min="1.0" max="2.0" step="0.05" value="1.3">
+      </div>
+    </div>
+    <div class="px-toggle-row">
+      <span class="px-toggle-lbl">FLOAT</span>
+      <label class="px-toggle">
+        <input type="checkbox" id="px-effect-float">
+        <span class="px-toggle-slider"></span>
+      </label>
+    </div>
+    <div class="px-slider-field">
+      <div class="px-slider-row">
+        <span class="px-slider-lbl">FLOAT AMPLITUDE</span>
+        <span class="px-slider-val" id="px-float-amp-val">0.3</span>
+      </div>
+      <input class="px-slider" type="range" id="px-float-amp" min="0.1" max="1.0" step="0.05" value="0.3">
+    </div>
+    <div class="px-toggle-row" id="px-shuffle-row" style="display:none">
+      <span class="px-toggle-lbl">SHUFFLE ANIMATION</span>
+      <label class="px-toggle">
+        <input type="checkbox" id="px-effect-shuffle">
+        <span class="px-toggle-slider"></span>
+      </label>
+    </div>
+
+    <!-- ACTIONS -->
+    <div class="tool-actions px-actions">
+      <button class="btn-ico px-btn-secondary" data-action="px-preview">
+        <svg fill="currentColor"><use href="icons/sprite.svg#i-image"/></svg>
+        PREVIEW
+      </button>
+      <button class="btn-ico" data-action="px-render">
+        <svg fill="currentColor"><use href="icons/sprite.svg#i-mpg"/></svg>
+        RENDER
+      </button>
+    </div>
+
+    <!-- TIMER -->
+    <div class="px-timer-bar" id="px-timer-bar" style="display:none">
+      <span class="px-timer-label">RENDERING</span>
+      <span class="px-timer-clock" id="px-timer-clock">00:00.00</span>
+    </div>
+    <div class="px-timer-history" id="px-timer-history" style="display:none"></div>
+
+  </div>
+
+  <!-- STATUS + RESULT -->
+  <div class="px-status" id="px-status" style="display:none"></div>
+  <div class="tool-result" id="px-preview-result" style="display:none">
+    <div class="px-preview-head">
+      <span class="px-preview-info" id="px-preview-info">PREVIEW</span>
+      <div class="px-preview-nav" id="px-preview-nav">
+        <button class="px-nav-btn" data-action="px-cycle-preview" data-delta="-1">◀</button>
+        <button class="px-nav-btn" data-action="px-cycle-preview" data-delta="1">▶</button>
+      </div>
+    </div>
+    <img id="px-preview-img" class="px-preview-img">
+  </div>
+  <div class="tool-result" id="px-render-result" style="display:none"></div>
+
+</div>

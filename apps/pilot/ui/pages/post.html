@@ -1,0 +1,75 @@
+<div class="tool-wrap">
+
+  <div class="tool-head">
+    <span class="tool-title">POST EDITOR</span>
+    <button class="tool-close" data-action="navigate" data-page="home" tabindex="-1"><svg fill="currentColor"><use href="icons/sprite.svg#i-close"/></svg></button>
+  </div>
+
+  <div class="tool-desc">Create, edit and publish social media posts. Drafts are saved to Baserow.</div>
+
+  <!-- EDITOR -->
+  <div id="post-editor">
+    <div class="fl-field">
+      <input class="fl-input" id="post-name" type="text" placeholder=" ">
+      <label class="fl-label">NAME (INTERNAL)</label>
+    </div>
+
+    <div class="fl-field">
+      <textarea class="fl-input" id="post-caption" rows="5" placeholder=" "></textarea>
+      <label class="fl-label">CAPTION</label>
+    </div>
+
+    <div class="fl-grid fl-grid-2">
+      <div class="fl-field">
+        <select class="fl-select" id="post-status">
+          <option value="draft">Draft</option>
+          <option value="ready">Ready</option>
+          <option value="published">Published</option>
+        </select>
+        <label class="fl-label">STATUS</label>
+      </div>
+      <div class="fl-field">
+        <input class="fl-input" id="post-scheduled" type="datetime-local" placeholder=" ">
+        <label class="fl-label">SCHEDULED FOR</label>
+      </div>
+    </div>
+
+    <div class="fl-field">
+      <input class="fl-input" id="post-media" type="text" placeholder=" " readonly style="opacity:0.6">
+      <label class="fl-label">MEDIA PATH</label>
+    </div>
+    <div class="post-upload-row" id="post-upload-row">
+      <label class="btn-ico post-btn-secondary post-upload-label" for="post-upload-input">
+        <svg fill="currentColor" width="14" height="14"><use href="icons/sprite.svg#i-plus"/></svg>
+        UPLOAD MEDIA
+      </label>
+      <span class="post-upload-or">or drag from Bucket</span>
+      <input type="file" id="post-upload-input" accept="image/*,video/*" style="display:none">
+      <span class="post-upload-name" id="post-upload-name"></span>
+    </div>
+
+    <div class="tool-actions">
+      <button class="btn-ico post-btn-secondary" data-action="post-new">NEW</button>
+      <button class="btn-ico" data-action="post-save" id="post-save-btn">SAVE</button>
+    </div>
+    <div class="post-status-msg" id="post-status-msg" style="display:none"></div>
+  </div>
+
+  <!-- POST LIST -->
+  <div id="post-list-section">
+    <div class="post-list-head" data-action="post-toggle-list">
+      <span class="post-list-title">ALL POSTS</span>
+      <svg class="post-list-chev" id="post-list-chev" fill="currentColor" width="12" height="12" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg>
+    </div>
+    <div id="post-list-body" style="display:none">
+      <div class="post-filters" id="post-filters">
+        <button class="post-filter post-filter-active" data-action="post-filter" data-filter="all">ALL</button>
+        <button class="post-filter" data-action="post-filter" data-filter="draft">DRAFT</button>
+        <button class="post-filter" data-action="post-filter" data-filter="ready">READY</button>
+        <button class="post-filter" data-action="post-filter" data-filter="published">PUBLISHED</button>
+      </div>
+      <div class="post-list" id="post-list"></div>
+    </div>
+  </div>
+
+</div>

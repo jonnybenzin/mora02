@@ -29,7 +29,7 @@ var imgState = {
    ═══════════════════════════════════════════════════════════════ */
 
 /* Flows where seed/steps/cfg/negative are irrelevant (API-based) */
-var IMG_API_FLOWS = ['nanban'];
+var IMG_API_FLOWS = ['nanban', 'nanban-pro', 'gpt-image', 'flux-ultra'];
 
 function initImageGen() {
   /* Deactivate any previous image gen instances (strip their IDs to prevent conflicts) */
@@ -103,7 +103,8 @@ async function imgGenerate() {
   imgState.prompt = prompt;
   imgState.negative = (document.getElementById('img-negative') || {}).value || '';
   imgState.flow = (document.getElementById('img-flow') || {}).value || 'photo';
-  imgState.format = (document.getElementById('img-format') || {}).value || '1024x1024';
+  imgState.format = (document.getElementById('img-format') || {}).value || 'square';
+  var testrun = !!(document.getElementById('img-testrun') || {}).checked;
   var steps = (document.getElementById('img-steps') || {}).value || '25';
   var cfg = (document.getElementById('img-cfg') || {}).value || '7.5';
   var seedVal = (document.getElementById('img-seed') || {}).value || '-1';
@@ -116,6 +117,7 @@ async function imgGenerate() {
 
   /* Build /img command */
   var cmd = '/img ' + prompt + ' --flow ' + imgState.flow + ' --format ' + imgState.format;
+  if (testrun) cmd += ' --testrun';
   if (steps && steps !== '25') cmd += ' --steps ' + steps;
   if (cfg && cfg !== '7.5') cmd += ' --cfg ' + cfg;
   if (seedVal && seedVal !== '-1') cmd += ' --seed ' + seedVal;
@@ -162,7 +164,7 @@ async function imgGenerate() {
       imgHide('img-revision-section');
       if (typeof loadMonthlyCost === 'function') loadMonthlyCost();
     } else if (data.type === 'image_variants' && (!data.images || data.images.length === 0)) {
-      imgShowStatus('No images generated — VRAM out of memory. Try restarting ComfyUI or use SD 1.5.', true);
+      imgShowStatus(data.error || 'No images generated — VRAM out of memory. Try restarting ComfyUI or use SD 1.5.', true);
     } else {
       imgShowStatus(data.result || data.data || 'Generation failed', true);
     }

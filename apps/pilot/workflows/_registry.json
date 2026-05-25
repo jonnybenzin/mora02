@@ -1,0 +1,466 @@
+{
+  "default_flow": "photo",
+  "flows": {
+    "sd15": {
+      "name": "SD 1.5 (Legacy)",
+      "file": "sd15.json",
+      "max_batch": 4,
+      "needs_vram": false,
+      "aliases": [
+        "sd",
+        "legacy"
+      ],
+      "prompt_suffix": "",
+      "negative": "ugly, blurry, low quality, deformed, disfigured",
+      "node_map": {
+        "prompt": {
+          "node": "2",
+          "field": "text"
+        },
+        "negative": {
+          "node": "3",
+          "field": "text"
+        },
+        "seed": {
+          "node": "5",
+          "field": "seed"
+        },
+        "batch": {
+          "node": "4",
+          "field": "batch_size"
+        },
+        "width": {
+          "node": "4",
+          "field": "width"
+        },
+        "height": {
+          "node": "4",
+          "field": "height"
+        },
+        "cfg": {
+          "node": "5",
+          "field": "cfg"
+        },
+        "steps": {
+          "node": "5",
+          "field": "steps"
+        }
+      }
+    },
+    "photo": {
+      "name": "Juggernaut XL (Photo)",
+      "file": "photo_lucifael.json",
+      "max_batch": 4,
+      "needs_vram": false,
+      "ipadapter_compatible": true,
+      "aliases": [
+        "p",
+        "ph",
+        "juggernaut",
+        "realistic"
+      ],
+      "prompt_suffix": "",
+      "negative": "ugly, deformed, bad hands, blurry, low quality, watermark, text, cartoon, anime, illustration",
+      "node_map": {
+        "prompt": {
+          "node": "301",
+          "field": "positive"
+        },
+        "negative": {
+          "node": "301",
+          "field": "negative"
+        },
+        "seed": {
+          "node": "300",
+          "field": "noise_seed"
+        },
+        "batch": {
+          "node": "301",
+          "field": "batch_size"
+        },
+        "width": {
+          "node": "301",
+          "field": "empty_latent_width"
+        },
+        "height": {
+          "node": "301",
+          "field": "empty_latent_height"
+        },
+        "cfg": {
+          "node": "300",
+          "field": "cfg"
+        },
+        "steps": {
+          "node": "300",
+          "field": "steps"
+        }
+      }
+    },
+    "concept": {
+      "name": "DreamShaper XL (Concept Art)",
+      "file": "concept.json",
+      "max_batch": 4,
+      "needs_vram": false,
+      "ipadapter_compatible": true,
+      "aliases": [
+        "c",
+        "art",
+        "digital",
+        "dream"
+      ],
+      "prompt_suffix": ", digital art, concept art, detailed illustration, dramatic lighting",
+      "negative": "photo, realistic, ugly, deformed, blurry, low quality, watermark, text",
+      "node_map": {
+        "prompt": {
+          "node": "301",
+          "field": "positive"
+        },
+        "negative": {
+          "node": "301",
+          "field": "negative"
+        },
+        "seed": {
+          "node": "300",
+          "field": "noise_seed"
+        },
+        "batch": {
+          "node": "301",
+          "field": "batch_size"
+        },
+        "width": {
+          "node": "301",
+          "field": "empty_latent_width"
+        },
+        "height": {
+          "node": "301",
+          "field": "empty_latent_height"
+        },
+        "cfg": {
+          "node": "300",
+          "field": "cfg"
+        },
+        "steps": {
+          "node": "300",
+          "field": "steps"
+        }
+      }
+    },
+    "epic": {
+      "name": "Epic Realism XL",
+      "file": "epic.json",
+      "max_batch": 4,
+      "needs_vram": false,
+      "ipadapter_compatible": true,
+      "aliases": [
+        "e",
+        "realism",
+        "epicrealism"
+      ],
+      "prompt_suffix": "",
+      "negative": "ugly, deformed, bad hands, blurry, low quality, watermark, text, cartoon, anime",
+      "node_map": {
+        "prompt": {
+          "node": "301",
+          "field": "positive"
+        },
+        "negative": {
+          "node": "301",
+          "field": "negative"
+        },
+        "seed": {
+          "node": "300",
+          "field": "noise_seed"
+        },
+        "batch": {
+          "node": "301",
+          "field": "batch_size"
+        },
+        "width": {
+          "node": "301",
+          "field": "empty_latent_width"
+        },
+        "height": {
+          "node": "301",
+          "field": "empty_latent_height"
+        },
+        "cfg": {
+          "node": "300",
+          "field": "cfg"
+        },
+        "steps": {
+          "node": "300",
+          "field": "steps"
+        }
+      }
+    },
+    "nanban": {
+      "name": "Nano Banana 2 (Gemini)",
+      "file": "nanban.json",
+      "type": "api",
+      "max_batch": 1,
+      "needs_vram": false,
+      "aliases": ["nb", "banana", "gemini", "nanban2"],
+      "prompt_suffix": "",
+      "negative": "",
+      "cost_per_image": 0.04,
+      "cfg_max": 2.0,
+      "image_size_full": "2K",
+      "format_to_aspect": {
+        "square": "1:1",
+        "1024x1024": "1:1",
+        "landscape": "3:2",
+        "1152x768": "3:2",
+        "portrait": "2:3",
+        "768x1152": "2:3"
+      },
+      "node_map": {
+        "prompt": { "node": "1", "field": "prompt" },
+        "batch": { "node": "1", "field": "image_count" },
+        "aspect_ratio": { "node": "1", "field": "aspect_ratio" },
+        "image_size": { "node": "1", "field": "image_size" },
+        "cfg": { "node": "1", "field": "temperature" }
+      }
+    },
+    "flux-ultra": {
+      "name": "Flux 1.1 Pro Ultra (fal.ai, was Perplexity uses)",
+      "file": "flux_ultra.json",
+      "type": "api",
+      "max_batch": 1,
+      "needs_vram": false,
+      "aliases": ["fu", "flux-pro", "ultra", "fal", "wimmelbild-pro"],
+      "prompt_suffix": "",
+      "negative": "",
+      "cost_per_image": 0.06,
+      "format_to_aspect": {
+        "square":     "1:1",
+        "1024x1024":  "1:1",
+        "landscape":  "4:3",
+        "1152x768":   "4:3",
+        "1536x1024":  "4:3",
+        "portrait":   "3:4",
+        "768x1152":   "3:4",
+        "1024x1536":  "3:4",
+        "wide":       "16:9",
+        "ultrawide":  "21:9"
+      },
+      "node_map": {
+        "prompt":       { "node": "1", "field": "prompt" },
+        "aspect_ratio": { "node": "1", "field": "aspect_ratio" },
+        "seed":         { "node": "1", "field": "seed" }
+      }
+    },
+    "gpt-image": {
+      "name": "GPT Image 1 (OpenAI, high quality)",
+      "file": "gpt_image.json",
+      "type": "api",
+      "max_batch": 1,
+      "needs_vram": false,
+      "aliases": ["gpt", "openai", "gpt-image-1", "gptimage"],
+      "prompt_suffix": "",
+      "negative": "",
+      "cost_per_image": 0.17,
+      "quality_full": "high",
+      "format_to_size": {
+        "square": "1024x1024",
+        "1024x1024": "1024x1024",
+        "landscape": "1536x1024",
+        "1152x768": "1536x1024",
+        "1536x1024": "1536x1024",
+        "portrait": "1024x1536",
+        "768x1152": "1024x1536",
+        "1024x1536": "1024x1536",
+        "tall": "1024x1792",
+        "1024x1792": "1024x1792",
+        "wide": "1792x1024",
+        "1792x1024": "1792x1024"
+      },
+      "node_map": {
+        "prompt":  { "node": "1", "field": "prompt" },
+        "batch":   { "node": "1", "field": "num_images" },
+        "size":    { "node": "1", "field": "size" },
+        "quality": { "node": "1", "field": "quality" },
+        "seed":    { "node": "1", "field": "seed" },
+        "api_key": { "node": "1", "field": "api_key" }
+      }
+    },
+    "nanban-pro": {
+      "name": "Nano Banana Pro (Gemini 3 Pro Image, 4K)",
+      "file": "nanban_pro.json",
+      "type": "api",
+      "max_batch": 1,
+      "needs_vram": false,
+      "aliases": ["nbp", "pro", "gemini3", "nanban-pro", "wimmelbild"],
+      "prompt_suffix": "",
+      "negative": "",
+      "cost_per_image": 0.24,
+      "cfg_max": 2.0,
+      "image_size_full": "4K",
+      "format_to_aspect": {
+        "square": "1:1",
+        "1024x1024": "1:1",
+        "landscape": "3:2",
+        "1152x768": "3:2",
+        "portrait": "2:3",
+        "768x1152": "2:3",
+        "wide": "16:9",
+        "ultrawide": "21:9"
+      },
+      "node_map": {
+        "prompt": { "node": "1", "field": "prompt" },
+        "batch": { "node": "1", "field": "image_count" },
+        "aspect_ratio": { "node": "1", "field": "aspect_ratio" },
+        "image_size": { "node": "1", "field": "image_size" },
+        "cfg": { "node": "1", "field": "temperature" }
+      }
+    },
+    "flux": {
+      "name": "FLUX Schnell",
+      "file": "flux.json",
+      "max_batch": 2,
+      "needs_vram": true,
+      "aliases": [
+        "f",
+        "schnell"
+      ],
+      "prompt_suffix": "",
+      "negative": "",
+      "node_map": {
+        "prompt": {
+          "node": "3",
+          "field": "text"
+        },
+        "seed": {
+          "node": "5",
+          "field": "seed"
+        },
+        "batch": {
+          "node": "4",
+          "field": "batch_size"
+        },
+        "width": {
+          "node": "4",
+          "field": "width"
+        },
+        "height": {
+          "node": "4",
+          "field": "height"
+        },
+        "cfg": {
+          "node": "5",
+          "field": "cfg"
+        },
+        "steps": {
+          "node": "5",
+          "field": "steps"
+        }
+      }
+    },
+    "wan-t2v": {
+      "name": "WAN 2.2 Text-to-Video",
+      "file": "MyWAN_textovid.json",
+      "type": "video",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": ["wan", "t2v", "texttovideo"],
+      "prompt_suffix": "",
+      "negative": "",
+      "node_map": {
+        "prompt":  { "node": "135", "field": "text" },
+        "negative": { "node": "134", "field": "text" },
+        "seed":    { "node": "127", "field": "noise_seed" },
+        "steps":   { "node": "127", "field": "steps" },
+        "steps2":  { "node": "129", "field": "steps" },
+        "width":   { "node": "128", "field": "width" },
+        "height":  { "node": "128", "field": "height" },
+        "length":  { "node": "128", "field": "length" },
+        "fps":     { "node": "130", "field": "fps" }
+      }
+    },
+    "wan-i2v": {
+      "name": "WAN 2.2 Image-to-Video",
+      "file": "MyWAN_imgtovid.json",
+      "type": "video",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": ["i2v", "imgtovideo"],
+      "prompt_suffix": "",
+      "negative": "",
+      "node_map": {
+        "prompt":      { "node": "131", "field": "text" },
+        "negative":    { "node": "132", "field": "text" },
+        "seed":        { "node": "137", "field": "noise_seed" },
+        "steps":       { "node": "137", "field": "steps" },
+        "steps2":      { "node": "138", "field": "steps" },
+        "width":       { "node": "136", "field": "width" },
+        "height":      { "node": "136", "field": "height" },
+        "length":      { "node": "136", "field": "length" },
+        "fps":         { "node": "143", "field": "fps" },
+        "start_image": { "node": "121", "field": "image" }
+      }
+    },
+    "wan-i2i2v": {
+      "name": "WAN 2.2 Start+End Frame to Video",
+      "file": "MyWAN_imgtoimgtovid.json",
+      "type": "video",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": ["i2i2v", "startend"],
+      "prompt_suffix": "",
+      "negative": "",
+      "node_map": {
+        "prompt":      { "node": "131", "field": "text" },
+        "negative":    { "node": "132", "field": "text" },
+        "seed":        { "node": "137", "field": "noise_seed" },
+        "steps":       { "node": "137", "field": "steps" },
+        "steps2":      { "node": "138", "field": "steps" },
+        "width":       { "node": "145", "field": "width" },
+        "height":      { "node": "145", "field": "height" },
+        "length":      { "node": "145", "field": "length" },
+        "fps":         { "node": "143", "field": "fps" },
+        "start_image": { "node": "121", "field": "image" },
+        "end_image":   { "node": "146", "field": "image" }
+      }
+    },
+    "expand": {
+      "name": "EXPANDER (FLUX Outpaint)",
+      "file": "expand_flux.json",
+      "type": "expand",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": ["expander", "outpaint"],
+      "prompt_suffix": "",
+      "negative": "",
+      "node_map": {
+        "image":   { "node": "10", "field": "image" },
+        "prompt":  { "node": "3",  "field": "text" },
+        "seed":    { "node": "5",  "field": "seed" },
+        "steps":      { "node": "5",  "field": "steps" },
+        "feathering": { "node": "11", "field": "feathering" },
+        "pad_left":   { "node": "11", "field": "left" },
+        "pad_top":    { "node": "11", "field": "top" },
+        "pad_right":  { "node": "11", "field": "right" },
+        "pad_bottom": { "node": "11", "field": "bottom" }
+      }
+    },
+    "upscale": {
+      "name": "Upscale SDXL-Tile (Juggernaut + UltraSharp)",
+      "file": "upscale_sdxl_tile.json",
+      "type": "upscale",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": ["up", "upscaler"],
+      "prompt_suffix": ", highly detailed, sharp focus, photographic, 8k, no blur, no artifacts",
+      "negative": "blurry, artifacts, low quality, jpeg compression, banding, oversharpened",
+      "node_map": {
+        "image":    { "node": "1", "field": "image" },
+        "prompt":   { "node": "4", "field": "text" },
+        "negative": { "node": "5", "field": "text" },
+        "seed":     { "node": "6", "field": "seed" },
+        "factor":   { "node": "6", "field": "upscale_by" },
+        "denoise":  { "node": "6", "field": "denoise" },
+        "steps":    { "node": "6", "field": "steps" },
+        "cfg":      { "node": "6", "field": "cfg" }
+      }
+    }
+  }
+}

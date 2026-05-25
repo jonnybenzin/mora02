@@ -1,0 +1,105 @@
+{
+  "1": {
+    "inputs": {
+      "unet_name": "flux1-fill-dev-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load FLUX Fill Dev" }
+  },
+  "2": {
+    "inputs": {
+      "clip_name1": "clip_l.safetensors",
+      "clip_name2": "t5xxl_fp8_e4m3fn.safetensors",
+      "type": "flux"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": { "title": "Load CLIP" }
+  },
+  "7": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE" }
+  },
+  "10": {
+    "inputs": {
+      "image": "input_image.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Source Image" }
+  },
+  "11": {
+    "inputs": {
+      "image": ["10", 0],
+      "left": 448,
+      "top": 448,
+      "right": 448,
+      "bottom": 448,
+      "feathering": 8
+    },
+    "class_type": "ImagePadForOutpaint",
+    "_meta": { "title": "Pad for Outpaint" }
+  },
+  "3": {
+    "inputs": {
+      "text": "extend the background naturally, same style, same lighting, same scene, seamless continuation, high quality",
+      "clip": ["2", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Positive Prompt" }
+  },
+  "6": {
+    "inputs": {
+      "text": "",
+      "clip": ["2", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Negative (empty)" }
+  },
+  "15": {
+    "inputs": {
+      "positive": ["3", 0],
+      "negative": ["6", 0],
+      "vae": ["7", 0],
+      "pixels": ["11", 0],
+      "mask": ["11", 1],
+      "noise_mask": false
+    },
+    "class_type": "InpaintModelConditioning",
+    "_meta": { "title": "Inpaint Model Conditioning" }
+  },
+  "5": {
+    "inputs": {
+      "seed": 0,
+      "steps": 28,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["1", 0],
+      "positive": ["15", 0],
+      "negative": ["15", 1],
+      "latent_image": ["15", 2]
+    },
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler" }
+  },
+  "8": {
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["7", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "9": {
+    "inputs": {
+      "filename_prefix": "expand",
+      "images": ["8", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Expanded" }
+  }
+}
