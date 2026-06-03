@@ -726,7 +726,8 @@ services:
       - /opt/mora02/output/_default/clipper:/usr/share/nginx/html/tool-assets/clipper:ro
       - /opt/mora02/output/_default/typer:/usr/share/nginx/html/tool-assets/typer:ro
       - /opt/mora02/output/_default/pixeltext:/usr/share/nginx/html/pixeltext:ro
-      - /opt/mora02/knowledge:/usr/share/nginx/html/wiki:ro
+      - /opt/mora02/kompendium:/usr/share/nginx/html/wiki:ro
+      - /opt/mora02/knowledge/x-ray:/usr/share/nginx/html/x-ray:ro
       - /opt/mora02/output/_default/tts:/usr/share/nginx/html/tool-assets/tts:ro
       - /opt/mora02/output/_default/music:/usr/share/nginx/html/tool-assets/music:ro
     networks:

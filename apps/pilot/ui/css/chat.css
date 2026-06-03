@@ -22,8 +22,10 @@
 /* Body — Inter only */
 .msg-body{font-family:var(--typo-body-font);font-size:var(--typo-body-size);font-weight:var(--typo-body-weight);color:var(--typo-body-color);line-height:var(--typo-body-line-h);width:100%;user-select:text;-webkit-user-select:text}
 .msg-body h1,.msg-body h2,.msg-body h3,.msg-body h4{font-family:var(--typo-h2-font);font-weight:var(--typo-h2-weight);color:var(--typo-h2-color);margin:var(--sp-10) 0 var(--sp-10)}
-.msg-body>h3:first-child,.msg-body>h4:first-child{margin-top:0}
-.msg-body h3{font-size:var(--fs-md)}
+.msg-body>h1:first-child,.msg-body>h2:first-child,.msg-body>h3:first-child,.msg-body>h4:first-child{margin-top:0}
+.msg-body h1{font-size:var(--typo-h1-size);font-weight:var(--typo-h1-weight);letter-spacing:var(--typo-h1-spacing)}
+.msg-body h2{font-size:var(--typo-h2-size)}
+.msg-body h3{font-size:16px}
 .msg-body h4{font-size:var(--fs-base)}
 .msg-body p{margin:0 0 var(--sp-10)}
 .msg-body strong{font-weight:var(--fw-bold)}
