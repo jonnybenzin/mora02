@@ -2,8 +2,9 @@
 
 Source-of-truth is the JSON registry at COMFYUI_WORKFLOWS_DIR/_registry.json.
 Individual workflow files (concept.json, flux.json, etc.) live alongside it.
-Pilot owns these files today (apps/pilot/workflows/); a second consumer could
-point COMFYUI_WORKFLOWS_DIR elsewhere.
+The workflow JSONs ship with the library itself under comfyui/workflows/
+(see pyproject.toml package-data). Setting the COMFYUI_WORKFLOWS_DIR env
+variable still lets a consumer point at a different directory if needed.
 """
 
 import json

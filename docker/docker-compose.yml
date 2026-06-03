@@ -960,7 +960,6 @@ services:
       - /opt/mora02/output/_default/tts:/output/tts
       - /opt/mora02/output/_default/socialmedia:/socialmedia
       - /opt/mora02/knowledge/changelog/chathistory:/chathistory
-      - /opt/mora02/apps/pilot/workflows:/workflows:ro
       # Style reference images for IP-Adapter
       - /opt/mora02/volumes/styles:/data/styles
       # LLM switcher state (read-only): pilot reads current profile from here
@@ -978,8 +977,6 @@ services:
       - QWEN_URL=http://llama-server:8080
       - COMFYUI_URL=http://comfyui:8188
       - COMFYUI_INPUT_DIR=/comfyui-input
-      - COMFYUI_WORKFLOWS_DIR=/workflows
-      - COMFYUI_STYLES_DIR=/data/styles
     networks:
       - mora02-net
     healthcheck:
