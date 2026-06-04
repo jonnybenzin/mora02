@@ -1,3 +1,3 @@
-# Script-Runner-interne Module.
-# Media-Logik (gifer/typer/clipper) ist nach mora02_core.media gewandert
-# (ADR-018). Was hier bleibt, ist Service-internes — derzeit llm_switcher.
+# Empty package marker.
+# Service-interne Module sind alle nach mora02_core migriert
+# (Media-Logik per ADR-018, LLM-Switcher per ADR-019).

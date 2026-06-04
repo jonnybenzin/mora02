@@ -8,16 +8,13 @@ from mora02_core import auth
 
 _QWEN_URL = auth.get("QWEN_URL", "http://mora02.local:8080")
 
-# Human labels for local llama.cpp profiles. Must stay in sync with
-# apps/script-runner/app/scripts/llm_switcher.py PROFILES.
-LOCAL_PROFILE_LABELS = {
-    "qwen3-14b": "Qwen3 14B",
-    "qwen3-8b": "Qwen3 8B",
-    "qwen25-7b": "Qwen2.5 7B",
-    "qwen25-coder": "Qwen2.5 Coder",
-    "nous-hermes": "Nous-Hermes",
-    "magistral": "Magistral",
-}
+# Human labels for local llama.cpp profiles.
+# Derived from mora02_core.llm.profiles.PROFILES (single source of truth).
+# This constant is kept for backward compatibility with callers that imported
+# it directly; new code should prefer profile_label() or PROFILES directly.
+from mora02_core.llm.profiles import PROFILES as _PROFILES
+
+LOCAL_PROFILE_LABELS = {name: meta["label"] for name, meta in _PROFILES.items()}
 
 # `label`, `color`, `tier` drive UI rendering. `color` is the CSS-var key
 # (defined in apps/pilot/ui/css/design-tokens.css as `--<color>`).

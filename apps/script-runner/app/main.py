@@ -30,7 +30,6 @@ _log = get_logger("script-runner")
 DATA_DIR = Path("/data")
 WIP_DIR = DATA_DIR / "wip"
 FINAL_DIR = DATA_DIR / "final"
-SCRIPTS_DIR = Path("/app/scripts")
 
 # Path mapping (container → host)
 CONTAINER_DATA_PATH = "/data"
@@ -852,12 +851,12 @@ async def list_downloads():
 # Script-Runner has NO docker daemon access — the switch itself runs on the
 # host, triggered by file-drop into /llm-switch/requests/.
 
-from scripts.llm_switcher import (
+from mora02_core.llm import (
     LLMSwitchError,
-    VALID_PROFILE_NAMES as LLM_VALID_PROFILES,
     get_current_profile as llm_get_current,
     get_switch_status as llm_get_status,
     list_profiles as llm_list_profiles,
+    profile_names as llm_valid_profile_names,
     submit_switch as llm_submit_switch,
 )
 
@@ -887,7 +886,7 @@ async def post_llm_switch(request: LLMSwitchRequest):
     Submit a switch request. Returns immediately with a request_id.
     Poll GET /llm/switch/{request_id} for the result.
     """
-    if request.profile not in LLM_VALID_PROFILES:
+    if request.profile not in llm_valid_profile_names():
         raise HTTPException(
             status_code=400,
             detail=f"invalid profile: {request.profile}"
