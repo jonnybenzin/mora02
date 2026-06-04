@@ -4,7 +4,6 @@ Mora02 Script Runner API
 FastAPI service for gifer, clipper, typer scripts
 """
 
-import os
 import uuid
 import shutil
 import subprocess
@@ -18,9 +17,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from mora02_core import auth
+from mora02_core._common import get_logger
+from mora02_core.baserow import api as baserow_api
+
 # ============================================================================
 # CONFIG
 # ============================================================================
+
+_log = get_logger("script-runner")
 
 DATA_DIR = Path("/data")
 WIP_DIR = DATA_DIR / "wip"
@@ -39,14 +44,9 @@ PUBLISH_DESTINATIONS = {
 # nginx-images URL for assets
 NGINX_BASE_URL = "http://mora02.local:8092/script-bot-assets"
 
-# Baserow config
-BASEROW_API_URL = "http://baserow:80/api/database/rows/table/568/"
-BASEROW_TOKEN = os.environ["BASEROW_TOKEN"]
-BASEROW_HOST = "mora02.local:8085"
-
-# Stock photo APIs
-PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
-PIXABAY_API_KEY = os.environ.get("PIXABAY_API_KEY", "")
+# Stock photo APIs — keys via central env loader (mora02_core.auth)
+PEXELS_API_KEY = auth.get("PEXELS_API_KEY", "")
+PIXABAY_API_KEY = auth.get("PIXABAY_API_KEY", "")
 
 # Ensure directories exist
 for d in [WIP_DIR, FINAL_DIR, FINAL_DIR / "gifer", FINAL_DIR / "clipper", FINAL_DIR / "typer", FINAL_DIR / "pexels", FINAL_DIR / "pixabay"]:
@@ -167,38 +167,20 @@ def get_nginx_url(script_type: str, folder: str, filename: str) -> str:
     return f"{NGINX_BASE_URL}/{script_type}/{folder}/{filename}"
 
 async def create_baserow_entry(script_type: str, folder: str, files: List[str], host_path: str):
-    """Create entry in Baserow script-bot_assets table"""
+    """Create entry in Baserow sb_assets table via mora02_core.baserow.api."""
     try:
-        # Build preview URL (first file)
         first_file = files[0] if files else ""
-        preview_url = get_nginx_url(script_type, folder, first_file)
-        
-        # Prepare data (field names lowercase as per Baserow API)
         data = {
             "type": script_type,
             "path": host_path,
             "filename": ", ".join(files),
             "files_count": len(files),
-            "preview_url": preview_url,
-            "created": datetime.now().isoformat()
+            "preview_url": get_nginx_url(script_type, folder, first_file),
+            "created": datetime.now().isoformat(),
         }
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                BASEROW_API_URL,
-                headers={
-                    "Authorization": f"Token {BASEROW_TOKEN}",
-                    "Content-Type": "application/json",
-                    "Host": BASEROW_HOST
-                },
-                json=data,
-                params={"user_field_names": "true"},
-                timeout=10.0
-            )
-            response.raise_for_status()
-            return response.json()
+        return await baserow_api.insert("sb_assets", data)
     except Exception as e:
-        print(f"Baserow error: {e}")
+        _log.warning("baserow insert failed: %s", e)
         return None
 
 # ============================================================================
