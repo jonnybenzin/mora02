@@ -13,7 +13,6 @@ var dashServices = {
     { name: 'Dify Web',      url: 'http://mora02.local:8190/',        port: 8190 },
     { name: 'Baserow',       url: 'http://mora02.local:8085/api/',   port: 8085 },
     { name: 'Script Runner',  url: 'http://mora02.local:8096/health', port: 8096 },
-    { name: 'Knowledge API',  url: 'http://mora02.local:8095/health', port: 8095 },
     { name: 'Activepieces',   url: 'http://mora02.local:8089/',       port: 8089 },
     { name: 'SearXNG',        url: 'http://mora02.local:8094/',       port: 8094 },
   ],
@@ -242,7 +241,7 @@ function dashCheck(svc) {
 
 /* ─── TTS Engine Toggle (Chatterbox) ───────────────────────── */
 
-var KNOWLEDGE_API_DASH = 'http://mora02.local:8095';
+var TTS_API_DASH = 'http://mora02.local:8096';
 var dashTTSBusy = false;
 
 async function dashRenderTTSToggle() {
@@ -251,7 +250,7 @@ async function dashRenderTTSToggle() {
   if (!togglesEl || !currentEl) return;
 
   try {
-    var r = await fetch(KNOWLEDGE_API_DASH + '/tts/chatterbox/status');
+    var r = await fetch(TTS_API_DASH + '/tts/chatterbox/status');
     var data = await r.json();
     var running = data.running && data.healthy;
     var starting = data.running && !data.healthy;
@@ -286,7 +285,7 @@ async function dashTTSToggle() {
 
   try {
     // Check current state
-    var sr = await fetch(KNOWLEDGE_API_DASH + '/tts/chatterbox/status');
+    var sr = await fetch(TTS_API_DASH + '/tts/chatterbox/status');
     var state = await sr.json();
     var isRunning = state.running;
 
@@ -295,7 +294,7 @@ async function dashTTSToggle() {
       ? 'Stopping Chatterbox...'
       : 'Starting Chatterbox (model warmup ~1-2 min)...';
 
-    var r = await fetch(KNOWLEDGE_API_DASH + '/tts/chatterbox/' + action, { method: 'POST' });
+    var r = await fetch(TTS_API_DASH + '/tts/chatterbox/' + action, { method: 'POST' });
     var data = await r.json();
 
     if (data.status === 'ok') {
@@ -308,7 +307,7 @@ async function dashTTSToggle() {
         var pollInterval = setInterval(async function() {
           attempts++;
           try {
-            var pr = await fetch(KNOWLEDGE_API_DASH + '/tts/chatterbox/status');
+            var pr = await fetch(TTS_API_DASH + '/tts/chatterbox/status');
             var ps = await pr.json();
             if (ps.healthy) {
               clearInterval(pollInterval);

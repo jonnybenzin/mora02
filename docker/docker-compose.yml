@@ -200,7 +200,7 @@ services:
       - mora02-net
       
   # ============================================================================
-  # IMAGE GENERATION
+  # MEDIA GENERATION
   # ============================================================================
 
   comfyui:
@@ -751,28 +751,6 @@ services:
     networks:
       - mora02-net
 
-  knowledge-api:
-    build:
-      context: /opt/mora02/apps/knowledge-api
-      dockerfile: Dockerfile
-    container_name: knowledge-api
-    restart: unless-stopped
-    ports:
-      - "8095:8095"
-    volumes:
-      - /opt/mora02:/opt/mora02:ro
-      - /opt/mora02/volumes:/opt/mora02/volumes
-      - /opt/mora02/scripts:/opt/mora02/scripts:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /opt/mora02/output/_default/tts:/opt/mora02/output/_default/tts
-      - /opt/mora02/volumes/chatterbox/voices:/opt/mora02/volumes/chatterbox/voices
-    environment:
-      - TZ=Europe/Berlin
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
-      - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY}
-    networks:
-      - mora02-net
-
 # ============================================================================
 # SCRIPT RUNNER - GIF/Video/Image Generation API
 # ============================================================================
@@ -796,11 +774,20 @@ services:
       - /opt/mora02/output/_default/socialmedia:/socialmedia-assets
       # LLM switcher briefkasten (read/write requests, read responses + state)
       - /opt/mora02/llm-switch:/llm-switch
+      # Docker socket for Chatterbox container control (ADR-020)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # TTS output (absolute path; library writes here)
+      - /opt/mora02/output/_default/tts:/opt/mora02/output/_default/tts
+
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}
       - PIXABAY_API_KEY=${PIXABAY_API_KEY}
       - BASEROW_TOKEN=${BASEROW_TOKEN}
       - TZ=Europe/Berlin
+      - KOKORO_URL=http://kokoro-tts:8880
+      - PIPER_URL=http://piper-tts:8107
+      - CHATTERBOX_URL=http://chatterbox-tts:4123
+
     networks:
       - mora02-net
     healthcheck:

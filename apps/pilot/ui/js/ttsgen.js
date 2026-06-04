@@ -1,11 +1,11 @@
 /* ═══════════════════════════════════════════════════════════════
    TTS GEN — Text-to-Speech Generation
    DE → Piper (CPU), EN → Kokoro (CPU)
-   API: knowledge-api /tts/generate
+   API: script-runner /tts/generate (was knowledge-api before ADR-020)
    ═══════════════════════════════════════════════════════════════ */
 
-var KNOWLEDGE_API = 'http://mora02.local:8095';
-var TTS_MEDIA    = 'http://mora02.local:8092';
+var TTS_API   = 'http://mora02.local:8096';
+var TTS_MEDIA = 'http://mora02.local:8092';
 
 var ttsState = {
   generating: false,
@@ -54,7 +54,7 @@ function initTtsGen() {
 /* ─── VOICES ───────────────────────────────────────────────── */
 
 function ttsLoadVoices() {
-  fetch(KNOWLEDGE_API + '/tts/voices')
+  fetch(TTS_API + '/tts/voices')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       ttsState.voices = data;
@@ -125,7 +125,7 @@ function ttsGenerate() {
     payload.noise_w = timbre;
   }
 
-  fetch(KNOWLEDGE_API + '/tts/generate', {
+  fetch(TTS_API + '/tts/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -237,7 +237,7 @@ function ttsCheckChatterboxStatus() {
     if (notice) notice.style.display = 'none';
     return;
   }
-  fetch(KNOWLEDGE_API + '/tts/chatterbox/status')
+  fetch(TTS_API + '/tts/chatterbox/status')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (notice) notice.style.display = (data.healthy) ? 'none' : '';
@@ -251,7 +251,7 @@ function ttsCheckChatterboxStatus() {
 /* ─── VOICE LIBRARY (CHATTERBOX) ───────────────────────────── */
 
 function ttsLoadVoiceLibrary() {
-  fetch(KNOWLEDGE_API + '/tts/voices/library')
+  fetch(TTS_API + '/tts/voices/library')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var sel = document.getElementById('tts-cb-voice');
@@ -292,7 +292,7 @@ function ttsVoiceUpload() {
 
   if (statusEl) statusEl.textContent = 'Uploading & converting...';
 
-  fetch(KNOWLEDGE_API + '/tts/voices/upload', {
+  fetch(TTS_API + '/tts/voices/upload', {
     method: 'POST',
     body: formData,
   })

@@ -1,9 +1,15 @@
 FROM python:3.11-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies plus a statically-linked docker CLI.
+# Docker CLI is needed for the chatterbox container control endpoints
+# (/tts/chatterbox/status, /tts/chatterbox/start, /tts/chatterbox/stop)
+# that moved here per ADR-020. /var/run/docker.sock is mounted in the
+# compose block.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
+    && curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz \
+       | tar xz --strip-components=1 -C /usr/local/bin docker/docker \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

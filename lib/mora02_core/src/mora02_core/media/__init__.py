@@ -11,6 +11,7 @@ Recommended for new code:
     # asset is an mora02_core.assets.Asset
 """
 
+from mora02_core.media import tts
 from mora02_core.media._errors import MediaError
 from mora02_core.media.gifer import create_gif
 from mora02_core.media.typer import create_text_frame
@@ -21,4 +22,5 @@ __all__ = [
     "create_gif",
     "create_text_frame",
     "create_clip",
+    "tts",
 ]
