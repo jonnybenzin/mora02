@@ -3,9 +3,9 @@ Scannt das gesamte Mora02-System und erstellt ein vollständiges Bild der Infras
 
 ## Quick Start
 ```bash
-python3 mora02-xray.py --base-dir /opt/mora02 --output-dir /opt/mora02/knowledge/x-ray
+python3 mora02-xray.py --base-dir /opt/mora02 --output-dir /opt/mora02/state/xray
 ```
-Dieser Befehl scannt das Mora02-System unter `/opt/mora02` und speichert das Ergebnis im Ordner `/opt/mora02/knowledge/x-ray`. Das Ergebnis umfasst eine Dependency-Map, ein Secrets-Audit, ein Service-Inventar, ein Mermaid-Diagramm und ein interaktives HTML-Dashboard.
+Dieser Befehl scannt das Mora02-System unter `/opt/mora02` und speichert das Ergebnis im Ordner `/opt/mora02/state/xray`. Das Ergebnis umfasst eine Dependency-Map, ein Secrets-Audit, ein Service-Inventar, ein Mermaid-Diagramm und ein interaktives HTML-Dashboard.
 
 ## What It Does
 Das Tool scannt das gesamte Mora02-System und identifiziert:
@@ -22,7 +22,7 @@ Die folgenden Parameter können über die Kommandozeile gesetzt werden:
 | Parameter | Default | Beschreibung |
 |---------|---------|-------------|
 | `--base-dir` | `/opt/mora02` | Basisverzeichnis des Mora02-Systems |
-| `--output-dir` | `/opt/mora02/knowledge/x-ray` | Zielverzeichnis für die Ausgabe |
+| `--output-dir` | `/opt/mora02/state/xray` | Zielverzeichnis für die Ausgabe |
 | `--no-baserow` | `False` | Baserow-Scan deaktivieren |
 | `--no-activepieces` | `False` | Activepieces-Scan deaktivieren |
 | `--no-dify` | `False` | Dify-Scan deaktivieren |
@@ -64,7 +64,7 @@ Das Tool arbeitet in mehreren Schichten:
 
 ## Directory Structure
 ```
-/opt/mora02/knowledge/x-ray/
+/opt/mora02/state/xray/
 ├── x-ray-raw.json              # Rohdaten des Scans
 ├── x-ray-mermaid.mmd           # Mermaid-Diagramm
 ├── x-ray-dashboard.html        # Interaktives HTML-Dashboard

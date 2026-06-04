@@ -183,22 +183,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # Open WebUI (verbindet sich mit llama-server, egal welches Modell)
-  open-webui:
-    image: local-openwebui
-    container_name: open-webui
-    restart: unless-stopped
-    ports:
-      - "3000:8080"
-    environment:
-      - OPENAI_API_BASE_URL=http://llama-server:8080/v1
-      - OPENAI_API_KEY=not-needed
-      - WEBUI_AUTH=false
-    volumes:
-      - /opt/mora02/docker/open-webui:/app/backend/data
-    networks:
-      - mora02-net
-      
   # ============================================================================
   # MEDIA GENERATION
   # ============================================================================
@@ -727,7 +711,7 @@ services:
       - /opt/mora02/output/_default/typer:/usr/share/nginx/html/tool-assets/typer:ro
       - /opt/mora02/output/_default/pixeltext:/usr/share/nginx/html/pixeltext:ro
       - /opt/mora02/kompendium:/usr/share/nginx/html/wiki:ro
-      - /opt/mora02/knowledge/x-ray:/usr/share/nginx/html/x-ray:ro
+      - /opt/mora02/state/xray:/usr/share/nginx/html/x-ray:ro
       - /opt/mora02/output/_default/tts:/usr/share/nginx/html/tool-assets/tts:ro
       - /opt/mora02/output/_default/music:/usr/share/nginx/html/tool-assets/music:ro
     networks:
@@ -947,7 +931,7 @@ services:
       - /opt/mora02/output/_default/typer:/output/typer
       - /opt/mora02/output/_default/tts:/output/tts
       - /opt/mora02/output/_default/socialmedia:/socialmedia
-      - /opt/mora02/knowledge/changelog/chathistory:/chathistory
+      - /opt/mora02/apps/pilot/data/chathistory:/chathistory
       # Style reference images for IP-Adapter
       - /opt/mora02/volumes/styles:/data/styles
       # LLM switcher state (read-only): pilot reads current profile from here

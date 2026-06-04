@@ -10,7 +10,7 @@ Scannt das gesamte Mora02-System und erstellt:
 5. Interaktives HTML-Dashboard
 
 Nutzung:
-    python3 mora02-xray.py [--base-dir /opt/mora02] [--output-dir /opt/mora02/knowledge/x-ray]
+    python3 mora02-xray.py [--base-dir /opt/mora02] [--output-dir /opt/mora02/state/xray]
 
 Erfordert: requests, pyyaml
     pip install requests pyyaml --break-system-packages
@@ -95,11 +95,10 @@ SECRET_FP_PATHS = [
     '/integration_tests/',
     'plugin_daemon/cwd/',     # Dify Plugin Templates
     'dify-new/',              # Dify Quellcode — nicht unser Code
-    'docker/open-webui/',     # Open-WebUI Quellcode
     'docker/ollama/',         # Ollama Quellcode
     'sdks/',                  # SDK Beispiele
     '_old_docker-compose/',   # Alte Compose-Dateien mit Passwörtern
-    'knowledge/x-ray/',     # Eigene alte Reports (enthalten Secrets als Text!)
+    'state/xray/',     # Eigene alte Reports (enthalten Secrets als Text!)
 ]
 
 # Pfade die bei Dependency-Zählung als Noise markiert werden
@@ -108,12 +107,10 @@ DEPENDENCY_NOISE_PATHS = [
     'data/knowledge-base/',
     'data/dify/storage/upload_files/',
     'data/dify-new/storage/upload_files/',
-    'docker/open_web_ui/uploads/',
-    'docker/open-webui/',
     '_old_docker-compose/',
     'docs/changelog/',
-    'knowledge/x-ray/',       # Eigene alte Reports nicht mitzählen
-    'knowledge/archive/2602130912_',   # Alte xray-raw.json
+    'state/xray/',       # Eigene alte Reports nicht mitzählen
+    '_archive/2606041439_knowledge-archive/',   # Alte xray-raw.json (archiviert)
 ]
 
 
@@ -1478,7 +1475,6 @@ draw();
             elif name == 'baserow': desc = f'Projektdatenbank · {len(self.baserow_tables)} Tab.'
             elif name == 'activepieces': desc = f'Workflow · {len(self.activepieces_flows)} Flows'
             elif name == 'pilot': desc = 'Image Review UI'
-            elif name == 'open-webui': desc = 'Chat Interface'
             elif 'penpot-frontend' in name: desc = 'Design Tool · v2.12'
             elif 'penpot-backend' in name: desc = 'Penpot API'
             elif 'penpot-exporter' in name: desc = 'PDF/SVG Export'
@@ -1706,7 +1702,7 @@ def main():
     timestamp = datetime.now().strftime("%y%m%d%H%M")
 
     if args.output_dir is None:
-        args.output_dir = f"{args.base_dir}/knowledge/x-ray/{timestamp}"
+        args.output_dir = f"{args.base_dir}/state/xray/{timestamp}"
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

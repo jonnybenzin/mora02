@@ -24,7 +24,6 @@ var dashServices = {
   infra: [
     { name: 'nginx',      url: 'http://mora02.local:8092/health', port: 8092 },
     { name: 'Ollama',     url: 'http://mora02.local:11434/',       port: 11434 },
-    { name: 'Open-WebUI', url: 'http://mora02.local:3000/',          port: 3000 },
   ],
 };
 

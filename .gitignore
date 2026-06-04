@@ -7,12 +7,24 @@
 gitleaks-report.json
 trufflehog-report.json
 
-# Compose Snapshots (enthalten alte Secrets)
-knowledge/changelog/compose-snapshots/
-knowledge/changelog/chats/
-
 # Scripts Archive (enthält env-centralize.sh mit Klartext-Secrets)
 scripts/_archive/
+
+# Zentrales Archive für reversibles Aufräumen (ADR-021)
+# Inhalt ist lokal-only; Borg-Backup deckt die Sicherheits-Schicht ab
+_archive/
+
+# Sensitive lokale Konfig (VPN-Keys, künftige Secret-Files) — KRITISCH
+secrets/
+
+# Run-Time State von Host-Tools (xray-Reports etc.)
+state/
+
+# Claude Code Sessions + User-Input — privat
+claude/
+
+# Pilot Run-Time-Daten (chathistory JSONs mit Konversations-Inhalten)
+apps/pilot/data/
 
 # Claude Code & MCP runtime data
 .claude/
@@ -24,7 +36,6 @@ apps/blender-worker/
 
 # Laufzeit-Daten
 volumes/
-data/
 backups/
 output/
 
@@ -46,15 +57,12 @@ node_modules/
 Thumbs.db
 
 # Generierte Bilder / Factory Output
-output/
-knowledge/
+kompendium/
 ai_models/
 ai-models/
 docker/ComfyUI/output/
 docker/ComfyUI/input/
 docker/ComfyUI/models/
-docker/open-webui/
-docker/penpot/
 nginx-images/
 
 # Grosse Modell-Dateien
@@ -92,7 +100,5 @@ apps/pilot/ui/screendesign/
 CLAUDE.md
 apps/matrix-tool/
 apps/chatterbox-api/
-docs/system/
-docs/claude_inputs/
 x_briefing/
 llm-switch/

@@ -24,7 +24,7 @@ Usage:
     ./backfill-session-intros.py --apply --force
 
     # Different source directory
-    ./backfill-session-intros.py --dir /opt/mora02/knowledge/sessions --apply
+    ./backfill-session-intros.py --dir /opt/mora02/claude/sessions --apply
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from pathlib import Path
 # Config
 # ---------------------------------------------------------------------------
 
-DEFAULT_SUMMARIES_DIR = Path("/opt/mora02/knowledge/sessions/claude/summaries")
+DEFAULT_SUMMARIES_DIR = Path("/opt/mora02/claude/sessions/summaries")
 LLAMA_URL = "http://mora02.local:8080/v1/chat/completions"
 SCRIPT_RUNNER_CURRENT_URL = "http://mora02.local:8096/llm/current"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
