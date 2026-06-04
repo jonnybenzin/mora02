@@ -284,26 +284,26 @@ async def run_gifer(request: GiferRequest):
     output_file = output_dir / f"gif_{timestamp}_{counter:03d}.gif"
     
     try:
-        from scripts.gifer_api import create_gif_from_files
-        
-        result = create_gif_from_files(
-            input_files=image_files,
-            output_path=output_file,
-            durations=request.durations,
-            quality=request.quality,
-            size=request.size
-        )
-        
-        if result["success"]:
-            preview_url = f"/preview/{request.session_id}/{output_file.name}"
-            return RunResponse(
-                success=True,
-                filename=output_file.name,
-                preview_url=preview_url
+        from mora02_core.media import create_gif, MediaError
+
+        try:
+            create_gif(
+                input_files=image_files,
+                output_path=output_file,
+                durations=request.durations,
+                quality=request.quality,
+                size=request.size,
             )
-        else:
-            return RunResponse(success=False, error=result.get("error", "Unknown error"))
-            
+        except MediaError as e:
+            return RunResponse(success=False, error=str(e))
+
+        preview_url = f"/preview/{request.session_id}/{output_file.name}"
+        return RunResponse(
+            success=True,
+            filename=output_file.name,
+            preview_url=preview_url,
+        )
+
     except Exception as e:
         return RunResponse(success=False, error=str(e))
 
@@ -326,29 +326,29 @@ async def run_typer(request: TyperRequest):
     output_file = output_dir / f"img_{timestamp}_{slide_num:03d}.png"
     
     try:
-        from scripts.typer_api import create_text_frame
-        
-        result = create_text_frame(
-            text=request.text,
-            output_path=output_file,
-            size=request.size,
-            template=request.template,
-            font=request.font,
-            fontsize=request.fontsize,
-            layout=request.layout
-        )
-        
-        if result["success"]:
-            preview_url = f"/preview/{request.session_id}/{output_file.name}"
-            return RunResponse(
-                success=True,
-                filename=output_file.name,
-                preview_url=preview_url,
-                slide_number=slide_num
+        from mora02_core.media import create_text_frame, MediaError
+
+        try:
+            create_text_frame(
+                text=request.text,
+                output_path=output_file,
+                size=request.size,
+                template=request.template,
+                font=request.font,
+                fontsize=request.fontsize,
+                layout=request.layout,
             )
-        else:
-            return RunResponse(success=False, error=result.get("error", "Unknown error"))
-            
+        except MediaError as e:
+            return RunResponse(success=False, error=str(e))
+
+        preview_url = f"/preview/{request.session_id}/{output_file.name}"
+        return RunResponse(
+            success=True,
+            filename=output_file.name,
+            preview_url=preview_url,
+            slide_number=slide_num,
+        )
+
     except Exception as e:
         return RunResponse(success=False, error=str(e))
 
@@ -377,29 +377,29 @@ async def run_clipper(request: ClipperRequest):
     output_file = output_dir / f"clip_{timestamp}_{counter:03d}.mp4"
     
     try:
-        from scripts.clipper_api import create_clip_from_files
-        
-        result = create_clip_from_files(
-            input_files=media_files,
-            output_path=output_file,
-            resolution=request.resolution,
-            durations=request.durations,
-            animation=request.animation,
-            direction=request.direction,
-            intensity=request.intensity,
-            transition=request.transition
-        )
-        
-        if result["success"]:
-            preview_url = f"/preview/{request.session_id}/{output_file.name}"
-            return RunResponse(
-                success=True,
-                filename=output_file.name,
-                preview_url=preview_url
+        from mora02_core.media import create_clip, MediaError
+
+        try:
+            create_clip(
+                input_files=media_files,
+                output_path=output_file,
+                resolution=request.resolution,
+                durations=request.durations,
+                animation=request.animation,
+                direction=request.direction,
+                intensity=request.intensity,
+                transition=request.transition,
             )
-        else:
-            return RunResponse(success=False, error=result.get("error", "Unknown error"))
-            
+        except MediaError as e:
+            return RunResponse(success=False, error=str(e))
+
+        preview_url = f"/preview/{request.session_id}/{output_file.name}"
+        return RunResponse(
+            success=True,
+            filename=output_file.name,
+            preview_url=preview_url,
+        )
+
     except Exception as e:
         return RunResponse(success=False, error=str(e))
 

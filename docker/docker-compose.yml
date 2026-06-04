@@ -779,8 +779,8 @@ services:
 
   script-runner:
     build:
-      context: /opt/mora02/apps/script-runner
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: apps/script-runner/Dockerfile
     image: script-runner:latest
     container_name: script-runner
     restart: unless-stopped

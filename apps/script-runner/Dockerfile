@@ -9,15 +9,18 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy requirements first for caching
-COPY requirements.txt .
+# mora02_core library (shared with other apps). Installed before app code
+# so Docker layer cache stays warm on app-only changes.
+COPY lib/mora02_core /tmp/mora02_core
+RUN pip install --no-cache-dir /tmp/mora02_core
+
+# App dependencies + code (build context is repo root, see docker-compose.yml)
+COPY apps/script-runner/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY apps/script-runner/app/ ./
 
-# Copy application code
-COPY app/ ./
-
-# Copy fonts (JetBrains Mono)
-COPY fonts/ /app/fonts/
+# Fonts (JetBrains Mono) for the typer endpoint
+COPY apps/script-runner/fonts/ /app/fonts/
 
 # Create data directories
 RUN mkdir -p /data/wip /data/final/gifer /data/final/clipper /data/final/typer
