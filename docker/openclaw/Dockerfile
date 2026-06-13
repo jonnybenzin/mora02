@@ -12,7 +12,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g openclaw@2026.6.1
+RUN npm install -g openclaw@2026.6.1 @clawdbot/lobster@2026.6.11
 
 # Relocate config + state into the mounted volume at /data/openclaw, so an
 # empty image plus a persistent volume is all the gateway needs.
@@ -31,4 +31,4 @@ EXPOSE 18789
 #   --force              clear a stale lock left by an unclean container stop
 #   --no-install-daemon  run in the foreground as PID 1, no systemd
 ENTRYPOINT ["openclaw"]
-CMD ["gateway", "run", "--bind", "lan", "--force"]
+CMD ["gateway", "run", "--bind", "loopback", "--force"]
