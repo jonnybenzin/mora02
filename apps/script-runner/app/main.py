@@ -22,6 +22,7 @@ from mora02_core._common import get_logger
 from mora02_core.baserow import api as baserow_api
 from mora02_core.media import tts as tts_lib
 from mora02_core.media import MediaError
+from mora02_core.pipeline import run_pipeline, resume_pipeline, PipelineError
 
 # ============================================================================
 # CONFIG
@@ -960,6 +961,73 @@ async def free_vram():
 
     any_ok = any(r.get("ok") for r in results.values())
     return {"success": any_ok, "results": results}
+
+
+# ============================================================================
+# ENDPOINTS - PIPELINE (HITL via Lobster)
+# ============================================================================
+# Relay for the headless HITL pipeline runtime (ADR-022). script-runner holds the
+# docker socket (ADR-020), so it is the executor: it calls mora02_core.pipeline,
+# which runs `docker exec mora02-openclaw lobster run|resume`. Pilot stays
+# socket-free and drives HITL by calling these routes — run a skill, then resume
+# it once a human decides in the Pilot inbox.
+
+class PipelineRunRequest(BaseModel):
+    pipeline_path: str            # container path to the .lobster workflow file
+    args: Optional[dict] = None   # optional --args-json payload
+    runner: Optional[str] = None  # override MORA02_PIPELINE_RUNNER (default lobster)
+
+
+class PipelineResumeRequest(BaseModel):
+    token: str                      # resumeToken handed back by a paused run
+    response: Optional[dict] = None # structured answer for an input: gate
+    approve: Optional[bool] = None  # yes/no for an approval: gate
+    cancel: bool = False            # cancel the workflow instead of continuing
+    runner: Optional[str] = None
+
+
+def _pipeline_result_to_dict(res) -> dict:
+    """Flatten a PipelineResult for the JSON response (Pilot reads this verbatim)."""
+    return {
+        "ok": res.ok,
+        "status": res.status,
+        "is_paused": res.is_paused,
+        "resume_token": res.resume_token,
+        "output": res.output,
+        "requires_input": res.requires_input,
+        "requires_approval": res.requires_approval,
+        "error": res.error,
+        "runner": res.runner,
+    }
+
+
+@app.post("/pipeline/run")
+async def pipeline_run(req: PipelineRunRequest):
+    """Start a HITL workflow headlessly. May pause at a gate (status needs_input)."""
+    if not req.pipeline_path.endswith(".lobster"):
+        raise HTTPException(status_code=400, detail="pipeline_path must be a .lobster file")
+    try:
+        res = await run_pipeline(req.pipeline_path, args=req.args, runner=req.runner)
+    except PipelineError as e:
+        # Transport failure (runner unreachable / no envelope) — not a workflow error.
+        raise HTTPException(status_code=502, detail=f"pipeline runner error: {e}")
+    return _pipeline_result_to_dict(res)
+
+
+@app.post("/pipeline/resume")
+async def pipeline_resume(req: PipelineResumeRequest):
+    """Resume a paused workflow with the external decision (Pilot inbox click)."""
+    try:
+        res = await resume_pipeline(
+            req.token,
+            response=req.response,
+            approve=req.approve,
+            cancel=req.cancel,
+            runner=req.runner,
+        )
+    except PipelineError as e:
+        raise HTTPException(status_code=502, detail=f"pipeline runner error: {e}")
+    return _pipeline_result_to_dict(res)
 
 
 # ============================================================================
