@@ -956,6 +956,55 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3  
+      
+# ============================================================================
+# OPENCLAW / HITL (ADR-022) — Signal channel backend + gateway
+# ============================================================================
+
+  mora02-signal-cli:
+    image: bbernhard/signal-cli-rest-api:latest   # match the tag pulled in Phase 0
+    container_name: mora02-signal-cli
+    restart: unless-stopped
+    ports:
+      - "8099:8080"          # host 8099 -> REST API 8080 (Phase-0 port)
+    environment:
+      - MODE=json-rpc        # persistent json-rpc daemon (validated in Phase 0)
+      - TZ=Europe/Berlin
+    volumes:
+      # Persists the Signal account / device-link -> restart without re-pairing
+      - /opt/mora02/volumes/signal-cli:/home/.local/share/signal-cli
+    networks:
+      - mora02-net
+
+  mora02-openclaw:
+    build:
+      context: ./openclaw
+    image: mora02-openclaw:latest
+    container_name: mora02-openclaw
+    restart: unless-stopped
+    depends_on:
+      - mora02-signal-cli
+    # No host port on purpose: ADR-022 keeps the gateway internal to mora02-net.
+    # Pilot reaches it as http://mora02-openclaw:18789. Add a temporary
+    # "18789:18789" mapping only for host-side debugging.
+    environment:
+      # Auth token: satisfies the lan-bind guardrail AND is what notify/Pilot send
+      - OPENCLAW_GATEWAY_TOKEN=${MORA02_OPENCLAW_TOKEN}
+      # Relocate config + state into the mounted volume (Option A: container-owned)
+      - OPENCLAW_CONFIG_PATH=/data/openclaw/openclaw.json
+      - OPENCLAW_STATE_DIR=/data/openclaw
+      - TZ=Europe/Berlin
+    volumes:
+      - /opt/mora02/volumes/openclaw:/data/openclaw
+    networks:
+      - mora02-net
+    healthcheck:
+      # Any HTTP response means the gateway is listening (401 without token is fine).
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://localhost:18789/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
 # ============================================================================
 # NETWORKS
 # ============================================================================
