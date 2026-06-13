@@ -10,6 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT, get_local_profile_label
 from router import classify_input
 from session_manager import store
+import inbox_store
 from mora02_core.llm import LOCAL_PROFILE_LABELS, stream_llm
 from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search, call_pixeltext
 from mora02_core.baserow import api as baserow_api
@@ -1754,6 +1755,103 @@ async def music_status(prompt_id: str):
             return {"status": "working"}
     except Exception as e:
         return {"status": "working"}
+
+
+# ============================================================================
+# HITL INBOX (ADR-022, Baustein 2b)
+# ============================================================================
+# Pilot is the human-decision surface for paused pipelines, and stays socket-free:
+# the lobster run/resume runs in script-runner (which holds the docker socket,
+# ADR-020). Pilot proxies there, persists the pending decision in inbox_store,
+# and lists/resolves it for the UI. Inbox entry = the gate payload (prompt +
+# response schema + subject context) plus the resume_token.
+
+async def _script_runner_pipeline(path: str, payload: dict) -> dict:
+    """POST to script-runner's /pipeline/* and return the parsed JSON result."""
+    import httpx
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(f"{settings.script_runner_url}{path}", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _inbox_item_from_result(result: dict, *, title: str, pipeline_path: str) -> dict:
+    """Build the inbox payload from a paused pipeline result."""
+    gate = result.get("requires_input") or result.get("requires_approval") or {}
+    return {
+        "title": title,
+        "pipeline_path": pipeline_path,
+        "resume_token": result["resume_token"],
+        "gate_type": "input" if result.get("requires_input") else "approval",
+        "prompt": gate.get("prompt"),
+        "response_schema": gate.get("responseSchema"),
+        "subject": gate.get("subject"),
+    }
+
+
+@app.post("/pipeline/run")
+async def pipeline_run(request: Request):
+    """Start a HITL pipeline. If it pauses at a gate, file it in the inbox."""
+    body = await request.json()
+    pipeline_path = body.get("pipeline_path")
+    if not pipeline_path:
+        return JSONResponse(status_code=400, content={"error": "pipeline_path required"})
+    payload: dict = {"pipeline_path": pipeline_path}
+    if body.get("args") is not None:
+        payload["args"] = body["args"]
+    try:
+        result = await _script_runner_pipeline("/pipeline/run", payload)
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": f"script-runner: {e}"})
+
+    inbox_item = None
+    if result.get("is_paused") and result.get("resume_token"):
+        inbox_item = inbox_store.add(_inbox_item_from_result(
+            result,
+            title=body.get("title") or Path(pipeline_path).stem,
+            pipeline_path=pipeline_path,
+        ))
+    return {"result": result, "inbox_item": inbox_item}
+
+
+@app.get("/inbox")
+async def inbox_list():
+    """List pending HITL decisions for the inbox UI."""
+    return {"items": inbox_store.list_pending()}
+
+
+@app.post("/inbox/{item_id}/resolve")
+async def inbox_resolve(item_id: str, request: Request):
+    """Resolve a pending decision: resume the pipeline, then update or clear it."""
+    item = inbox_store.get(item_id)
+    if item is None or item.get("status") != "pending":
+        return JSONResponse(status_code=404, content={"error": "inbox item not found"})
+    body = await request.json()
+    payload: dict = {"token": item["resume_token"]}
+    if body.get("cancel"):
+        payload["cancel"] = True
+    elif body.get("response") is not None:
+        payload["response"] = body["response"]
+    elif body.get("approve") is not None:
+        payload["approve"] = bool(body["approve"])
+    else:
+        return JSONResponse(status_code=400, content={"error": "need response, approve, or cancel"})
+
+    try:
+        result = await _script_runner_pipeline("/pipeline/resume", payload)
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": f"script-runner: {e}"})
+
+    if result.get("is_paused") and result.get("resume_token"):
+        # Multi-gate pipeline: another decision is needed — keep the item, new token.
+        inbox_store.update(item_id, **_inbox_item_from_result(
+            result, title=item.get("title"), pipeline_path=item.get("pipeline_path"),
+        ))
+    elif result.get("ok"):
+        inbox_store.remove(item_id)
+    # On a workflow runtime error (ok=False, not paused) we keep the item so the
+    # user can see the error and cancel it; the error travels in `result`.
+    return {"result": result}
 
 
 if __name__ == "__main__":
