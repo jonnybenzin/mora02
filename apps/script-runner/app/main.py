@@ -29,7 +29,7 @@ from mora02_core.llm import complete_qwen
 from mora02_core.media import tts as tts_lib
 from mora02_core.media import MediaError, create_clip
 from mora02_core.notify import notify, NotifyError
-from mora02_core.pipeline import run_pipeline, resume_pipeline, PipelineError, vocab as pipeline_vocab, runlog as pipeline_runlog
+from mora02_core.pipeline import run_pipeline, run_pipeline_spec, resume_pipeline, PipelineError, vocab as pipeline_vocab, runlog as pipeline_runlog
 
 # ============================================================================
 # CONFIG
@@ -1018,6 +1018,51 @@ async def pipeline_run(req: PipelineRunRequest):
     except PipelineError as e:
         # Transport failure (runner unreachable / no envelope) — not a workflow error.
         raise HTTPException(status_code=502, detail=f"pipeline runner error: {e}")
+    return _pipeline_result_to_dict(res)
+
+
+class PipelineRunSpecRequest(BaseModel):
+    name: Optional[str] = None    # a tracked spec under pipelines/specs/ (no extension needed)
+    spec: Optional[dict] = None   # an inline spec dict (e.g. from an authoring front-end)
+    args: Optional[dict] = None   # variable inputs for the run
+    runner: Optional[str] = None
+
+
+# Where named specs live (host pipelines/specs/ via the pipelines mount).
+_PIPELINE_SPECS_DIR = os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/data/pipelines/specs")
+
+
+@app.post("/pipeline/run-spec")
+async def pipeline_run_spec(req: PipelineRunSpecRequest):
+    """Compile a mora02 pipeline spec to .lobster and run it (may pause at a gate).
+
+    Pass exactly one of: ``spec`` (an inline spec dict) or ``name`` (a tracked spec
+    file in pipelines/specs/, with or without extension). This is the trigger that
+    drives the whole spec → compile → run → run-log chain; the compiled .lobster is
+    written to the OpenClaw workspace and left for inspection.
+    """
+    if req.spec is not None:
+        target = req.spec
+    elif req.name:
+        base = Path(_PIPELINE_SPECS_DIR) / req.name
+        cands = [base] if base.suffix else [
+            base.with_suffix(ext) for ext in (".json", ".yaml", ".yml")
+        ]
+        match = next((str(p) for p in cands if p.is_file()), None)
+        if match is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"no spec named {req.name!r} in {_PIPELINE_SPECS_DIR}",
+            )
+        target = match
+    else:
+        raise HTTPException(status_code=400, detail="provide either 'spec' (inline) or 'name'")
+
+    try:
+        res = await run_pipeline_spec(target, args=req.args, runner=req.runner)
+    except PipelineError as e:
+        # Covers compile errors (bad spec / unknown or planned op) and runner transport.
+        raise HTTPException(status_code=400, detail=f"pipeline spec error: {e}")
     return _pipeline_result_to_dict(res)
 
 

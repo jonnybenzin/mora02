@@ -765,8 +765,7 @@ services:
       - /opt/mora02/output/_default/comfyui/wip:/comfyui-wip:ro
       # pipelines
       - /opt/mora02/volumes/openclaw/workspace:/data/openclaw/workspace
-      - /opt/mora02/pipelinelogs:/data/pipelinelogs
-
+      - /opt/mora02/pipelines:/data/pipelines
 
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}

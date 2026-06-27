@@ -1,11 +1,10 @@
 {
-  "name": "image-review",
-  "steps": [
-    { "llm.image_prompt": { "subject": "a red fox in deep snow at dawn" } },
-    { "gate": "Approve this image prompt before generating?" },
-    { "image.generate": { "flow": "photo" } },
-    { "notify.image": { "target": "***REMOVED***", "message": "Generated image — approve?" } },
-    { "gate": "Approve the generated image (check your phone)?" },
-    { "clip.generate": { "in": "image", "resolution": "720p", "durations": "3" } }
-  ]
-}
+    "name": "image-review",
+    "steps": [
+      { "llm.image_prompt": { "subject": "a red fox in deep snow at dawn" } },
+      { "gate": "Approve this image prompt before generating?" },
+      { "image.generate": { "flow": "photo" } },
+      { "review": { "prompt": "Approve the generated image (check your phone)?", "target": "***REMOVED***" } },
+      { "clip.generate": { "in": "image", "resolution": "720p", "durations": "3" } }
+    ]
+  }
