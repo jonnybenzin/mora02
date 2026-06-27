@@ -145,7 +145,6 @@ _OPS: tuple[Op, ...] = (
         name="image.upscale",
         summary="Upscale an image (hybrid SDXL-Tile + UltraSharp).",
         bucket="visual",
-        status="planned",
         params=(
             Param("factor", type="int", default="2", desc="scale factor 1.5–4.0"),
             Param("prompt", desc="optional guidance prompt"),
@@ -160,7 +159,6 @@ _OPS: tuple[Op, ...] = (
         name="image.expand",
         summary="Outpaint / expand an image to a larger canvas (FLUX).",
         bucket="visual",
-        status="planned",
         params=(
             Param("prompt", desc="what to paint into the new area"),
             Param("target_size", type="int", default="1920", desc="target long edge in px"),
@@ -175,7 +173,6 @@ _OPS: tuple[Op, ...] = (
         name="video.generate",
         summary="Generate video via WAN 2.2 — text-to-video, image-to-video, or start+end frames.",
         bucket="visual",
-        status="planned",
         params=(
             Param("prompt", desc="prompt; falls back to stdin"),
             Param("mode", type="enum", default="t2v", choices=("t2v", "i2v", "i2i2v"),

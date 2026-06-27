@@ -18,9 +18,9 @@ The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by o
 | [`source.file`](#sourcefile) | 🟢 wired | source | `source` | none | any | image |
 | [`notify.image`](#notifyimage) | 🟢 wired | delivery | `notify` | one | image | image |
 | [`image.generate`](#imagegenerate) | 🟢 wired | visual | `image` | one (opt) | text | image |
-| [`image.upscale`](#imageupscale) | 🟡 planned | visual | `image` | one | image | image |
-| [`image.expand`](#imageexpand) | 🟡 planned | visual | `image` | one | image | image |
-| [`video.generate`](#videogenerate) | 🟡 planned | visual | `video` | one (opt) | any | video |
+| [`image.upscale`](#imageupscale) | 🟢 wired | visual | `image` | one | image | image |
+| [`image.expand`](#imageexpand) | 🟢 wired | visual | `image` | one | image | image |
+| [`video.generate`](#videogenerate) | 🟢 wired | visual | `video` | one (opt) | any | video |
 | [`clip.generate`](#clipgenerate) | 🟢 wired | media | `clip` | many | any | video |
 | [`text.overlay`](#textoverlay) | 🟢 wired | media | `text` | one (opt) | text | image |
 | [`gif.create`](#gifcreate) | 🟢 wired | media | `gif` | many | image | video |
@@ -97,7 +97,7 @@ Generate an image from a prompt via ComfyUI (9 selectable flows).
 
 ## image.upscale
 
-🟡 **planned** · bucket: `visual`
+🟢 **wired** · bucket: `visual`
 
 Upscale an image (hybrid SDXL-Tile + UltraSharp).
 
@@ -114,7 +114,7 @@ Upscale an image (hybrid SDXL-Tile + UltraSharp).
 
 ## image.expand
 
-🟡 **planned** · bucket: `visual`
+🟢 **wired** · bucket: `visual`
 
 Outpaint / expand an image to a larger canvas (FLUX).
 
@@ -131,7 +131,7 @@ Outpaint / expand an image to a larger canvas (FLUX).
 
 ## video.generate
 
-🟡 **planned** · bucket: `visual`
+🟢 **wired** · bucket: `visual`
 
 Generate video via WAN 2.2 — text-to-video, image-to-video, or start+end frames.
 

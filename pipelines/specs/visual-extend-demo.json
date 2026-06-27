@@ -1,0 +1,1 @@
+{"name":"visual-extend-demo","steps":[{"source.file":{}},{"image.upscale":{"factor":2}},{"gate":"Approve the upscaled image?"}]}

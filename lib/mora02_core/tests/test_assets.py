@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from mora02_core import Asset
-from mora02_core.assets import url_for_ref
+from mora02_core.assets import url_for_ref, path_for_ref
 
 
 def test_asset_defaults_user_id():
@@ -66,3 +66,13 @@ def test_url_for_ref_tool_assets():
 def test_url_for_ref_store_without_base_is_file_url():
     # a store with no public URL base (e.g. scriptbot) falls back to file://
     assert url_for_ref("asset://scriptbot/sess/file.txt").startswith("file://")
+
+
+# path_for_ref — host-less nginx path (used to feed an asset back into ComfyUI).
+def test_path_for_ref_comfyui_and_tools():
+    assert path_for_ref("asset://comfyui/img.png") == "/comfyui/wip/img.png"
+    assert path_for_ref("asset://gifer/g.gif") == "/tool-assets/gifer/g.gif"
+
+
+def test_path_for_ref_unknown_store_is_none():
+    assert path_for_ref("asset://scriptbot/sess/file.txt") is None

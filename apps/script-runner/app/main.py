@@ -24,7 +24,13 @@ from mora02_core import auth
 from mora02_core import assets as asset_refs
 from mora02_core._common import get_logger
 from mora02_core.baserow import api as baserow_api
-from mora02_core.comfyui import generate_images
+from mora02_core.comfyui import (
+    generate_images,
+    generate_video,
+    upscale_image,
+    expand_image,
+    upload_image_url_to_comfyui,
+)
 from mora02_core.llm import complete_qwen, complete_qwen_usage
 from mora02_core.media import tts as tts_lib
 from mora02_core.media import MediaError, create_clip, create_gif, create_text_frame
@@ -1294,6 +1300,99 @@ async def _step_image_generate(inputs: List[str], params: dict) -> dict:
             "prompt": prompt, "count": len(assets)}
 
 
+# Visual-extend ops (Welle 4) — ComfyUI-backed. An input image ref is fed back
+# into ComfyUI as a host-less nginx path (path_for_ref), which the uploader
+# fetches from the internal nginx-images service. Outputs land in the comfyui
+# store (ref_for_path falls back to the bare filename, like image.generate).
+# Each logs its seed (+ flow for video) via the generic result["log"] channel.
+async def _step_image_upscale(inputs: List[str], params: dict) -> dict:
+    """image.upscale — enlarge an image ref (SDXL-Tile + UltraSharp) -> image ref."""
+    if not inputs:
+        raise ValueError("image.upscale needs an image ref on stdin")
+    src = asset_refs.path_for_ref(inputs[0])
+    if not src:
+        raise ValueError(f"image.upscale: no nginx path for ref {inputs[0]!r}")
+    result = await upscale_image(
+        src,
+        factor=float(params.get("factor", 2)),
+        prompt=params.get("prompt", ""),
+        denoise=float(params["denoise"]) if params.get("denoise") else None,
+        seed=int(params["seed"]) if params.get("seed") else None,
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "image.upscale produced no image")
+    out_ref = asset_refs.ref_for_path(assets[0].path, "comfyui")
+    return {"ok": True, "op": "image.upscale", "out": out_ref, "type": "image",
+            "url": asset_refs.url_for_ref(out_ref), "log": {"seed": result.get("seed")}}
+
+
+async def _step_image_expand(inputs: List[str], params: dict) -> dict:
+    """image.expand — outpaint an image ref to a larger canvas (FLUX) -> image ref."""
+    if not inputs:
+        raise ValueError("image.expand needs an image ref on stdin")
+    src = asset_refs.path_for_ref(inputs[0])
+    if not src:
+        raise ValueError(f"image.expand: no nginx path for ref {inputs[0]!r}")
+    result = await expand_image(
+        src,
+        prompt=params.get("prompt", ""),
+        target_size=int(params.get("target_size", 1920)),
+        feathering=int(params["feathering"]) if params.get("feathering") else None,
+        seed=int(params["seed"]) if params.get("seed") else None,
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "image.expand produced no image")
+    out_ref = asset_refs.ref_for_path(assets[0].path, "comfyui")
+    return {"ok": True, "op": "image.expand", "out": out_ref, "type": "image",
+            "url": asset_refs.url_for_ref(out_ref), "log": {"seed": result.get("seed")}}
+
+
+async def _step_video_generate(inputs: List[str], params: dict) -> dict:
+    """video.generate — WAN 2.2 text/image-to-video -> video ref.
+
+    mode: t2v (prompt only), i2v (start image), i2i2v (start+end frames). For
+    i2v/i2i2v the start image comes from ?start_image= or, failing that, stdin;
+    end image from ?end_image=. Image refs are uploaded to ComfyUI first.
+    """
+    mode = params.get("mode", "t2v")
+    flow = "wan-" + mode  # t2v -> wan-t2v, i2v -> wan-i2v, i2i2v -> wan-i2i2v
+    start_ref = params.get("start_image")
+    if mode in ("i2v", "i2i2v") and not start_ref and inputs:
+        start_ref = inputs[0]
+    end_ref = params.get("end_image")
+    prompt = params.get("prompt") or (("\n".join(inputs).strip()) if mode == "t2v" else "")
+    if mode == "t2v" and not prompt:
+        raise ValueError("video.generate t2v needs a prompt (?prompt= or on stdin)")
+    if mode in ("i2v", "i2i2v") and not start_ref:
+        raise ValueError(f"video.generate {mode} needs a start_image (?start_image= or on stdin)")
+    if mode == "i2i2v" and not end_ref:
+        raise ValueError("video.generate i2i2v needs an end_image (?end_image=)")
+    start_fn = await upload_image_url_to_comfyui(asset_refs.path_for_ref(start_ref)) if start_ref else None
+    end_fn = await upload_image_url_to_comfyui(asset_refs.path_for_ref(end_ref)) if end_ref else None
+    result = await generate_video(
+        prompt or "",
+        flow=flow,
+        length=int(params["length"]) if params.get("length") else None,
+        fps=int(params["fps"]) if params.get("fps") else None,
+        seed=int(params["seed"]) if params.get("seed") else None,
+        start_image=start_fn,
+        end_image=end_fn,
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "video.generate produced no video")
+    # ComfyUI writes videos into a "video/" subfolder; asset.id carries the
+    # store-relative path *including* that subfolder, so build the ref from it.
+    # (ref_for_path's basename fallback would drop the subfolder, leaving a ref
+    # that resolves nowhere — videos differ from images, which have no subfolder.)
+    out_ref = asset_refs.make_ref("comfyui", assets[0].id)
+    return {"ok": True, "op": "video.generate", "out": out_ref, "type": "video",
+            "url": asset_refs.url_for_ref(out_ref),
+            "log": {"seed": result.get("seed"), "flow": result.get("flow")}}
+
+
 async def _step_notify_image(inputs: List[str], params: dict) -> dict:
     """notify.image — push an image ref to a chat (Signal) for human review, then
     pass the SAME ref through unchanged so the chain continues.
@@ -1489,6 +1588,9 @@ _PIPELINE_STEPS = {
     "llm.extract": _step_llm_extract,
     "llm.translate": _step_llm_translate,
     "image.generate": _step_image_generate,
+    "image.upscale": _step_image_upscale,
+    "image.expand": _step_image_expand,
+    "video.generate": _step_video_generate,
     "notify.image": _step_notify_image,
     "notify": _step_notify,
     "clip.generate": _step_clip_generate,

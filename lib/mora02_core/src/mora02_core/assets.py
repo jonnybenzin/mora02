@@ -76,20 +76,21 @@ _DEFAULT_STORE_ROOTS = {
     "scriptbot": "/data",              # script-runner session workspace
 }
 
-# Logical store -> public nginx URL base. The store concept owns its serving
-# path here, so a ref's URL is resolved by store (see ``url_for_ref``) rather
-# than guessed from the file path (the path-heuristic ``Asset.url``, kept for
-# legacy Pilot/comfyui consumers). nginx (port 8092) serves comfyui under
-# /comfyui/wip and the tool outputs under /tool-assets/<tool>/ — see
-# docker/nginx-images/nginx.conf. Override per container with
-# ``MORA02_ASSET_URL_<STORE>``.
+# Logical store -> nginx URL *path* (host-less). Single source for both the
+# public URL (``url_for_ref``) and the internal root-relative path
+# (``path_for_ref``, used to feed an asset back into ComfyUI). The store concept
+# owns its serving path here, so a ref resolves by store rather than by guessing
+# from the file path (the path-heuristic ``Asset.url``, kept for legacy
+# Pilot/comfyui consumers). nginx serves comfyui under /comfyui/wip and the tool
+# outputs under /tool-assets/<tool>/ — see docker/nginx-images/nginx.conf.
+# Override per container with ``MORA02_ASSET_URLPATH_<STORE>``.
 _NGINX_BASE = "http://mora02.local:8092"
-_DEFAULT_STORE_URL_BASES = {
-    "comfyui": f"{_NGINX_BASE}/comfyui/wip",
-    "clipper": f"{_NGINX_BASE}/tool-assets/clipper",
-    "gifer": f"{_NGINX_BASE}/tool-assets/gifer",
-    "typer": f"{_NGINX_BASE}/tool-assets/typer",
-    "tts": f"{_NGINX_BASE}/tool-assets/tts",
+_DEFAULT_STORE_URL_PATHS = {
+    "comfyui": "/comfyui/wip",
+    "clipper": "/tool-assets/clipper",
+    "gifer": "/tool-assets/gifer",
+    "typer": "/tool-assets/typer",
+    "tts": "/tool-assets/tts",
 }
 
 
@@ -150,16 +151,29 @@ def ref_for_path(path, store: str) -> str:
     return make_ref(store, str(rel))
 
 
+def path_for_ref(ref: str) -> str | None:
+    """Host-less nginx path for an asset ref (e.g. ``/comfyui/wip/foo.png``).
+
+    Store-aware. Returns ``None`` for a store without a public serving path.
+    Used to feed an asset back into ComfyUI (``upload_image_url_to_comfyui``
+    downloads a leading-``/`` value from the internal ``nginx-images`` service,
+    which is reachable from any container — unlike the public host URL).
+    """
+    store, rel = parse_ref(ref)
+    base = os.environ.get(f"MORA02_ASSET_URLPATH_{store.upper()}") or _DEFAULT_STORE_URL_PATHS.get(store)
+    return f"{base.rstrip('/')}/{rel}" if base else None
+
+
 def url_for_ref(ref: str) -> str:
-    """Public nginx URL for an asset ref, resolved via the store's URL base.
+    """Public nginx URL for an asset ref, resolved via the store's serving path.
 
     Store-aware (each store knows its nginx serving path) — the correct
     counterpart to the path-heuristic ``Asset.url`` for anything that carries a
     ref, e.g. pipeline steps. Falls back to a ``file://`` path for stores without
-    a public URL base. Per-container override via ``MORA02_ASSET_URL_<STORE>``.
+    a public serving path.
     """
+    path = path_for_ref(ref)
+    if path:
+        return f"{_NGINX_BASE}{path}"
     store, rel = parse_ref(ref)
-    base = os.environ.get(f"MORA02_ASSET_URL_{store.upper()}") or _DEFAULT_STORE_URL_BASES.get(store)
-    if base:
-        return f"{base.rstrip('/')}/{rel}"
     return f"file://{store_root(store)}/{rel}"
