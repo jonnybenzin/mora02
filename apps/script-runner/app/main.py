@@ -25,9 +25,9 @@ from mora02_core import assets as asset_refs
 from mora02_core._common import get_logger
 from mora02_core.baserow import api as baserow_api
 from mora02_core.comfyui import generate_images
-from mora02_core.llm import complete_qwen
+from mora02_core.llm import complete_qwen, complete_qwen_usage
 from mora02_core.media import tts as tts_lib
-from mora02_core.media import MediaError, create_clip
+from mora02_core.media import MediaError, create_clip, create_gif, create_text_frame
 from mora02_core.notify import notify, NotifyError
 from mora02_core.pipeline import run_pipeline, run_pipeline_spec, resume_pipeline, PipelineError, vocab as pipeline_vocab, runlog as pipeline_runlog
 
@@ -1164,6 +1164,112 @@ async def _step_llm_image_prompt(inputs: List[str], params: dict) -> dict:
     return {"ok": True, "op": "llm.image_prompt", "out": prompt, "type": "text"}
 
 
+# Text-LLM ops (Welle 2). All local qwen via complete_qwen_usage; each returns
+# the produced text as the stdout value (so it chains like any other value) plus
+# a "log" dict with token usage for the run log. Control-plane stays local — none
+# of these touch the cloud (ADR-022 / control-plane-local guardrail).
+async def _step_llm_complete(inputs: List[str], params: dict) -> dict:
+    """llm.complete — free-form completion. Prompt from ?prompt= or stdin."""
+    prompt = params.get("prompt") or "\n".join(inputs).strip()
+    if not prompt:
+        raise ValueError("llm.complete needs a prompt (?prompt= or on stdin)")
+    system = params.get("system", "You are a helpful assistant.")
+    temperature = float(params["temperature"]) if params.get("temperature") else 0.7
+    max_tokens = int(params["max_tokens"]) if params.get("max_tokens") else 512
+    text, usage = await complete_qwen_usage(
+        [{"role": "user", "content": prompt}], system,
+        temperature=temperature, max_tokens=max_tokens,
+    )
+    if not text:
+        raise ValueError("llm.complete got an empty completion from qwen")
+    return {"ok": True, "op": "llm.complete", "out": text, "type": "text", "log": usage}
+
+
+async def _step_llm_summarize(inputs: List[str], params: dict) -> dict:
+    """llm.summarize — condense the stdin text. Param: max_tokens (length budget)."""
+    text_in = "\n".join(inputs).strip()
+    if not text_in:
+        raise ValueError("llm.summarize needs text on stdin")
+    max_tokens = int(params["max_tokens"]) if params.get("max_tokens") else 256
+    system = ("Summarize the user's text concisely and faithfully. "
+              "Output only the summary — no preamble, no commentary.")
+    text, usage = await complete_qwen_usage(
+        [{"role": "user", "content": text_in}], system, max_tokens=max_tokens,
+    )
+    if not text:
+        raise ValueError("llm.summarize got an empty completion from qwen")
+    return {"ok": True, "op": "llm.summarize", "out": text, "type": "text", "log": usage}
+
+
+async def _step_llm_classify(inputs: List[str], params: dict) -> dict:
+    """llm.classify — pick exactly one label for the stdin text. Param: labels."""
+    text_in = "\n".join(inputs).strip()
+    if not text_in:
+        raise ValueError("llm.classify needs text on stdin")
+    labels = params.get("labels")
+    if not labels:
+        raise ValueError("llm.classify needs ?labels= (comma-separated)")
+    label_list = [l.strip() for l in labels.split(",") if l.strip()]
+    if not label_list:
+        raise ValueError("llm.classify got no usable labels")
+    system = ("Classify the user's text into exactly one of these labels: "
+              f"{', '.join(label_list)}. Output ONLY the chosen label, nothing else.")
+    text, usage = await complete_qwen_usage(
+        [{"role": "user", "content": text_in}], system, max_tokens=32,
+    )
+    # Snap to a declared label if the model wrapped it in extra words.
+    chosen = text.strip()
+    low = chosen.lower()
+    snapped = next((l for l in label_list if l.lower() == low), None) \
+        or next((l for l in label_list if l.lower() in low), None)
+    out = snapped or chosen
+    if not out:
+        raise ValueError("llm.classify got an empty completion from qwen")
+    return {"ok": True, "op": "llm.classify", "out": out, "type": "text", "log": usage}
+
+
+async def _step_llm_extract(inputs: List[str], params: dict) -> dict:
+    """llm.extract — pull fields from the stdin text as JSON. Param: fields."""
+    text_in = "\n".join(inputs).strip()
+    if not text_in:
+        raise ValueError("llm.extract needs text on stdin")
+    fields = params.get("fields")
+    if not fields:
+        raise ValueError("llm.extract needs ?fields= (comma-separated)")
+    field_list = [f.strip() for f in fields.split(",") if f.strip()]
+    if not field_list:
+        raise ValueError("llm.extract got no usable fields")
+    system = ("Extract information from the user's text and return ONLY a JSON object "
+              f"with exactly these keys: {', '.join(field_list)}. Use null for any "
+              "field not present. No markdown fences, no commentary.")
+    text, usage = await complete_qwen_usage(
+        [{"role": "user", "content": text_in}], system, max_tokens=512,
+    )
+    if not text:
+        raise ValueError("llm.extract got an empty completion from qwen")
+    return {"ok": True, "op": "llm.extract", "out": text, "type": "text", "log": usage}
+
+
+async def _step_llm_translate(inputs: List[str], params: dict) -> dict:
+    """llm.translate — translate the stdin text. Params: to (required), from."""
+    text_in = "\n".join(inputs).strip()
+    if not text_in:
+        raise ValueError("llm.translate needs text on stdin")
+    to = params.get("to")
+    if not to:
+        raise ValueError("llm.translate needs ?to= (target language)")
+    src = params.get("from")
+    frm = f" from {src}" if src else ""
+    system = (f"Translate the user's text{frm} into {to}. "
+              "Output only the translation — no preamble, no quotes, no commentary.")
+    text, usage = await complete_qwen_usage(
+        [{"role": "user", "content": text_in}], system, max_tokens=1024,
+    )
+    if not text:
+        raise ValueError("llm.translate got an empty completion from qwen")
+    return {"ok": True, "op": "llm.translate", "out": text, "type": "text", "log": usage}
+
+
 async def _step_image_generate(inputs: List[str], params: dict) -> dict:
     """image.generate — prompt TEXT -> a generated image ref (ComfyUI).
 
@@ -1296,19 +1402,99 @@ async def _step_clip_generate(inputs: List[str], params: dict) -> dict:
         durations=params.get("durations", "4"),
         animation=params.get("animation", "pan"),
     )
+    out_ref = asset_refs.ref_for_path(clip.path, out_store)
     return {"ok": True, "op": "clip.generate",
-            "out": asset_refs.ref_for_path(clip.path, out_store),
-            "type": "video", "url": clip.url}
+            "out": out_ref, "type": "video", "url": asset_refs.url_for_ref(out_ref)}
+
+
+# Media-finish ops (Welle 3). Each produces a finished media asset ref in its
+# own store; blocking encode/render work runs in a worker thread (asyncio.to_thread).
+async def _step_text_overlay(inputs: List[str], params: dict) -> dict:
+    """text.overlay — render text onto a flat-color background -> image ref.
+
+    Text from ?text= or stdin (an llm step's value). Output lands in the "typer"
+    store. Params: size, template, font, fontsize, layout (see media.create_text_frame).
+    """
+    text = params.get("text") or "\n".join(inputs).strip()
+    if not text:
+        raise ValueError("text.overlay needs text (?text= or on stdin)")
+    out_store = "typer"
+    out_name = params.get("name") or f"txt_{uuid.uuid4().hex[:8]}.png"
+    out_path = asset_refs.store_root(out_store) / out_name
+    asset = await asyncio.to_thread(
+        create_text_frame, text, out_path,
+        size=params.get("size", "1080x1080"),
+        template=params.get("template", "dark"),
+        font=params.get("font", "bold"),
+        fontsize=params.get("fontsize", "medium"),
+        layout=params.get("layout", "left"),
+    )
+    out_ref = asset_refs.ref_for_path(asset.path, out_store)
+    return {"ok": True, "op": "text.overlay",
+            "out": out_ref, "type": "image", "url": asset_refs.url_for_ref(out_ref)}
+
+
+async def _step_gif_create(inputs: List[str], params: dict) -> dict:
+    """gif.create — animate one or more image refs into an animated GIF -> ref.
+
+    Inputs: image refs on stdin (newline-separated). Output lands in the "gifer"
+    store. Params: durations (per-frame seconds), quality, size.
+    """
+    if not inputs:
+        raise ValueError("gif.create needs at least one image ref on stdin")
+    input_paths = [asset_refs.resolve_ref(r) for r in inputs]
+    out_store = "gifer"
+    out_name = params.get("name") or f"gif_{uuid.uuid4().hex[:8]}.gif"
+    out_path = asset_refs.store_root(out_store) / out_name
+    asset = await asyncio.to_thread(
+        create_gif, input_paths, out_path,
+        params.get("durations", "1"),
+        quality=params.get("quality", "medium"),
+        size=params.get("size"),
+    )
+    out_ref = asset_refs.ref_for_path(asset.path, out_store)
+    return {"ok": True, "op": "gif.create",
+            "out": out_ref, "type": "video", "url": asset_refs.url_for_ref(out_ref)}
+
+
+async def _step_tts_speak(inputs: List[str], params: dict) -> dict:
+    """tts.speak — synthesize speech from text -> audio ref.
+
+    Text from ?text= or stdin. The TTS library writes into its own output dir
+    (the "tts" store). Params: language, voice, format, engine (->engine_pref), speed.
+    """
+    text = params.get("text") or "\n".join(inputs).strip()
+    if not text:
+        raise ValueError("tts.speak needs text (?text= or on stdin)")
+    asset = await asyncio.to_thread(
+        tts_lib.generate, text,
+        language=params.get("language", "en"),
+        voice=params.get("voice"),
+        format=params.get("format", "wav"),
+        engine_pref=params.get("engine", "auto"),
+        speed=float(params["speed"]) if params.get("speed") else 1.0,
+    )
+    out_ref = asset_refs.ref_for_path(asset.path, "tts")
+    return {"ok": True, "op": "tts.speak",
+            "out": out_ref, "type": "audio", "url": asset_refs.url_for_ref(out_ref)}
 
 
 # Step registry. Every handler is async (see section header). New ops land here.
 _PIPELINE_STEPS = {
     "source.file": _step_source_file,
     "llm.image_prompt": _step_llm_image_prompt,
+    "llm.complete": _step_llm_complete,
+    "llm.summarize": _step_llm_summarize,
+    "llm.classify": _step_llm_classify,
+    "llm.extract": _step_llm_extract,
+    "llm.translate": _step_llm_translate,
     "image.generate": _step_image_generate,
     "notify.image": _step_notify_image,
     "notify": _step_notify,
     "clip.generate": _step_clip_generate,
+    "text.overlay": _step_text_overlay,
+    "gif.create": _step_gif_create,
+    "tts.speak": _step_tts_speak,
 }
 
 # Drift guard: the implemented handlers here and the structural vocabulary in
@@ -1383,11 +1569,16 @@ async def pipeline_step(op: str, request: Request):
         raise HTTPException(status_code=400, detail=f"step {op} failed: {e}")
 
     out = result.get("out")
+    # A handler may attach a "log" dict of extra per-step fields (e.g. LLM token
+    # usage); merge it into the step event so the run log captures it. Generic on
+    # purpose — future ops (image seed/model, …) use the same channel.
+    extra = result.get("log") or {}
     pipeline_runlog.log_event(
         run_id, "step", step_id=step_id, op=op, params=params,
         inputs=_log_inputs(inputs), out=out, out_name=_ref_name(out),
         out_type=result.get("type"), status="ok",
         duration_ms=round((time.monotonic() - started) * 1000),
+        **extra,
     )
 
     if fmt in ("ref", "out", "text"):

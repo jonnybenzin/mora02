@@ -1,0 +1,1 @@
+{"name":"text-llm-demo","steps":[{"llm.complete":{"id":"story","prompt":"Write a vivid 4-sentence short story about a lighthouse keeper who befriends a passing storm. Plain prose, no  title.","max_tokens":400}},{"llm.summarize":{"id":"tldr","max_tokens":80}},{"gate":"Approve this summary before translating?"},{"llm.translate":{"id":"de","to":"German"}}]}

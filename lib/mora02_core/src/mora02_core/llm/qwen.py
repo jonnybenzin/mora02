@@ -49,7 +49,7 @@ async def stream_qwen(
                     continue
 
 
-async def complete_qwen(
+async def complete_qwen_usage(
     messages: list[dict],
     system_prompt: str,
     *,
@@ -57,13 +57,13 @@ async def complete_qwen(
     max_tokens: int = 512,
     user_id: str = "default",
     think: bool = False,
-) -> str:
-    """Non-streaming completion from local llama.cpp — the whole text at once.
+) -> tuple[str, dict]:
+    """Non-streaming completion that ALSO returns token usage.
 
-    For callers that want the answer, not an incremental stream — e.g. a pipeline
-    value step that produces a single prompt/summary. Local-only (control-plane
-    guardrail). Distinct from :func:`stream_qwen` (used by the Pilot chat, which
-    is left untouched).
+    Same call as :func:`complete_qwen`, but returns ``(content, usage)`` where
+    ``usage`` is ``{"tokens_in", "tokens_out", "model"}`` drawn from llama.cpp's
+    response. Pipeline LLM steps use this to log per-step token counts; callers
+    that only want the text use the :func:`complete_qwen` wrapper below.
 
     Qwen3 routes its chain-of-thought to a separate ``reasoning_content`` field;
     a long think can exhaust ``max_tokens`` before any ``content`` is emitted,
@@ -92,4 +92,35 @@ async def complete_qwen(
     content = (message.get("content") or "").strip()
     if not content:
         content = (message.get("reasoning_content") or "").strip()
+    usage_raw = data.get("usage") or {}
+    usage = {
+        "tokens_in": usage_raw.get("prompt_tokens"),
+        "tokens_out": usage_raw.get("completion_tokens"),
+        "model": data.get("model"),  # llama.cpp echoes the served model name
+    }
+    return content, usage
+
+
+async def complete_qwen(
+    messages: list[dict],
+    system_prompt: str,
+    *,
+    temperature: float = 0.7,
+    max_tokens: int = 512,
+    user_id: str = "default",
+    think: bool = False,
+) -> str:
+    """Non-streaming completion from local llama.cpp — the whole text at once.
+
+    For callers that want the answer, not an incremental stream — e.g. a pipeline
+    value step that produces a single prompt/summary. Local-only (control-plane
+    guardrail). Distinct from :func:`stream_qwen` (used by the Pilot chat, which
+    is left untouched). Thin wrapper over :func:`complete_qwen_usage` that drops
+    the token usage.
+    """
+    content, _ = await complete_qwen_usage(
+        messages, system_prompt,
+        temperature=temperature, max_tokens=max_tokens,
+        user_id=user_id, think=think,
+    )
     return content

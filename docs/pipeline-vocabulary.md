@@ -22,15 +22,15 @@ The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by o
 | [`image.expand`](#imageexpand) | 🟡 planned | visual | `image` | one | image | image |
 | [`video.generate`](#videogenerate) | 🟡 planned | visual | `video` | one (opt) | any | video |
 | [`clip.generate`](#clipgenerate) | 🟢 wired | media | `clip` | many | any | video |
-| [`text.overlay`](#textoverlay) | 🟡 planned | media | `text` | one (opt) | text | image |
-| [`gif.create`](#gifcreate) | 🟡 planned | media | `gif` | many | image | video |
-| [`tts.speak`](#ttsspeak) | 🟡 planned | audio | `tts` | one (opt) | text | audio |
+| [`text.overlay`](#textoverlay) | 🟢 wired | media | `text` | one (opt) | text | image |
+| [`gif.create`](#gifcreate) | 🟢 wired | media | `gif` | many | image | video |
+| [`tts.speak`](#ttsspeak) | 🟢 wired | audio | `tts` | one (opt) | text | audio |
 | [`llm.image_prompt`](#llmimage_prompt) | 🟢 wired | llm | `llm` | one (opt) | text | text |
-| [`llm.complete`](#llmcomplete) | 🟡 planned | llm | `llm` | one (opt) | text | text |
-| [`llm.summarize`](#llmsummarize) | 🟡 planned | llm | `llm` | one | text | text |
-| [`llm.classify`](#llmclassify) | 🟡 planned | llm | `llm` | one | text | text |
-| [`llm.extract`](#llmextract) | 🟡 planned | llm | `llm` | one | text | text |
-| [`llm.translate`](#llmtranslate) | 🟡 planned | llm | `llm` | one | text | text |
+| [`llm.complete`](#llmcomplete) | 🟢 wired | llm | `llm` | one (opt) | text | text |
+| [`llm.summarize`](#llmsummarize) | 🟢 wired | llm | `llm` | one | text | text |
+| [`llm.classify`](#llmclassify) | 🟢 wired | llm | `llm` | one | text | text |
+| [`llm.extract`](#llmextract) | 🟢 wired | llm | `llm` | one | text | text |
+| [`llm.translate`](#llmtranslate) | 🟢 wired | llm | `llm` | one | text | text |
 | [`cloud.complete`](#cloudcomplete) | 🟡 planned | cloud | `cloud` | one (opt) | text | text |
 | [`cloud.vision`](#cloudvision) | 🟡 planned | cloud | `cloud` | one | image | text |
 | [`baserow.query`](#baserowquery) | 🟡 planned | data | `baserow` | none | any | text |
@@ -168,7 +168,7 @@ Assemble one or more image/video refs into a single MP4 (Ken-Burns).
 
 ## text.overlay
 
-🟡 **planned** · bucket: `media`
+🟢 **wired** · bucket: `media`
 
 Render multi-line text onto a flat-color background as a PNG.
 
@@ -187,7 +187,7 @@ Render multi-line text onto a flat-color background as a PNG.
 
 ## gif.create
 
-🟡 **planned** · bucket: `media`
+🟢 **wired** · bucket: `media`
 
 Animate multiple images into an animated GIF.
 
@@ -203,7 +203,7 @@ Animate multiple images into an animated GIF.
 
 ## tts.speak
 
-🟡 **planned** · bucket: `audio`
+🟢 **wired** · bucket: `audio`
 
 Synthesize speech audio from text (piper/kokoro/chatterbox).
 
@@ -236,7 +236,7 @@ Expand a short subject into one rich text-to-image prompt (local qwen).
 
 ## llm.complete
 
-🟡 **planned** · bucket: `llm`
+🟢 **wired** · bucket: `llm`
 
 Free-form text completion (local qwen).
 
@@ -253,7 +253,7 @@ Free-form text completion (local qwen).
 
 ## llm.summarize
 
-🟡 **planned** · bucket: `llm`
+🟢 **wired** · bucket: `llm`
 
 Summarize the input text (local qwen, thin wrapper over llm.complete).
 
@@ -267,7 +267,7 @@ Summarize the input text (local qwen, thin wrapper over llm.complete).
 
 ## llm.classify
 
-🟡 **planned** · bucket: `llm`
+🟢 **wired** · bucket: `llm`
 
 Classify the input text into one of the given labels (local qwen).
 
@@ -281,7 +281,7 @@ Classify the input text into one of the given labels (local qwen).
 
 ## llm.extract
 
-🟡 **planned** · bucket: `llm`
+🟢 **wired** · bucket: `llm`
 
 Extract structured fields from the input text as JSON (local qwen).
 
@@ -295,7 +295,7 @@ Extract structured fields from the input text as JSON (local qwen).
 
 ## llm.translate
 
-🟡 **planned** · bucket: `llm`
+🟢 **wired** · bucket: `llm`
 
 Translate the input text to a target language (local qwen).
 

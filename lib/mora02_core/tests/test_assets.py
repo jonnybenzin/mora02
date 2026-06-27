@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from mora02_core import Asset
+from mora02_core.assets import url_for_ref
 
 
 def test_asset_defaults_user_id():
@@ -46,3 +47,22 @@ def test_asset_metadata_independent_per_instance():
 def test_asset_custom_user_id():
     a = Asset(id="x", type="audio", path=Path("/tmp/x.wav"), user_id="alice")
     assert a.user_id == "alice"
+
+
+# url_for_ref — store-aware public URLs (each store knows its nginx path).
+def test_url_for_ref_comfyui():
+    assert url_for_ref("asset://comfyui/img_1.png") == \
+        "http://mora02.local:8092/comfyui/wip/img_1.png"
+
+
+def test_url_for_ref_tool_assets():
+    # gifer/clipper/typer/tts are served under /tool-assets/<store>/
+    assert url_for_ref("asset://typer/txt_z.png") == \
+        "http://mora02.local:8092/tool-assets/typer/txt_z.png"
+    assert url_for_ref("asset://tts/vox_q.wav") == \
+        "http://mora02.local:8092/tool-assets/tts/vox_q.wav"
+
+
+def test_url_for_ref_store_without_base_is_file_url():
+    # a store with no public URL base (e.g. scriptbot) falls back to file://
+    assert url_for_ref("asset://scriptbot/sess/file.txt").startswith("file://")

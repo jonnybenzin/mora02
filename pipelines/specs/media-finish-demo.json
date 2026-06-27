@@ -1,0 +1,1 @@
+{"name":"media-finish-demo","steps":[{"llm.complete":{"id":"line","prompt":"Write one punchy 6-word motivational line, no quotes.","max_tokens":40}},{"text.overlay":{"id":"card","template":"dark","size":"1080x1080"}},{"gate":"Approve this text card?"}]}

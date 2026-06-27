@@ -212,7 +212,6 @@ _OPS: tuple[Op, ...] = (
         name="text.overlay",
         summary="Render multi-line text onto a flat-color background as a PNG.",
         bucket="media",
-        status="planned",
         params=(
             Param("text", desc="the text; falls back to stdin"),
             Param("size", default="1080x1080", desc="canvas WxH"),
@@ -232,7 +231,6 @@ _OPS: tuple[Op, ...] = (
         name="gif.create",
         summary="Animate multiple images into an animated GIF.",
         bucket="media",
-        status="planned",
         params=(
             Param("durations", default="1", desc="per-frame seconds (single or comma list)"),
             Param("quality", type="enum", default="medium",
@@ -247,7 +245,6 @@ _OPS: tuple[Op, ...] = (
         name="tts.speak",
         summary="Synthesize speech audio from text (piper/kokoro/chatterbox).",
         bucket="audio",
-        status="planned",
         params=(
             Param("text", desc="text to speak; falls back to stdin"),
             Param("language", default="en", desc="e.g. en, de"),
@@ -280,7 +277,6 @@ _OPS: tuple[Op, ...] = (
         name="llm.complete",
         summary="Free-form text completion (local qwen).",
         bucket="llm",
-        status="planned",
         params=(
             Param("prompt", desc="user prompt; falls back to stdin"),
             Param("system", desc="system prompt"),
@@ -296,7 +292,6 @@ _OPS: tuple[Op, ...] = (
         name="llm.summarize",
         summary="Summarize the input text (local qwen, thin wrapper over llm.complete).",
         bucket="llm",
-        status="planned",
         params=(Param("max_tokens", type="int", desc="summary length budget"),),
         consumes="one",
         input_type="text",
@@ -306,7 +301,6 @@ _OPS: tuple[Op, ...] = (
         name="llm.classify",
         summary="Classify the input text into one of the given labels (local qwen).",
         bucket="llm",
-        status="planned",
         params=(
             Param("labels", required=True, desc="comma-separated candidate labels"),
         ),
@@ -318,7 +312,6 @@ _OPS: tuple[Op, ...] = (
         name="llm.extract",
         summary="Extract structured fields from the input text as JSON (local qwen).",
         bucket="llm",
-        status="planned",
         params=(
             Param("fields", required=True, desc="comma-separated fields to extract"),
         ),
@@ -330,7 +323,6 @@ _OPS: tuple[Op, ...] = (
         name="llm.translate",
         summary="Translate the input text to a target language (local qwen).",
         bucket="llm",
-        status="planned",
         params=(
             Param("to", required=True, desc="target language, e.g. de, en"),
             Param("from", desc="source language; auto-detect if omitted"),

@@ -70,7 +70,26 @@ _REF_SCHEME = "asset://"
 _DEFAULT_STORE_ROOTS = {
     "comfyui": "/comfyui-wip",         # ComfyUI image outputs (read)
     "clipper": "/data/final/clipper",  # assembled video clips (write)
+    "gifer": "/data/final/gifer",      # animated GIFs (write)
+    "typer": "/data/final/typer",      # text-on-image PNGs (write)
+    "tts": "/opt/mora02/output/_default/tts",  # synthesized speech (write)
     "scriptbot": "/data",              # script-runner session workspace
+}
+
+# Logical store -> public nginx URL base. The store concept owns its serving
+# path here, so a ref's URL is resolved by store (see ``url_for_ref``) rather
+# than guessed from the file path (the path-heuristic ``Asset.url``, kept for
+# legacy Pilot/comfyui consumers). nginx (port 8092) serves comfyui under
+# /comfyui/wip and the tool outputs under /tool-assets/<tool>/ — see
+# docker/nginx-images/nginx.conf. Override per container with
+# ``MORA02_ASSET_URL_<STORE>``.
+_NGINX_BASE = "http://mora02.local:8092"
+_DEFAULT_STORE_URL_BASES = {
+    "comfyui": f"{_NGINX_BASE}/comfyui/wip",
+    "clipper": f"{_NGINX_BASE}/tool-assets/clipper",
+    "gifer": f"{_NGINX_BASE}/tool-assets/gifer",
+    "typer": f"{_NGINX_BASE}/tool-assets/typer",
+    "tts": f"{_NGINX_BASE}/tool-assets/tts",
 }
 
 
@@ -129,3 +148,18 @@ def ref_for_path(path, store: str) -> str:
     except ValueError:
         rel = Path(p.name)
     return make_ref(store, str(rel))
+
+
+def url_for_ref(ref: str) -> str:
+    """Public nginx URL for an asset ref, resolved via the store's URL base.
+
+    Store-aware (each store knows its nginx serving path) — the correct
+    counterpart to the path-heuristic ``Asset.url`` for anything that carries a
+    ref, e.g. pipeline steps. Falls back to a ``file://`` path for stores without
+    a public URL base. Per-container override via ``MORA02_ASSET_URL_<STORE>``.
+    """
+    store, rel = parse_ref(ref)
+    base = os.environ.get(f"MORA02_ASSET_URL_{store.upper()}") or _DEFAULT_STORE_URL_BASES.get(store)
+    if base:
+        return f"{base.rstrip('/')}/{rel}"
+    return f"file://{store_root(store)}/{rel}"

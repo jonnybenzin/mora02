@@ -28,7 +28,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 # Bump when the event shape changes in a way consumers must notice.
-SCHEMA_VERSION = 1
+# v2: step events may carry per-step LLM token usage (tokens_in/tokens_out/model),
+#     passed through from a handler's result["log"] (Welle 2, text-LLM ops).
+SCHEMA_VERSION = 2
 
 _DEFAULT_LOG_DIR = "/data/pipelines/logs"
 
