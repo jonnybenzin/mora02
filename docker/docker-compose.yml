@@ -762,6 +762,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # TTS output (absolute path; library writes here)
       - /opt/mora02/output/_default/tts:/opt/mora02/output/_default/tts
+      - /opt/mora02/output/_default/comfyui/wip:/comfyui-wip:ro
+      # pipelines
+      - /opt/mora02/volumes/openclaw/workspace:/data/openclaw/workspace
+      - /opt/mora02/pipelinelogs:/data/pipelinelogs
+
 
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}
@@ -996,6 +1001,7 @@ services:
       - TZ=Europe/Berlin
     volumes:
       - /opt/mora02/volumes/openclaw:/data/openclaw
+      - /opt/mora02/output/_default/comfyui/wip:/comfyui-wip:ro
     networks:
       - mora02-net
     healthcheck:

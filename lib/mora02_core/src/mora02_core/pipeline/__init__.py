@@ -20,18 +20,46 @@ callers (scripts, ActivePieces).
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+import hashlib
+import json
+import os
+from pathlib import Path
+from typing import Any, Union
 
 from mora02_core.pipeline._errors import PipelineError
 from mora02_core.pipeline.base import PipelineResult, PipelineRunner
 from mora02_core.pipeline.lobster import LobsterRunner
 from mora02_core.pipeline.registry import get_runner, register_runner
+from mora02_core.pipeline import runlog, vocab
+from mora02_core.pipeline.spec import (
+    GateStep,
+    OpStep,
+    PipelineSpec,
+    ReviewStep,
+    compile_to_lobster,
+    load_spec,
+)
+
+# Where run_pipeline_spec writes the compiled .lobster. Must be a path the
+# OpenClaw gateway container also sees (lobster runs there via docker exec) —
+# mount /opt/mora02/volumes/openclaw/workspace at this path in both containers.
+_DEFAULT_WORKSPACE = "/data/openclaw/workspace"
 
 __all__ = [
     "run_pipeline",
     "resume_pipeline",
     "run_pipeline_sync",
     "resume_pipeline_sync",
+    "run_pipeline_spec",
+    "run_pipeline_spec_sync",
+    "compile_to_lobster",
+    "load_spec",
+    "vocab",
+    "runlog",
+    "PipelineSpec",
+    "OpStep",
+    "GateStep",
+    "ReviewStep",
     "PipelineError",
     "PipelineResult",
     "PipelineRunner",
@@ -100,4 +128,69 @@ def resume_pipeline_sync(
         resume_pipeline(
             token, response=response, approve=approve, cancel=cancel, runner=runner
         )
+    )
+
+
+async def run_pipeline_spec(
+    spec: Union[PipelineSpec, dict, str, Path],
+    *,
+    args: dict[str, Any] | None = None,
+    runner: str | None = None,
+    workspace: str | None = None,
+) -> PipelineResult:
+    """Compile a mora02 pipeline spec to ``.lobster``, write it, and run it.
+
+    The convenience layer over :func:`compile_to_lobster` + :func:`run_pipeline`:
+    ``spec`` may be a :class:`PipelineSpec`, an in-memory dict (e.g. emitted by an
+    authoring front-end), or a path to a ``.json``/``.yaml`` file. The compiled
+    ``.lobster`` is written to ``workspace`` (default ``/data/openclaw/workspace``,
+    overridable via ``MORA02_PIPELINE_WORKSPACE``) and LEFT in place so it can be
+    inspected, diffed, or run by hand. Returns the same ``PipelineResult`` as
+    :func:`run_pipeline` (may be paused at a gate).
+
+    A ``run_id`` is generated and baked into the compiled steps so the step
+    endpoint can correlate its per-step log lines; ``run_start`` / ``run_result``
+    events are written via :mod:`runlog`. Logging never breaks the run.
+    """
+    loaded = load_spec(spec)
+    run_id = runlog.new_run_id()
+    lobster = compile_to_lobster(loaded, run_id=run_id)
+
+    ws = workspace or os.environ.get("MORA02_PIPELINE_WORKSPACE", _DEFAULT_WORKSPACE)
+    os.makedirs(ws, exist_ok=True)
+    path = os.path.join(ws, f"{loaded.name}.lobster")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(lobster, fh, indent=2)
+
+    spec_hash = hashlib.sha256(
+        json.dumps(lobster, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:16]
+    runlog.log_event(
+        run_id, "run_start",
+        pipeline=loaded.name,
+        spec_hash=spec_hash,
+        args=args,
+        runner=runner or os.environ.get("MORA02_PIPELINE_RUNNER", "lobster"),
+        steps=len(lobster.get("steps", [])),
+        lobster_path=path,
+    )
+    res = await run_pipeline(path, args=args, runner=runner)
+    runlog.log_event(
+        run_id, "run_result",
+        status=res.status, ok=res.ok, is_paused=res.is_paused,
+        resume_token=res.resume_token,
+    )
+    return res
+
+
+def run_pipeline_spec_sync(
+    spec: Union[PipelineSpec, dict, str, Path],
+    *,
+    args: dict[str, Any] | None = None,
+    runner: str | None = None,
+    workspace: str | None = None,
+) -> PipelineResult:
+    """Blocking wrapper around :func:`run_pipeline_spec` for sync callers."""
+    return asyncio.run(
+        run_pipeline_spec(spec, args=args, runner=runner, workspace=workspace)
     )

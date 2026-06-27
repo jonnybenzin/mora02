@@ -63,19 +63,29 @@ class OpenClawAdapter:
         *,
         title: str | None = None,
         link: str | None = None,
+        media: str | None = None,
     ) -> NotifyResult:
         container, docker_bin = self._resolve()
 
         # Channels render plain text, so title and link travel inline in the body.
+        # `openclaw message send` makes --message optional once --media is set, so
+        # an image can travel with or without a caption. The media path/URL must be
+        # reachable from *inside* the gateway container (a mounted dir or a URL it
+        # can fetch).
         body = _compose(message, title=title, link=link)
+        if not body and not media:
+            raise NotifyError("notify needs a message or media to send")
         argv = [
             docker_bin, "exec", container,
             "openclaw", "message", "send",
             "--channel", channel,
             "--target", target,
-            "--message", body,
-            "--json",
         ]
+        if body:
+            argv += ["--message", body]
+        if media:
+            argv += ["--media", media]
+        argv.append("--json")
 
         try:
             proc = await asyncio.create_subprocess_exec(

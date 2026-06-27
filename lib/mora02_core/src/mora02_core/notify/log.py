@@ -25,13 +25,15 @@ class LogAdapter:
         *,
         title: str | None = None,
         link: str | None = None,
+        media: str | None = None,
     ) -> NotifyResult:
         _log.info(
-            "[notify:log] channel=%s target=%s title=%r link=%r message=%r",
+            "[notify:log] channel=%s target=%s title=%r link=%r media=%r message=%r",
             channel,
             target,
             title,
             link,
+            media,
             message,
         )
         return NotifyResult(ok=True, channel=channel, target=target, backend=self.name)

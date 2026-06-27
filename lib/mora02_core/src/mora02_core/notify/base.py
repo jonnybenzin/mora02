@@ -41,4 +41,5 @@ class NotifyAdapter(Protocol):
         *,
         title: str | None = None,
         link: str | None = None,
+        media: str | None = None,
     ) -> NotifyResult: ...

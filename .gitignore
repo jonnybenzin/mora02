@@ -93,6 +93,9 @@ docker/activepieces/
 # SQLite Datenbanken
 *.sqlite
 
+# Pipeline run logs (JSONL, one file per run — runtime data, not source)
+pipelines/logs/
+
 # Screendesign (Playwright-Screenshots & Design-Input)
 apps/pilot/ui/screendesign/
 

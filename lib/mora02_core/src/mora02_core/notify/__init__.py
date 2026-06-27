@@ -42,15 +42,18 @@ async def notify(
     *,
     title: str | None = None,
     link: str | None = None,
+    media: str | None = None,
     backend: str | None = None,
 ) -> NotifyResult:
     """Deliver ``message`` to ``target`` over ``channel``. Async core.
 
     Returns a ``NotifyResult`` on success; raises ``NotifyError`` on failure.
+    ``media`` attaches an image/audio/video/document (a path the backend can read
+    or a URL it can fetch); with media set, ``message`` may be empty (caption-less).
     ``backend`` overrides ``MORA02_NOTIFY_BACKEND`` for this one call.
     """
     adapter = get_adapter(backend)
-    return await adapter.send(channel, target, message, title=title, link=link)
+    return await adapter.send(channel, target, message, title=title, link=link, media=media)
 
 
 def notify_sync(
@@ -60,6 +63,7 @@ def notify_sync(
     *,
     title: str | None = None,
     link: str | None = None,
+    media: str | None = None,
     backend: str | None = None,
 ) -> NotifyResult:
     """Blocking wrapper around :func:`notify` for sync callers (scripts, ActivePieces).
@@ -68,5 +72,5 @@ def notify_sync(
     there instead.
     """
     return asyncio.run(
-        notify(channel, target, message, title=title, link=link, backend=backend)
+        notify(channel, target, message, title=title, link=link, media=media, backend=backend)
     )

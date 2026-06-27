@@ -4,6 +4,9 @@ Mora02 Script Runner API
 FastAPI service for gifer, clipper, typer scripts
 """
 
+import asyncio
+import os
+import time
 import uuid
 import shutil
 import subprocess
@@ -11,18 +14,22 @@ import httpx
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from mora02_core import auth
+from mora02_core import assets as asset_refs
 from mora02_core._common import get_logger
 from mora02_core.baserow import api as baserow_api
+from mora02_core.comfyui import generate_images
+from mora02_core.llm import complete_qwen
 from mora02_core.media import tts as tts_lib
-from mora02_core.media import MediaError
-from mora02_core.pipeline import run_pipeline, resume_pipeline, PipelineError
+from mora02_core.media import MediaError, create_clip
+from mora02_core.notify import notify, NotifyError
+from mora02_core.pipeline import run_pipeline, resume_pipeline, PipelineError, vocab as pipeline_vocab, runlog as pipeline_runlog
 
 # ============================================================================
 # CONFIG
@@ -1028,6 +1035,319 @@ async def pipeline_resume(req: PipelineResumeRequest):
     except PipelineError as e:
         raise HTTPException(status_code=502, detail=f"pipeline runner error: {e}")
     return _pipeline_result_to_dict(res)
+
+
+# ============================================================================
+# ENDPOINTS - PIPELINE STEP VOCABULARY (Nordstern)
+# ============================================================================
+# The step *verbs* a pipeline is built from (run/resume above are the HITL
+# *orchestration*). A Lobster `run:` step shells `curl` here; the heavy work
+# (mora02_core: media/comfyui/llm) runs in this container — the executor
+# (ADR-020).
+#
+# Contract (derived from the vertical slices, kept deliberately small):
+#   - Inputs arrive newline-separated on the REQUEST BODY, because Lobster only
+#     passes a prior step's output via `stdin: $step.stdout` — it does NOT
+#     interpolate `$step.*` inside a `run:` string. So the previous step's stdout
+#     becomes this step's stdin. An input line is an asset ref (media step) or a
+#     plain text value (a value produced by an LLM step) — same transport.
+#   - Step parameters arrive as QUERY params (resolution, pick, subject, …).
+#   - Every result carries `out`: the single stdout string this step emits — an
+#     asset ref for media steps, a text value for value steps. `?fmt=ref|out`
+#     returns `out` bare as text/plain so it chains cleanly as the next step's
+#     `$step.stdout`; otherwise a JSON envelope {ok, op, out, type, …} for
+#     debugging / direct callers.
+#
+# Each handler is async: value/comfyui steps await httpx; the blocking ffmpeg
+# clipper is pushed to a thread inside its handler so it can't stall the loop.
+
+_STEP_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+
+# llm.image_prompt — turns a short subject into one rich text-to-image prompt.
+# Plain local qwen completion (NOT the openclaw llm-task plugin, which breaks on
+# llama.cpp's constrained tool-calling — Phase-0 finding; NOT cloud — the
+# control-plane guardrail keeps orchestration local).
+_IMAGE_PROMPT_SYSTEM = (
+    "You are an expert text-to-image prompt engineer. Expand the user's subject "
+    "into ONE vivid, concrete image prompt covering subject, setting, lighting, "
+    "mood, composition and style. Output ONLY the prompt text — a single line, "
+    "no preamble, no quotes, no markdown."
+)
+
+
+async def _step_source_file(inputs: List[str], params: dict) -> dict:
+    """source.file — bring a file from a store into the pipeline as a ref.
+
+    Params: store (default "comfyui"), name (exact filename) or pick
+    ("latest"|"oldest", default "latest" over the store's image files).
+    """
+    store = params.get("store", "comfyui")
+    root = asset_refs.store_root(store)
+    name = params.get("name")
+    if name:
+        target = root / name
+        if not target.is_file():
+            raise ValueError(f"{name!r} not found in store {store!r}")
+    else:
+        candidates = sorted(
+            (p for p in root.glob("**/*")
+             if p.is_file() and p.suffix.lower() in _STEP_IMAGE_EXTS),
+            key=lambda p: p.stat().st_mtime,
+        )
+        if not candidates:
+            raise ValueError(f"no image files in store {store!r} ({root})")
+        target = candidates[-1] if params.get("pick", "latest") != "oldest" else candidates[0]
+    ref = asset_refs.ref_for_path(target, store)
+    return {"ok": True, "op": "source.file", "out": ref, "type": "image"}
+
+
+async def _step_llm_image_prompt(inputs: List[str], params: dict) -> dict:
+    """llm.image_prompt — subject -> one rich image-prompt TEXT value (local qwen).
+
+    Subject from `?subject=` or, failing that, from stdin (a value piped from a
+    prior step). The produced value flows on stdout exactly like a ref does.
+    """
+    subject = params.get("subject") or "\n".join(inputs).strip()
+    if not subject:
+        raise ValueError("llm.image_prompt needs a subject (?subject= or on stdin)")
+    prompt = (await complete_qwen(
+        [{"role": "user", "content": subject}],
+        _IMAGE_PROMPT_SYSTEM,
+    )).strip()
+    if not prompt:
+        raise ValueError("llm.image_prompt got an empty completion from qwen")
+    return {"ok": True, "op": "llm.image_prompt", "out": prompt, "type": "text"}
+
+
+async def _step_image_generate(inputs: List[str], params: dict) -> dict:
+    """image.generate — prompt TEXT -> a generated image ref (ComfyUI).
+
+    Prompt from stdin (an llm step's value) or `?prompt=`. Params: flow
+    (default "photo"), format, batch_size, testrun=1.
+    """
+    prompt = params.get("prompt") or "\n".join(inputs).strip()
+    if not prompt:
+        raise ValueError("image.generate needs a prompt (on stdin or ?prompt=)")
+    result = await generate_images(
+        prompt,
+        flow=params.get("flow", "photo"),
+        format=params.get("format"),
+        batch_size=int(params["batch_size"]) if params.get("batch_size") else None,
+        testrun=params.get("testrun") == "1",
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "image.generate produced no image")
+    ref = asset_refs.ref_for_path(assets[0].path, "comfyui")
+    return {"ok": True, "op": "image.generate", "out": ref, "type": "image",
+            "prompt": prompt, "count": len(assets)}
+
+
+async def _step_notify_image(inputs: List[str], params: dict) -> dict:
+    """notify.image — push an image ref to a chat (Signal) for human review, then
+    pass the SAME ref through unchanged so the chain continues.
+
+    Input: one image ref on stdin. Params: target (E.164; or env
+    MORA02_SIGNAL_TARGET), channel (default "signal"), message (optional caption).
+    The media file is sent by `openclaw message send --media` from *inside* the
+    gateway container, so the resolved path must exist there too — mount the store
+    identically in mora02-openclaw (same path this container resolves to).
+    """
+    if not inputs:
+        raise ValueError("notify.image needs an image ref on stdin")
+    ref = inputs[0]
+    path = asset_refs.resolve_ref(ref)
+    if not path.is_file():
+        raise ValueError(f"image not found for ref {ref!r} ({path})")
+    target = params.get("target") or os.environ.get("MORA02_SIGNAL_TARGET")
+    if not target:
+        raise ValueError("notify.image needs a target (?target= or MORA02_SIGNAL_TARGET)")
+    try:
+        await notify(
+            params.get("channel", "signal"),
+            target,
+            params.get("message", ""),
+            media=str(path),
+        )
+    except NotifyError as e:
+        raise ValueError(f"signal send failed: {e}")
+    return {"ok": True, "op": "notify.image", "out": ref, "type": "image"}
+
+
+# Extension → wire type, for tagging a passed-through media ref in notify.
+_NOTIFY_EXT_TYPE = {
+    ".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image",
+    ".bmp": "image", ".gif": "image",
+    ".mp4": "video", ".mov": "video", ".webm": "video", ".mkv": "video", ".avi": "video",
+    ".wav": "audio", ".mp3": "audio", ".flac": "audio", ".ogg": "audio", ".m4a": "audio",
+}
+
+
+async def _step_notify(inputs: List[str], params: dict) -> dict:
+    """notify — send the previous step's output (type-aware) to a chat, no pause;
+    pass the input through unchanged so the chain continues.
+
+    Generalizes notify.image: an ``asset://`` ref on stdin is resolved to a file
+    and sent as ``media`` (image/video/audio — whatever it is); any other stdin
+    value is sent as the message text. Params: target (E.164; or env
+    MORA02_SIGNAL_TARGET), channel (default "signal"), message (caption / extra
+    text), title, link. Like notify.image, a media file is sent by the gateway
+    container, so its store must be mounted there at the same resolved path.
+    """
+    target = params.get("target") or os.environ.get("MORA02_SIGNAL_TARGET")
+    if not target:
+        raise ValueError("notify needs a target (?target= or MORA02_SIGNAL_TARGET)")
+
+    incoming = inputs[0] if inputs else ""
+    media = None
+    wire = "text"
+    if incoming.startswith("asset://"):
+        path = asset_refs.resolve_ref(incoming)
+        if not path.is_file():
+            raise ValueError(f"file not found for ref {incoming!r} ({path})")
+        media = str(path)
+        wire = _NOTIFY_EXT_TYPE.get(path.suffix.lower(), "any")
+        message = params.get("message", "")
+    else:
+        # A text value (or nothing) on stdin: send as the message body, optionally
+        # prefixed by ?message=.
+        message = "\n".join(p for p in (params.get("message"), incoming) if p)
+        if not message:
+            raise ValueError("notify needs media on stdin or a message")
+
+    try:
+        await notify(
+            params.get("channel", "signal"),
+            target,
+            message,
+            title=params.get("title"),
+            link=params.get("link"),
+            media=media,
+        )
+    except NotifyError as e:
+        raise ValueError(f"notify send failed: {e}")
+    # Passthrough: emit exactly what came in so the chain continues.
+    return {"ok": True, "op": "notify", "out": incoming, "type": wire}
+
+
+async def _step_clip_generate(inputs: List[str], params: dict) -> dict:
+    """clip.generate — assemble input image/video refs into one MP4 (Ken-Burns).
+
+    Inputs: one or more asset refs on stdin (newline-separated). Params:
+    resolution, durations, animation (passed to media.create_clip). Output lands
+    in the "clipper" store. The blocking ffmpeg work runs in a worker thread.
+    """
+    if not inputs:
+        raise ValueError("clip.generate needs at least one input ref on stdin")
+    input_paths = [asset_refs.resolve_ref(r) for r in inputs]
+    out_store = "clipper"
+    out_name = params.get("name") or f"pipe_{uuid.uuid4().hex[:8]}.mp4"
+    out_path = asset_refs.store_root(out_store) / out_name
+    clip = await asyncio.to_thread(
+        create_clip,
+        input_paths,
+        out_path,
+        resolution=params.get("resolution", "1080p"),
+        durations=params.get("durations", "4"),
+        animation=params.get("animation", "pan"),
+    )
+    return {"ok": True, "op": "clip.generate",
+            "out": asset_refs.ref_for_path(clip.path, out_store),
+            "type": "video", "url": clip.url}
+
+
+# Step registry. Every handler is async (see section header). New ops land here.
+_PIPELINE_STEPS = {
+    "source.file": _step_source_file,
+    "llm.image_prompt": _step_llm_image_prompt,
+    "image.generate": _step_image_generate,
+    "notify.image": _step_notify_image,
+    "notify": _step_notify,
+    "clip.generate": _step_clip_generate,
+}
+
+# Drift guard: the implemented handlers here and the structural vocabulary in
+# mora02_core.pipeline.vocab must describe the SAME ops. If they diverge, a spec
+# would compile (validated against vocab) but fail at runtime (no handler), or an
+# op would be runnable but invisible to the authoring front-ends. Warn loudly at
+# import so the mismatch surfaces on the next deploy, not in a broken pipeline.
+# Only "wired" vocab ops must have a handler here; "planned" ops are catalogued
+# in the vocabulary on purpose and intentionally have none yet.
+_wired_names = pipeline_vocab.wired_op_names()
+_handler_names = set(_PIPELINE_STEPS)
+if _wired_names != _handler_names:
+    _log.warning(
+        "pipeline vocab/handler drift — handler-only: %s | wired-vocab-only: %s",
+        sorted(_handler_names - _wired_names),
+        sorted(_wired_names - _handler_names),
+    )
+
+
+@app.get("/pipeline/ops")
+async def pipeline_ops():
+    """The pipeline step vocabulary — ops with their params, types, and defaults.
+
+    Single source of truth from mora02_core.pipeline.vocab. Consumed by the
+    authoring front-ends (visual builder / recording / LLM dialog) to enumerate
+    and validate available steps; the compiler validates specs against the same.
+    """
+    return pipeline_vocab.to_dict()
+
+
+def _ref_name(value):
+    """Filename tail of an asset ref (asset://store/name) — None for non-refs."""
+    if isinstance(value, str) and value.startswith("asset://"):
+        return value.rsplit("/", 1)[-1]
+    return None
+
+
+def _log_inputs(inputs: List[str]) -> list:
+    """Compact per-input record for the run log: ref+name, or truncated value."""
+    out = []
+    for x in inputs:
+        name = _ref_name(x)
+        out.append({"ref": x, "name": name} if name else {"value": x[:200]})
+    return out
+
+
+@app.post("/pipeline/step/{op}")
+async def pipeline_step(op: str, request: Request):
+    """Execute one pipeline step. See the section header for the contract."""
+    handler = _PIPELINE_STEPS.get(op)
+    if handler is None:
+        raise HTTPException(status_code=404, detail=f"unknown step op {op!r}")
+
+    body = (await request.body()).decode("utf-8", "replace")
+    inputs = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    params = dict(request.query_params)
+    fmt = params.pop("fmt", None)
+    # run_id/step_id are baked by the compiler for run-log correlation, not by
+    # the handler — pop them so they don't reach the op as stray params.
+    run_id = params.pop("run_id", None)
+    step_id = params.pop("step_id", op)
+    started = time.monotonic()
+
+    try:
+        result = await handler(inputs, params)
+    except (asset_refs.AssetRefError, MediaError, ValueError, FileNotFoundError) as e:
+        pipeline_runlog.log_event(
+            run_id, "step", step_id=step_id, op=op, params=params,
+            inputs=_log_inputs(inputs), status="failed", error=str(e),
+            duration_ms=round((time.monotonic() - started) * 1000),
+        )
+        raise HTTPException(status_code=400, detail=f"step {op} failed: {e}")
+
+    out = result.get("out")
+    pipeline_runlog.log_event(
+        run_id, "step", step_id=step_id, op=op, params=params,
+        inputs=_log_inputs(inputs), out=out, out_name=_ref_name(out),
+        out_type=result.get("type"), status="ok",
+        duration_ms=round((time.monotonic() - started) * 1000),
+    )
+
+    if fmt in ("ref", "out", "text"):
+        return PlainTextResponse(result["out"])
+    return result
 
 
 # ============================================================================
