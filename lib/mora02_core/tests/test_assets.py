@@ -76,3 +76,10 @@ def test_path_for_ref_comfyui_and_tools():
 
 def test_path_for_ref_unknown_store_is_none():
     assert path_for_ref("asset://scriptbot/sess/file.txt") is None
+
+
+def test_stock_store_served_under_script_bot_assets():
+    # downloaded stock photos live in the script-bot final tree (nginx catch-all)
+    assert path_for_ref("asset://stock/stock_pexels_1.jpg") == "/script-bot-assets/stock/stock_pexels_1.jpg"
+    assert url_for_ref("asset://stock/stock_pexels_1.jpg") == \
+        "http://mora02.local:8092/script-bot-assets/stock/stock_pexels_1.jpg"

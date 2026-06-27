@@ -122,6 +122,10 @@ async def generate_images(
         filenames = valid
 
     assets = [_image_asset(f, idx + 1) for idx, f in enumerate(filenames)]
+    # Paid API flows carry a per-image price in the registry; local flows don't
+    # (cost 0.0). Charge only for images actually produced (count), so a failed
+    # API call billed nothing.
+    cost_per_image = flow_config.get("cost_per_image", 0.0)
     result = {
         "subtype": "image_variants",
         "prompt": prompt,
@@ -131,6 +135,7 @@ async def generate_images(
         "prompt_id": prompt_id,
         "assets": assets,
         "count": len(assets),
+        "cost_usd": round(cost_per_image * len(assets), 6),
     }
     if not assets:
         result["error"] = extract_error(history) or (

@@ -5,6 +5,7 @@ FastAPI service for gifer, clipper, typer scripts
 """
 
 import asyncio
+import json
 import os
 import time
 import uuid
@@ -31,7 +32,7 @@ from mora02_core.comfyui import (
     expand_image,
     upload_image_url_to_comfyui,
 )
-from mora02_core.llm import complete_qwen, complete_qwen_usage
+from mora02_core.llm import complete_qwen, complete_qwen_usage, complete_claude_usage
 from mora02_core.media import tts as tts_lib
 from mora02_core.media import MediaError, create_clip, create_gif, create_text_frame
 from mora02_core.notify import notify, NotifyError
@@ -1276,6 +1277,50 @@ async def _step_llm_translate(inputs: List[str], params: dict) -> dict:
     return {"ok": True, "op": "llm.translate", "out": text, "type": "text", "log": usage}
 
 
+# Cloud LLM ops (Claude) — PERIPHERAL content tasks only. Control-plane
+# orchestration stays local (qwen); these are opt-in per-step cloud calls.
+# Each logs tokens AND cost_usd (from the MODELS pricing) via result["log"].
+async def _step_cloud_complete(inputs: List[str], params: dict) -> dict:
+    """cloud.complete — free-form completion via Claude. Prompt from ?prompt= or stdin."""
+    prompt = params.get("prompt") or "\n".join(inputs).strip()
+    if not prompt:
+        raise ValueError("cloud.complete needs a prompt (?prompt= or on stdin)")
+    text, usage = await complete_claude_usage(
+        [{"role": "user", "content": prompt}],
+        params.get("system", "You are a helpful assistant."),
+        model_key=params.get("model", "sonnet"),
+        temperature=float(params["temperature"]) if params.get("temperature") else 0.7,
+        max_tokens=int(params["max_tokens"]) if params.get("max_tokens") else 1024,
+    )
+    if not text:
+        raise ValueError("cloud.complete got an empty completion from Claude")
+    return {"ok": True, "op": "cloud.complete", "out": text, "type": "text", "log": usage}
+
+
+async def _step_cloud_vision(inputs: List[str], params: dict) -> dict:
+    """cloud.vision — ask Claude about an image ref (stdin) -> text answer."""
+    import base64
+    import mimetypes
+    if not inputs:
+        raise ValueError("cloud.vision needs an image ref on stdin")
+    path = asset_refs.resolve_ref(inputs[0])
+    if not path.is_file():
+        raise ValueError(f"image not found for ref {inputs[0]!r} ({path})")
+    media_type = mimetypes.guess_type(str(path))[0] or "image/png"
+    data = base64.standard_b64encode(path.read_bytes()).decode("ascii")
+    query = params.get("query") or "Describe this image in detail."
+    text, usage = await complete_claude_usage(
+        [{"role": "user", "content": query}],
+        "You are a precise vision assistant.",
+        model_key=params.get("model", "haiku"),
+        image_data={"media_type": media_type, "data": data},
+        max_tokens=int(params["max_tokens"]) if params.get("max_tokens") else 1024,
+    )
+    if not text:
+        raise ValueError("cloud.vision got an empty answer from Claude")
+    return {"ok": True, "op": "cloud.vision", "out": text, "type": "text", "log": usage}
+
+
 async def _step_image_generate(inputs: List[str], params: dict) -> dict:
     """image.generate — prompt TEXT -> a generated image ref (ComfyUI).
 
@@ -1297,7 +1342,10 @@ async def _step_image_generate(inputs: List[str], params: dict) -> dict:
         raise ValueError(result.get("error") or "image.generate produced no image")
     ref = asset_refs.ref_for_path(assets[0].path, "comfyui")
     return {"ok": True, "op": "image.generate", "out": ref, "type": "image",
-            "prompt": prompt, "count": len(assets)}
+            "prompt": prompt, "count": len(assets),
+            "log": {"flow": result.get("flow"), "model": result.get("flow_name"),
+                    "seed": result.get("seed"), "count": len(assets),
+                    "cost_usd": result.get("cost_usd")}}
 
 
 # Visual-extend ops (Welle 4) — ComfyUI-backed. An input image ref is fed back
@@ -1578,6 +1626,215 @@ async def _step_tts_speak(inputs: List[str], params: dict) -> dict:
             "out": out_ref, "type": "audio", "url": asset_refs.url_for_ref(out_ref)}
 
 
+# Baserow CRUD ops (Welle 5) — thin pipeline wrappers over mora02_core.baserow.
+# Each returns a JSON string on stdout so results chain as values; reads take
+# params, writes take their row data from ?data= or stdin (a prior step's JSON).
+def _json_from(params: dict, inputs: List[str], key: str = "data"):
+    raw = params.get(key) or "\n".join(inputs).strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"invalid JSON for {key!r}: {e}")
+
+
+async def _step_baserow_query(inputs: List[str], params: dict) -> dict:
+    """baserow.query — list rows of a table (optional filter/order/size) as JSON."""
+    table = params.get("table")
+    if not table:
+        raise ValueError("baserow.query needs ?table=")
+    filt = None
+    if params.get("filter"):
+        try:
+            filt = json.loads(params["filter"])
+        except json.JSONDecodeError as e:
+            raise ValueError(f"invalid filter JSON: {e}")
+    rows = await baserow_api.query(
+        table, filter=filt, order_by=params.get("order_by"),
+        size=int(params.get("size", 50)),
+    )
+    return {"ok": True, "op": "baserow.query", "type": "text",
+            "out": json.dumps(rows, ensure_ascii=False), "log": {"rows": len(rows)}}
+
+
+async def _step_baserow_get(inputs: List[str], params: dict) -> dict:
+    """baserow.get — fetch one row by id as JSON."""
+    table, rid = params.get("table"), params.get("row_id")
+    if not table or not rid:
+        raise ValueError("baserow.get needs ?table= and ?row_id=")
+    row = await baserow_api.get(table, int(rid))
+    return {"ok": True, "op": "baserow.get", "type": "text",
+            "out": json.dumps(row, ensure_ascii=False)}
+
+
+async def _step_baserow_insert(inputs: List[str], params: dict) -> dict:
+    """baserow.insert — create a row from ?data= or stdin JSON; returns the row."""
+    table = params.get("table")
+    if not table:
+        raise ValueError("baserow.insert needs ?table=")
+    data = _json_from(params, inputs)
+    if not isinstance(data, dict):
+        raise ValueError("baserow.insert needs JSON field values (?data= or on stdin)")
+    row = await baserow_api.insert(table, data)
+    return {"ok": True, "op": "baserow.insert", "type": "text",
+            "out": json.dumps(row, ensure_ascii=False)}
+
+
+async def _step_baserow_update(inputs: List[str], params: dict) -> dict:
+    """baserow.update — patch a row by id from ?data= or stdin JSON."""
+    table, rid = params.get("table"), params.get("row_id")
+    if not table or not rid:
+        raise ValueError("baserow.update needs ?table= and ?row_id=")
+    data = _json_from(params, inputs)
+    if not isinstance(data, dict):
+        raise ValueError("baserow.update needs JSON field values (?data= or on stdin)")
+    row = await baserow_api.update(table, int(rid), data)
+    return {"ok": True, "op": "baserow.update", "type": "text",
+            "out": json.dumps(row, ensure_ascii=False)}
+
+
+async def _step_baserow_delete(inputs: List[str], params: dict) -> dict:
+    """baserow.delete — delete a row by id."""
+    table, rid = params.get("table"), params.get("row_id")
+    if not table or not rid:
+        raise ValueError("baserow.delete needs ?table= and ?row_id=")
+    ok = await baserow_api.delete(table, int(rid))
+    return {"ok": True, "op": "baserow.delete", "type": "text",
+            "out": json.dumps({"deleted": ok})}
+
+
+async def _step_baserow_list_fields(inputs: List[str], params: dict) -> dict:
+    """baserow.list_fields — the table's field schema as JSON."""
+    table = params.get("table")
+    if not table:
+        raise ValueError("baserow.list_fields needs ?table=")
+    fields = await baserow_api.list_fields(table)
+    return {"ok": True, "op": "baserow.list_fields", "type": "text",
+            "out": json.dumps(fields, ensure_ascii=False)}
+
+
+# Web + stock ops (Welle 6).
+_SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://searxng:8080")
+_RE_SCRIPT = _re.compile(r"<(script|style)[^>]*>.*?</\1>", _re.DOTALL | _re.IGNORECASE)
+_RE_TAG = _re.compile(r"<[^>]+>")
+_RE_WS = _re.compile(r"\s+")
+
+
+async def _step_web_search(inputs: List[str], params: dict) -> dict:
+    """web.search — query the local SearXNG; returns top results as JSON text."""
+    query = params.get("query") or "\n".join(inputs).strip()
+    if not query:
+        raise ValueError("web.search needs a query (?query= or on stdin)")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.get(
+            f"{_SEARXNG_URL}/search",
+            params={"q": query, "format": "json",
+                    "categories": params.get("categories", "general")},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    results = [
+        {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")}
+        for r in data.get("results", [])[:8]
+    ]
+    return {"ok": True, "op": "web.search", "type": "text",
+            "out": json.dumps({"query": query, "results": results}, ensure_ascii=False),
+            "log": {"results": len(results)}}
+
+
+async def _step_web_fetch(inputs: List[str], params: dict) -> dict:
+    """web.fetch — fetch a URL and return its readable text (HTML stripped, capped)."""
+    url = params.get("url") or "\n".join(inputs).strip()
+    if not url:
+        raise ValueError("web.fetch needs a url (?url= or on stdin)")
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (mora02 pipeline)"})
+        resp.raise_for_status()
+        body = resp.text
+    text = _RE_WS.sub(" ", _RE_TAG.sub(" ", _RE_SCRIPT.sub(" ", body))).strip()
+    text = text[:20000]  # pipelines pass values, not whole documents
+    return {"ok": True, "op": "web.fetch", "type": "text", "out": text,
+            "log": {"chars": len(text), "url": url}}
+
+
+async def _stock_search(source: str, query: str, count: int, orientation: str) -> list:
+    """Search Pexels/Pixabay; returns [{id, thumbnail, url, photographer, ...}]."""
+    import urllib.parse
+    q = urllib.parse.quote(query)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        if source == "pexels":
+            if not PEXELS_API_KEY:
+                raise ValueError("stock.search pexels: PEXELS_API_KEY not set")
+            url = f"https://api.pexels.com/v1/search?query={q}&per_page={count}&orientation={orientation}"
+            resp = await client.get(url, headers={"Authorization": PEXELS_API_KEY})
+            resp.raise_for_status()
+            return [
+                {"id": str(p["id"]),
+                 "thumbnail": p["src"].get("medium", p["src"].get("small")),
+                 "url": p["src"].get("original", p["src"].get("large2x")),
+                 "photographer": p.get("photographer", "Unknown"),
+                 "width": p.get("width"), "height": p.get("height")}
+                for p in resp.json().get("photos", [])
+            ]
+        if source == "pixabay":
+            if not PIXABAY_API_KEY:
+                raise ValueError("stock.search pixabay: PIXABAY_API_KEY not set")
+            omap = {"landscape": "horizontal", "portrait": "vertical", "square": "all"}
+            o = omap.get(orientation, "horizontal")
+            url = (f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={q}&per_page={count}"
+                   f"&orientation={o}&image_type=photo&safesearch=true")
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return [
+                {"id": str(h["id"]),
+                 "thumbnail": h.get("webformatURL", h.get("previewURL")),
+                 "url": h.get("fullHDURL") or h.get("largeImageURL") or h.get("webformatURL"),
+                 "photographer": h.get("user", "Unknown"),
+                 "width": h.get("imageWidth"), "height": h.get("imageHeight")}
+                for h in resp.json().get("hits", [])
+            ]
+    raise ValueError(f"unknown stock source {source!r}")
+
+
+async def _step_stock_search(inputs: List[str], params: dict) -> dict:
+    """stock.search — search Pexels/Pixabay; returns candidates (id+url) as JSON."""
+    query = params.get("query") or "\n".join(inputs).strip()
+    if not query:
+        raise ValueError("stock.search needs a query (?query= or on stdin)")
+    source = params.get("source", "pexels")
+    results = await _stock_search(
+        source, query, int(params.get("count", 5)),
+        params.get("orientation", "landscape"),
+    )
+    return {"ok": True, "op": "stock.search", "type": "text",
+            "out": json.dumps({"source": source, "query": query, "results": results}, ensure_ascii=False),
+            "log": {"source": source, "results": len(results)}}
+
+
+async def _step_stock_download(inputs: List[str], params: dict) -> dict:
+    """stock.download — download a stock image into the 'stock' store -> image ref."""
+    source = params.get("source")
+    image_url = params.get("image_url")
+    if not source or not image_url:
+        raise ValueError("stock.download needs ?source= and ?image_url=")
+    image_id = params.get("image_id") or uuid.uuid4().hex[:8]
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        resp = await client.get(image_url, headers={"User-Agent": "Mozilla/5.0 (mora02 pipeline)"})
+        resp.raise_for_status()
+        ctype = resp.headers.get("content-type", "")
+        data = resp.content
+    ext = ".png" if "png" in ctype else (".webp" if "webp" in ctype else ".jpg")
+    out_store = "stock"
+    out_name = f"stock_{source}_{image_id}{ext}"
+    out_path = asset_refs.store_root(out_store) / out_name
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(data)
+    out_ref = asset_refs.make_ref(out_store, out_name)
+    return {"ok": True, "op": "stock.download", "out": out_ref, "type": "image",
+            "url": asset_refs.url_for_ref(out_ref), "log": {"source": source, "bytes": len(data)}}
+
+
 # Step registry. Every handler is async (see section header). New ops land here.
 _PIPELINE_STEPS = {
     "source.file": _step_source_file,
@@ -1597,6 +1854,18 @@ _PIPELINE_STEPS = {
     "text.overlay": _step_text_overlay,
     "gif.create": _step_gif_create,
     "tts.speak": _step_tts_speak,
+    "baserow.query": _step_baserow_query,
+    "baserow.get": _step_baserow_get,
+    "baserow.insert": _step_baserow_insert,
+    "baserow.update": _step_baserow_update,
+    "baserow.delete": _step_baserow_delete,
+    "baserow.list_fields": _step_baserow_list_fields,
+    "web.search": _step_web_search,
+    "web.fetch": _step_web_fetch,
+    "stock.search": _step_stock_search,
+    "stock.download": _step_stock_download,
+    "cloud.complete": _step_cloud_complete,
+    "cloud.vision": _step_cloud_vision,
 }
 
 # Drift guard: the implemented handlers here and the structural vocabulary in
@@ -1669,6 +1938,20 @@ async def pipeline_step(op: str, request: Request):
             duration_ms=round((time.monotonic() - started) * 1000),
         )
         raise HTTPException(status_code=400, detail=f"step {op} failed: {e}")
+    except Exception as e:
+        # Any other failure (upstream API/node error, timeout, unexpected response
+        # shape) must not 500 the service — a step failing is a workflow event, not
+        # a server fault. Log the full traceback for debugging, then return a clean
+        # 400 so the runner aborts the workflow gracefully (as the validation path
+        # above does). curl -fsS in the compiled step sees the non-2xx and stops.
+        _log.exception("pipeline step %s raised an unexpected error", op)
+        pipeline_runlog.log_event(
+            run_id, "step", step_id=step_id, op=op, params=params,
+            inputs=_log_inputs(inputs), status="failed",
+            error=f"{type(e).__name__}: {e}",
+            duration_ms=round((time.monotonic() - started) * 1000),
+        )
+        raise HTTPException(status_code=400, detail=f"step {op} failed: {type(e).__name__}: {e}")
 
     out = result.get("out")
     # A handler may attach a "log" dict of extra per-step fields (e.g. LLM token

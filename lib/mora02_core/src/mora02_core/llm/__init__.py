@@ -10,7 +10,7 @@ Recommended for new code:
         ...
 """
 
-from mora02_core.llm.claude_api import stream_claude
+from mora02_core.llm.claude_api import stream_claude, complete_claude_usage
 from mora02_core.llm.client import stream_llm
 from mora02_core.llm.models import LOCAL_PROFILE_LABELS, MODELS
 from mora02_core.llm.profiles import PROFILES, profile_label, profile_names
@@ -29,6 +29,7 @@ from mora02_core.llm.switcher import (
 __all__ = [
     "stream_llm",
     "stream_claude",
+    "complete_claude_usage",
     "stream_qwen",
     "complete_qwen",
     "complete_qwen_usage",

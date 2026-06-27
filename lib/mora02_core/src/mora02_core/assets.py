@@ -73,6 +73,7 @@ _DEFAULT_STORE_ROOTS = {
     "gifer": "/data/final/gifer",      # animated GIFs (write)
     "typer": "/data/final/typer",      # text-on-image PNGs (write)
     "tts": "/opt/mora02/output/_default/tts",  # synthesized speech (write)
+    "stock": "/data/final/stock",      # downloaded stock photos (write)
     "scriptbot": "/data",              # script-runner session workspace
 }
 
@@ -91,6 +92,9 @@ _DEFAULT_STORE_URL_PATHS = {
     "gifer": "/tool-assets/gifer",
     "typer": "/tool-assets/typer",
     "tts": "/tool-assets/tts",
+    # /data/final/stock is the script-bot final tree, which nginx serves under
+    # /script-bot-assets via its catch-all location.
+    "stock": "/script-bot-assets/stock",
 }
 
 

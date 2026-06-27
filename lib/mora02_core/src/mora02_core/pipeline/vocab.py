@@ -334,7 +334,6 @@ _OPS: tuple[Op, ...] = (
         name="cloud.complete",
         summary="Text completion via Claude (cloud; peripheral content tasks only).",
         bucket="cloud",
-        status="planned",
         params=(
             Param("prompt", desc="user prompt; falls back to stdin"),
             Param("system", desc="system prompt"),
@@ -351,7 +350,6 @@ _OPS: tuple[Op, ...] = (
         name="cloud.vision",
         summary="Describe / analyze an image with an optional question (Claude vision).",
         bucket="cloud",
-        status="planned",
         params=(
             Param("query", desc="what to ask about the image"),
             Param("model", type="enum", default="haiku", choices=("haiku", "sonnet", "opus")),
@@ -366,9 +364,8 @@ _OPS: tuple[Op, ...] = (
         name="baserow.query",
         summary="Query rows from a table with filter/order/pagination.",
         bucket="data",
-        status="planned",
         params=(
-            Param("table", required=True, desc="table name"),
+            Param("table", required=True, desc="table name or numeric id"),
             Param("filter", desc="filter expression / JSON"),
             Param("order_by", desc="e.g. -created_at"),
             Param("size", type="int", default="50", desc="rows per page (max 200)"),
@@ -380,7 +377,6 @@ _OPS: tuple[Op, ...] = (
         name="baserow.get",
         summary="Fetch a single row by id.",
         bucket="data",
-        status="planned",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -392,7 +388,6 @@ _OPS: tuple[Op, ...] = (
         name="baserow.insert",
         summary="Create a new row (field values from stdin JSON or 'data').",
         bucket="data",
-        status="planned",
         params=(
             Param("table", required=True),
             Param("data", desc="JSON field values; falls back to stdin"),
@@ -406,7 +401,6 @@ _OPS: tuple[Op, ...] = (
         name="baserow.update",
         summary="Patch an existing row by id (partial update).",
         bucket="data",
-        status="planned",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -421,7 +415,6 @@ _OPS: tuple[Op, ...] = (
         name="baserow.delete",
         summary="Delete a row by id.",
         bucket="data",
-        status="planned",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -433,7 +426,6 @@ _OPS: tuple[Op, ...] = (
         name="baserow.list_fields",
         summary="Get the field schema for a table.",
         bucket="data",
-        status="planned",
         params=(Param("table", required=True),),
         consumes="none",
         output_type="text",
@@ -444,7 +436,6 @@ _OPS: tuple[Op, ...] = (
         name="web.search",
         summary="Search the web via local SearXNG.",
         bucket="web",
-        status="planned",
         params=(
             Param("query", desc="search query; falls back to stdin"),
             Param("categories", default="general", desc="SearXNG category"),
@@ -458,7 +449,6 @@ _OPS: tuple[Op, ...] = (
         name="web.fetch",
         summary="Fetch a web page and return its text.",
         bucket="web",
-        status="planned",
         params=(Param("url", desc="page URL; falls back to stdin"),),
         consumes="one",
         consumes_optional=True,
@@ -469,7 +459,6 @@ _OPS: tuple[Op, ...] = (
         name="stock.search",
         summary="Search stock photos (Pexels / Pixabay).",
         bucket="web",
-        status="planned",
         params=(
             Param("query", desc="search term; falls back to stdin"),
             Param("source", type="enum", default="pexels", choices=("pexels", "pixabay")),
@@ -486,7 +475,6 @@ _OPS: tuple[Op, ...] = (
         name="stock.download",
         summary="Download a stock photo into a store as an image ref.",
         bucket="web",
-        status="planned",
         params=(
             Param("source", type="enum", required=True, choices=("pexels", "pixabay")),
             Param("image_url", required=True, desc="full image URL"),

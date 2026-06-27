@@ -31,18 +31,18 @@ The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by o
 | [`llm.classify`](#llmclassify) | 🟢 wired | llm | `llm` | one | text | text |
 | [`llm.extract`](#llmextract) | 🟢 wired | llm | `llm` | one | text | text |
 | [`llm.translate`](#llmtranslate) | 🟢 wired | llm | `llm` | one | text | text |
-| [`cloud.complete`](#cloudcomplete) | 🟡 planned | cloud | `cloud` | one (opt) | text | text |
-| [`cloud.vision`](#cloudvision) | 🟡 planned | cloud | `cloud` | one | image | text |
-| [`baserow.query`](#baserowquery) | 🟡 planned | data | `baserow` | none | any | text |
-| [`baserow.get`](#baserowget) | 🟡 planned | data | `baserow` | none | any | text |
-| [`baserow.insert`](#baserowinsert) | 🟡 planned | data | `baserow` | one (opt) | text | text |
-| [`baserow.update`](#baserowupdate) | 🟡 planned | data | `baserow` | one (opt) | text | text |
-| [`baserow.delete`](#baserowdelete) | 🟡 planned | data | `baserow` | none | any | text |
-| [`baserow.list_fields`](#baserowlist_fields) | 🟡 planned | data | `baserow` | none | any | text |
-| [`web.search`](#websearch) | 🟡 planned | web | `web` | one (opt) | text | text |
-| [`web.fetch`](#webfetch) | 🟡 planned | web | `web` | one (opt) | text | text |
-| [`stock.search`](#stocksearch) | 🟡 planned | web | `stock` | one (opt) | text | text |
-| [`stock.download`](#stockdownload) | 🟡 planned | web | `stock` | one (opt) | text | image |
+| [`cloud.complete`](#cloudcomplete) | 🟢 wired | cloud | `cloud` | one (opt) | text | text |
+| [`cloud.vision`](#cloudvision) | 🟢 wired | cloud | `cloud` | one | image | text |
+| [`baserow.query`](#baserowquery) | 🟢 wired | data | `baserow` | none | any | text |
+| [`baserow.get`](#baserowget) | 🟢 wired | data | `baserow` | none | any | text |
+| [`baserow.insert`](#baserowinsert) | 🟢 wired | data | `baserow` | one (opt) | text | text |
+| [`baserow.update`](#baserowupdate) | 🟢 wired | data | `baserow` | one (opt) | text | text |
+| [`baserow.delete`](#baserowdelete) | 🟢 wired | data | `baserow` | none | any | text |
+| [`baserow.list_fields`](#baserowlist_fields) | 🟢 wired | data | `baserow` | none | any | text |
+| [`web.search`](#websearch) | 🟢 wired | web | `web` | one (opt) | text | text |
+| [`web.fetch`](#webfetch) | 🟢 wired | web | `web` | one (opt) | text | text |
+| [`stock.search`](#stocksearch) | 🟢 wired | web | `stock` | one (opt) | text | text |
+| [`stock.download`](#stockdownload) | 🟢 wired | web | `stock` | one (opt) | text | image |
 | [`notify`](#notify) | 🟢 wired | delivery | `notify` | one (opt) | any | any |
 
 ## source.file
@@ -310,7 +310,7 @@ Translate the input text to a target language (local qwen).
 
 ## cloud.complete
 
-🟡 **planned** · bucket: `cloud`
+🟢 **wired** · bucket: `cloud`
 
 Text completion via Claude (cloud; peripheral content tasks only).
 
@@ -328,7 +328,7 @@ Text completion via Claude (cloud; peripheral content tasks only).
 
 ## cloud.vision
 
-🟡 **planned** · bucket: `cloud`
+🟢 **wired** · bucket: `cloud`
 
 Describe / analyze an image with an optional question (Claude vision).
 
@@ -343,7 +343,7 @@ Describe / analyze an image with an optional question (Claude vision).
 
 ## baserow.query
 
-🟡 **planned** · bucket: `data`
+🟢 **wired** · bucket: `data`
 
 Query rows from a table with filter/order/pagination.
 
@@ -353,14 +353,14 @@ Query rows from a table with filter/order/pagination.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `table` | string | yes |  | table name |
+| `table` | string | yes |  | table name or numeric id |
 | `filter` | string | no |  | filter expression / JSON |
 | `order_by` | string | no |  | e.g. -created_at |
 | `size` | int | no | `50` | rows per page (max 200) |
 
 ## baserow.get
 
-🟡 **planned** · bucket: `data`
+🟢 **wired** · bucket: `data`
 
 Fetch a single row by id.
 
@@ -375,7 +375,7 @@ Fetch a single row by id.
 
 ## baserow.insert
 
-🟡 **planned** · bucket: `data`
+🟢 **wired** · bucket: `data`
 
 Create a new row (field values from stdin JSON or 'data').
 
@@ -390,7 +390,7 @@ Create a new row (field values from stdin JSON or 'data').
 
 ## baserow.update
 
-🟡 **planned** · bucket: `data`
+🟢 **wired** · bucket: `data`
 
 Patch an existing row by id (partial update).
 
@@ -406,7 +406,7 @@ Patch an existing row by id (partial update).
 
 ## baserow.delete
 
-🟡 **planned** · bucket: `data`
+🟢 **wired** · bucket: `data`
 
 Delete a row by id.
 
@@ -421,7 +421,7 @@ Delete a row by id.
 
 ## baserow.list_fields
 
-🟡 **planned** · bucket: `data`
+🟢 **wired** · bucket: `data`
 
 Get the field schema for a table.
 
@@ -435,7 +435,7 @@ Get the field schema for a table.
 
 ## web.search
 
-🟡 **planned** · bucket: `web`
+🟢 **wired** · bucket: `web`
 
 Search the web via local SearXNG.
 
@@ -450,7 +450,7 @@ Search the web via local SearXNG.
 
 ## web.fetch
 
-🟡 **planned** · bucket: `web`
+🟢 **wired** · bucket: `web`
 
 Fetch a web page and return its text.
 
@@ -464,7 +464,7 @@ Fetch a web page and return its text.
 
 ## stock.search
 
-🟡 **planned** · bucket: `web`
+🟢 **wired** · bucket: `web`
 
 Search stock photos (Pexels / Pixabay).
 
@@ -481,7 +481,7 @@ Search stock photos (Pexels / Pixabay).
 
 ## stock.download
 
-🟡 **planned** · bucket: `web`
+🟢 **wired** · bucket: `web`
 
 Download a stock photo into a store as an image ref.
 

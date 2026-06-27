@@ -23,8 +23,16 @@ from mora02_core.baserow.client import _headers, _url
 log = get_logger("mora02_core.baserow.api")
 
 
-def _table_id(name: str) -> int:
-    """Look up a Baserow table ID by Python-safe table name."""
+def _table_id(name) -> int:
+    """Resolve a table reference to its Baserow table ID.
+
+    Accepts a Python-safe table name (looked up in ``schema.TABLE_IDS``) or a
+    numeric table ID passed directly (int or digit string). The numeric form lets
+    pipelines address any table — including ad-hoc ones not in the schema map —
+    without re-running the installer.
+    """
+    if isinstance(name, int) or (isinstance(name, str) and name.isdigit()):
+        return int(name)
     try:
         return schema.TABLE_IDS[name]
     except KeyError:
