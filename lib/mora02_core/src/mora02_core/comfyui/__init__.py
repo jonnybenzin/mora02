@@ -21,7 +21,7 @@ from mora02_core.comfyui._config import (
     COMFYUI_URL,
     COMFYUI_WORKFLOWS_DIR,
 )
-from mora02_core.comfyui.api import generate_images, generate_video
+from mora02_core.comfyui.api import generate_images, generate_music, generate_video
 from mora02_core.comfyui.builders import (
     FORMATS,
     FORMATS_TEST,
@@ -67,6 +67,7 @@ __all__ = [
     # high-level api
     "generate_images",
     "generate_video",
+    "generate_music",
     # transforms
     "expand_image",
     "upscale_image",

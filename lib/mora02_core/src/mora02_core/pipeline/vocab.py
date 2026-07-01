@@ -94,6 +94,17 @@ _IMAGE_FLOWS = (
     "nanban", "nanban-pro", "gpt-image", "flux-ultra",  # external API
 )
 
+# Valid llama.cpp switch targets for llm.switch. Kept STATIC here on purpose: this
+# vocabulary is the lightweight contract read by the front-ends, the compiler and
+# scripts/vocab.py — it must not pull the llm package (which eagerly imports the
+# anthropic SDK, absent on the host CLI). Keep in sync by hand with the profile
+# catalog in mora02_core/llm/profiles.py::PROFILES — the same deliberate, hand-
+# maintained duplication the host-side switcher whitelist already carries. The
+# handler additionally validates the profile against the live catalog at runtime.
+_LLM_PROFILES = (
+    "qwen3-14b", "qwen3-8b", "qwen25-7b", "qwen25-coder", "nous-hermes", "magistral",
+)
+
 _OPS: tuple[Op, ...] = (
     # ----- HITL / delivery / sources (wired) --------------------------------
     Op(
@@ -503,6 +514,70 @@ _OPS: tuple[Op, ...] = (
         input_type="any",
         output_type="any",  # passthrough
     ),
+    # ----- LLM model switch (local control-plane) --------------------------
+    Op(
+        name="llm.switch",
+        summary="Switch the active local LLM (llama.cpp profile), like the Pilot "
+                "model switcher. Takes ~10-20s; the swap is global and persistent "
+                "across the whole box. Passes stdin through unchanged.",
+        bucket="llm",
+        params=(
+            Param("profile", type="enum", required=True, choices=_LLM_PROFILES,
+                  desc="target llama.cpp profile to load"),
+        ),
+        consumes="one",
+        consumes_optional=True,
+        input_type="any",
+        output_type="any",  # passthrough: emits its stdin unchanged
+    ),
+
+    # ----- Music generation (local, ComfyUI ACE-Step) ----------------------
+    Op(
+        name="music.generate",
+        summary="Generate music/song audio from style tags + optional lyrics via "
+                "ComfyUI ACE-Step 1.5 (local).",
+        bucket="audio",
+        params=(
+            Param("prompt", desc="music style/genre tags; falls back to the stdin value"),
+            Param("lyrics", desc="lyrics text; empty = instrumental"),
+            Param("duration", type="int", default="30", desc="length in seconds"),
+            Param("bpm", type="int", default="120", desc="tempo in beats per minute"),
+            Param("key", default="C major", desc="musical key/scale, e.g. 'C major', 'A minor'"),
+            Param("time_signature", default="4", desc="time signature (beats per bar)"),
+            Param("language", default="en", desc="lyrics language, e.g. en, de"),
+            Param("steps", type="int", default="8", desc="sampler steps (turbo default 8)"),
+            Param("seed", type="int"),
+            Param("cfg_scale", desc="text guidance strength (default 2.0)"),
+            Param("temperature", desc="sampling temperature (default 0.85)"),
+            Param("top_p", desc="nucleus sampling top-p (default 0.9)"),
+            Param("top_k", type="int", desc="top-k sampling (default 0 = off)"),
+            Param("min_p", desc="min-p sampling (default 0.0)"),
+            Param("ref_audio", desc="optional reference-audio ref for timbre transfer"),
+        ),
+        consumes="one",
+        consumes_optional=True,
+        input_type="text",
+        output_type="audio",
+    ),
+
+    # ----- Publishing (external channels) ----------------------------------
+    Op(
+        name="publish.linkedin",
+        summary="Publish an image or text post to LinkedIn (UGC API). Image ref on "
+                "stdin (optional — omit for a text-only post). Returns the post URL.",
+        bucket="publish",
+        params=(
+            Param("text", desc="post caption/body text (often a {\"from\": <llm step>} ref)"),
+            Param("author", desc="author URN urn:li:person:…; falls back to env MORA02_LINKEDIN_AUTHOR"),
+            Param("visibility", type="enum", default="PUBLIC",
+                  choices=("PUBLIC", "CONNECTIONS"), desc="post visibility"),
+        ),
+        consumes="one",
+        consumes_optional=True,
+        input_type="image",
+        output_type="text",  # the post URL
+    ),
+
     # <<< add-vocab: scripts/add-vocab.py inserts new Op() entries above this line >>>
 )
 
@@ -544,12 +619,18 @@ def to_dict() -> dict[str, Any]:
     return {"ops": [op.to_dict() for op in _OPS]}
 
 
-def validate_op(name: str, params: dict[str, Any]) -> None:
+def validate_op(
+    name: str, params: dict[str, Any], *, ref_params: "set[str] | frozenset[str]" = frozenset()
+) -> None:
     """Validate one op invocation against the vocabulary. Raises PipelineError.
 
     Checks: the op exists, every supplied param is known (catches typos), required
     params are present, and enum params hold an allowed value. Stdin/env fallbacks
     mean most params are not hard-required — that is intentional.
+
+    Params supplied as step-output references (a spec value ``{"from": "<id>"}``)
+    pass their NAMES in ``ref_params``: they count as present (satisfy required)
+    but are not enum/value-checked, since their value is only known at run time.
     """
     op = _BY_NAME.get(name)
     if op is None:
@@ -557,14 +638,14 @@ def validate_op(name: str, params: dict[str, Any]) -> None:
         raise PipelineError(f"unknown op {name!r}; known ops: {known}")
 
     known_params = {p.name for p in op.params}
-    for key in params:
+    for key in (*params, *ref_params):
         if key not in known_params:
             allowed = ", ".join(sorted(known_params)) or "(none)"
             raise PipelineError(
                 f"op {name!r}: unknown param {key!r}; allowed: {allowed}"
             )
     for p in op.params:
-        if p.required and p.name not in params:
+        if p.required and p.name not in params and p.name not in ref_params:
             raise PipelineError(f"op {name!r}: missing required param {p.name!r}")
         if p.choices and p.name in params and str(params[p.name]) not in p.choices:
             raise PipelineError(

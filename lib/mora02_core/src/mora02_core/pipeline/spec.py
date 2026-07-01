@@ -42,6 +42,13 @@ step's value holds its query params, plus two reserved control keys:
   - ``in``: wire the input ref explicitly to another step's id (default = the
     previous op step). ``"none"`` suppresses stdin for a pure producer that
     happens to not be first. A list (fan-in) is not yet supported by the target.
+
+A param value may also be a step-output REFERENCE ``{"from": "<step id>"}`` instead
+of a literal: it pulls that earlier step's output into this specific field at run
+time (non-linear fan-in — e.g. ``music.generate`` taking its ``prompt`` from one
+LLM step and its ``lyrics`` from another). The ref must point at an earlier step;
+it compiles to ``__ref_<param>=<id>`` and is resolved from the run bucket in the
+executor (see mora02_core.pipeline.runbucket).
 """
 
 from __future__ import annotations
@@ -64,6 +71,17 @@ STEP_BASE_URL = os.environ.get(
 
 # Reserved keys inside an op step's value dict — everything else is a query param.
 _CONTROL_KEYS = ("id", "in")
+
+
+def _is_ref(value: Any) -> bool:
+    """A param value that references another step's output: ``{"from": "<id>"}``.
+
+    Non-linear data flow: instead of a literal, a param can pull an earlier step's
+    output into a specific field. Kept as a structured object (not a string
+    placeholder) so it never collides with literal text and is trivial for the
+    authoring front-ends to emit. Compiled to ``__ref_<param>=<id>`` and resolved
+    from the run bucket in the executor (see mora02_core.pipeline.runbucket)."""
+    return isinstance(value, dict) and "from" in value
 
 # Default response schema for a bare ``gate`` (a yes/no approval).
 _DEFAULT_GATE_SCHEMA: dict[str, Any] = {
@@ -359,13 +377,27 @@ def compile_to_lobster(
             last_gate_id = step.id
             continue
 
-        validate_op(step.op, step.params)
+        ref_params = {k: v["from"] for k, v in step.params.items() if _is_ref(v)}
+        literal_params = {k: v for k, v in step.params.items() if not _is_ref(v)}
+        validate_op(step.op, literal_params, ref_params=set(ref_params))
         if not is_wired(step.op):
             raise PipelineError(
                 f"op {step.op!r} is in the vocabulary but not implemented yet "
                 "(status: planned) — it cannot be compiled into a runnable pipeline. "
                 "Build its handler first."
             )
+        # A step-output reference must point at an EARLIER-defined step (the bucket
+        # only holds outputs of steps that already ran).
+        for pname, src in ref_params.items():
+            if not isinstance(src, str) or not src:
+                raise PipelineError(
+                    f"step {step.id!r}: param {pname!r} 'from' must be a step id string"
+                )
+            if src not in defined_ids:
+                raise PipelineError(
+                    f"step {step.id!r}: param {pname!r} refers to unknown or later "
+                    f"step id {src!r}"
+                )
         source_id = _resolve_source(step, last_op_id, defined_ids)
         compiled: dict[str, Any] = {"id": step.id}
         if source_id is not None:
@@ -412,8 +444,19 @@ def _build_run(
     run_id: str | None = None,
     step_id: str | None = None,
 ) -> str:
-    """Build the curl command for one op step (params URL-encoded, fmt=out)."""
-    pairs = [f"{quote(str(k), safe='')}={quote(str(v), safe='')}" for k, v in params.items()]
+    """Build the curl command for one op step (params URL-encoded, fmt=out).
+
+    A param whose value is a step-output reference (``{"from": "<id>"}``) is emitted
+    in the reserved ``__ref_<param>=<id>`` namespace — a short placeholder the
+    executor expands from the run bucket before calling the handler (the real, and
+    possibly large, value never travels in the URL).
+    """
+    pairs = []
+    for k, v in params.items():
+        if _is_ref(v):
+            pairs.append(f"__ref_{quote(str(k), safe='')}={quote(str(v['from']), safe='')}")
+        else:
+            pairs.append(f"{quote(str(k), safe='')}={quote(str(v), safe='')}")
     pairs.append("fmt=out")
     if run_id:
         pairs.append(f"run_id={quote(run_id, safe='')}")

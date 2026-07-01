@@ -73,6 +73,19 @@ def extract_video_filenames(history: dict) -> list[str]:
     return filenames
 
 
+def extract_audio_filenames(history: dict) -> list[str]:
+    filenames = []
+    outputs = history.get("outputs", {})
+    for _node_id, node_output in outputs.items():
+        # ComfyUI returns audio outputs under an "audio" list (not "images")
+        for item in node_output.get("audio", []):
+            if item.get("type") == "output":
+                subfolder = item.get("subfolder", "")
+                fname = item["filename"]
+                filenames.append(f"{subfolder}/{fname}" if subfolder else fname)
+    return filenames
+
+
 def extract_error(history: dict) -> Optional[str]:
     """Pull a human-readable failure reason out of a ComfyUI history entry."""
     status = history.get("status", {})

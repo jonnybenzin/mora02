@@ -27,6 +27,7 @@ from mora02_core._common import get_logger
 from mora02_core.baserow import api as baserow_api
 from mora02_core.comfyui import (
     generate_images,
+    generate_music,
     generate_video,
     upscale_image,
     expand_image,
@@ -36,7 +37,8 @@ from mora02_core.llm import complete_qwen, complete_qwen_usage, complete_claude_
 from mora02_core.media import tts as tts_lib
 from mora02_core.media import MediaError, create_clip, create_gif, create_text_frame
 from mora02_core.notify import notify, NotifyError
-from mora02_core.pipeline import run_pipeline, run_pipeline_spec, resume_pipeline, PipelineError, vocab as pipeline_vocab, runlog as pipeline_runlog
+from mora02_core.pipeline import run_pipeline, run_pipeline_spec, resume_pipeline, PipelineError, vocab as pipeline_vocab, runlog as pipeline_runlog, runbucket as pipeline_runbucket
+from mora02_core.publish import post_to_linkedin, LinkedInError
 
 # ============================================================================
 # CONFIG
@@ -875,6 +877,7 @@ from mora02_core.llm import (
     list_profiles as llm_list_profiles,
     profile_names as llm_valid_profile_names,
     submit_switch as llm_submit_switch,
+    switch_profile_blocking as llm_switch_blocking,
 )
 
 
@@ -1441,6 +1444,59 @@ async def _step_video_generate(inputs: List[str], params: dict) -> dict:
             "log": {"seed": result.get("seed"), "flow": result.get("flow")}}
 
 
+async def _step_music_generate(inputs: List[str], params: dict) -> dict:
+    """music.generate — ACE-Step 1.5 tags(+optional lyrics)-to-music -> audio ref.
+
+    Tags come from ?prompt= or stdin; lyrics from ?lyrics= (empty = instrumental).
+    All ACE-Step controls are exposed as params (duration, bpm, key, time_signature,
+    language, steps, seed, cfg_scale, temperature, top_p, top_k, min_p). An optional
+    ref_audio (asset ref) is uploaded to ComfyUI first for reference-timbre transfer.
+    Output lands in the "comfyui" store under the "music/" subfolder — the ref is
+    built from asset.id (which includes that subfolder), like video.generate.
+    """
+    tags = params.get("prompt") or ("\n".join(inputs).strip() if inputs else "")
+    lyrics = params.get("lyrics", "")
+    if not tags and not lyrics:
+        raise ValueError("music.generate needs tags (?prompt= or on stdin) or ?lyrics=")
+
+    ref_audio = params.get("ref_audio")
+    ref_fn = None
+    if ref_audio:
+        ref_fn = (await upload_image_url_to_comfyui(asset_refs.path_for_ref(ref_audio))
+                  if ref_audio.startswith("asset://") else ref_audio)
+
+    def _i(k):
+        return int(params[k]) if params.get(k) else None
+
+    def _f(k):
+        return float(params[k]) if params.get(k) else None
+
+    result = await generate_music(
+        tags,
+        lyrics=lyrics,
+        duration=_i("duration"),
+        bpm=_i("bpm"),
+        steps=_i("steps"),
+        seed=_i("seed"),
+        top_k=_i("top_k"),
+        key=params.get("key"),
+        time_signature=params.get("time_signature"),
+        language=params.get("language"),
+        cfg_scale=_f("cfg_scale"),
+        temperature=_f("temperature"),
+        top_p=_f("top_p"),
+        min_p=_f("min_p"),
+        ref_audio=ref_fn,
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "music.generate produced no audio")
+    out_ref = asset_refs.make_ref("comfyui", assets[0].id)
+    return {"ok": True, "op": "music.generate", "out": out_ref, "type": "audio",
+            "url": asset_refs.url_for_ref(out_ref),
+            "log": {"seed": result.get("seed"), "flow": result.get("flow")}}
+
+
 async def _step_notify_image(inputs: List[str], params: dict) -> dict:
     """notify.image — push an image ref to a chat (Signal) for human review, then
     pass the SAME ref through unchanged so the chain continues.
@@ -1836,6 +1892,82 @@ async def _step_stock_download(inputs: List[str], params: dict) -> dict:
 
 
 # Step registry. Every handler is async (see section header). New ops land here.
+async def _step_llm_switch(inputs: List[str], params: dict) -> dict:
+    """llm.switch — swap the active local LLM (llama.cpp profile), like the Pilot
+    model switcher, then pass stdin through unchanged so the chain continues.
+
+    Reuses the file-mailbox switcher (the same path the Pilot button and
+    POST /llm/switch use): a request file is written, a root host unit performs
+    the docker profile swap, and we block until it reports done (~10-20s). The
+    switch is GLOBAL and persistent — it changes the model for the whole box, not
+    just this pipeline; there is no auto switch-back (place a second llm.switch to
+    restore). Param: profile (required; validated against the catalog here and
+    against the vocab enum at compile time).
+    """
+    profile = params.get("profile")
+    if not profile:
+        raise ValueError("llm.switch needs a profile (?profile=)")
+    if profile not in llm_valid_profile_names():
+        raise ValueError(
+            f"llm.switch: unknown profile {profile!r}; "
+            f"valid: {sorted(llm_valid_profile_names())}"
+        )
+    # switch_profile_blocking polls with time.sleep — run it off the event loop.
+    try:
+        await asyncio.to_thread(llm_switch_blocking, profile, 120.0)
+    except LLMSwitchError as e:
+        raise ValueError(f"llm.switch failed: {e}")
+    # Passthrough: emit exactly what came in so the chain continues.
+    incoming = inputs[0] if inputs else ""
+    return {"ok": True, "op": "llm.switch", "out": incoming, "type": "any"}
+
+
+_LINKEDIN_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                  ".gif": "image/gif", ".webp": "image/webp"}
+
+
+async def _step_publish_linkedin(inputs: List[str], params: dict) -> dict:
+    """publish.linkedin — post an image (from a stdin ref) or text to LinkedIn.
+
+    An asset:// ref on stdin is resolved to its file and posted as an image share;
+    without a ref it is a text-only post. Caption from ?text= (often a
+    {"from": <llm step>} ref). Token + default author come from the environment
+    (MORA02_LINKEDIN_TOKEN / MORA02_LINKEDIN_AUTHOR). Returns the post URL. This has
+    a REAL side effect: it publishes publicly. The AP-flow's gate/Baserow-writeback
+    are composed in the pipeline (review + baserow.update), not baked into this op.
+    """
+    incoming = inputs[0] if inputs else ""
+    image_bytes = None
+    image_mime = "image/png"
+    if incoming.startswith("asset://"):
+        path = asset_refs.resolve_ref(incoming)
+        if not path.is_file():
+            raise ValueError(f"publish.linkedin: image not found for ref {incoming!r}")
+        image_bytes = path.read_bytes()
+        image_mime = _LINKEDIN_MIME.get(path.suffix.lower(), "image/png")
+
+    text = params.get("text") or ("" if incoming.startswith("asset://") else incoming)
+    author = params.get("author") or os.environ.get("MORA02_LINKEDIN_AUTHOR")
+    token = os.environ.get("MORA02_LINKEDIN_TOKEN")
+    if not token:
+        raise ValueError("publish.linkedin needs MORA02_LINKEDIN_TOKEN in the environment")
+    if not author:
+        raise ValueError("publish.linkedin needs an author (?author= or MORA02_LINKEDIN_AUTHOR)")
+    if not text and image_bytes is None:
+        raise ValueError("publish.linkedin needs ?text= or an image ref on stdin")
+
+    try:
+        result = await post_to_linkedin(
+            token=token, author=author, text=text or "",
+            image_bytes=image_bytes, image_mime=image_mime,
+            visibility=params.get("visibility", "PUBLIC"),
+        )
+    except LinkedInError as e:
+        raise ValueError(f"publish.linkedin failed: {e}")
+    return {"ok": True, "op": "publish.linkedin", "out": result["post_url"],
+            "type": "text", "log": {"post_id": result["post_id"]}}
+
+
 _PIPELINE_STEPS = {
     "source.file": _step_source_file,
     "llm.image_prompt": _step_llm_image_prompt,
@@ -1844,16 +1976,19 @@ _PIPELINE_STEPS = {
     "llm.classify": _step_llm_classify,
     "llm.extract": _step_llm_extract,
     "llm.translate": _step_llm_translate,
+    "llm.switch": _step_llm_switch,
     "image.generate": _step_image_generate,
     "image.upscale": _step_image_upscale,
     "image.expand": _step_image_expand,
     "video.generate": _step_video_generate,
     "notify.image": _step_notify_image,
     "notify": _step_notify,
+    "publish.linkedin": _step_publish_linkedin,
     "clip.generate": _step_clip_generate,
     "text.overlay": _step_text_overlay,
     "gif.create": _step_gif_create,
     "tts.speak": _step_tts_speak,
+    "music.generate": _step_music_generate,
     "baserow.query": _step_baserow_query,
     "baserow.get": _step_baserow_get,
     "baserow.insert": _step_baserow_insert,
@@ -1927,6 +2062,21 @@ async def pipeline_step(op: str, request: Request):
     # the handler — pop them so they don't reach the op as stray params.
     run_id = params.pop("run_id", None)
     step_id = params.pop("step_id", op)
+    # Resolve step-output references: a compiled ref param arrives as
+    # __ref_<param>=<source step id>; pull that earlier step's output from the run
+    # bucket into the real param before the handler runs (non-linear fan-in, so a
+    # step can take e.g. its prompt from one prior step and lyrics from another).
+    for key in [k for k in params if k.startswith("__ref_")]:
+        source_id = params.pop(key)
+        pname = key[len("__ref_"):]
+        try:
+            params[pname] = pipeline_runbucket.get(run_id, source_id)
+        except KeyError:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"step {op}: param {pname!r} references step {source_id!r}, "
+                        "which has no output in the run bucket (did it run first?)"),
+            )
     started = time.monotonic()
 
     try:
@@ -1954,6 +2104,9 @@ async def pipeline_step(op: str, request: Request):
         raise HTTPException(status_code=400, detail=f"step {op} failed: {type(e).__name__}: {e}")
 
     out = result.get("out")
+    # Publish this step's output to the run bucket so later steps can pull it into
+    # a specific param via a {"from": "<id>"} reference (non-linear fan-in).
+    pipeline_runbucket.put(run_id, step_id, out)
     # A handler may attach a "log" dict of extra per-step fields (e.g. LLM token
     # usage); merge it into the step event so the run log captures it. Generic on
     # purpose — future ops (image seed/model, …) use the same channel.

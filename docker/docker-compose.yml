@@ -775,7 +775,10 @@ services:
       - KOKORO_URL=http://kokoro-tts:8880
       - PIPER_URL=http://piper-tts:8107
       - CHATTERBOX_URL=http://chatterbox-tts:4123
-
+      - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
+      - MORA02_LINKEDIN_TOKEN=${MORA02_LINKEDIN_TOKEN}
+      - MORA02_LINKEDIN_AUTHOR=${MORA02_LINKEDIN_AUTHOR}
+      
     networks:
       - mora02-net
     healthcheck:

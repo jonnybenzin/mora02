@@ -1,0 +1,11 @@
+[Unit]
+Description=mora02 Scheduled Social-Media Publish (Baserow -> native publish.linkedin)
+After=docker.service network-online.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# Pulls BASEROW_TOKEN (and any override of BASEROW_URL/STEP_RUNNER_URL/SM_TABLE_ID)
+# from the same .env the compose stack uses.
+EnvironmentFile=/opt/mora02/docker/.env
+ExecStart=/usr/bin/python3 /opt/mora02/scripts/system/scheduled-publish.py

@@ -461,6 +461,34 @@
         "steps":    { "node": "6", "field": "steps" },
         "cfg":      { "node": "6", "field": "cfg" }
       }
+    },
+    "ace-music": {
+      "name": "ACE-Step 1.5 (Music)",
+      "file": "ace_music.json",
+      "type": "audio",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": ["music", "ace", "acestep"],
+      "prompt_suffix": "",
+      "negative": "",
+      "node_map": {
+        "tags":            { "node": "6", "field": "tags" },
+        "lyrics":          { "node": "6", "field": "lyrics" },
+        "bpm":             { "node": "6", "field": "bpm" },
+        "key":             { "node": "6", "field": "keyscale" },
+        "time_signature":  { "node": "6", "field": "timesignature" },
+        "language":        { "node": "6", "field": "language" },
+        "cfg_scale":       { "node": "6", "field": "cfg_scale" },
+        "temperature":     { "node": "6", "field": "temperature" },
+        "top_p":           { "node": "6", "field": "top_p" },
+        "top_k":           { "node": "6", "field": "top_k" },
+        "min_p":           { "node": "6", "field": "min_p" },
+        "steps":           { "node": "8", "field": "steps" },
+        "duration_latent": { "node": "5", "field": "seconds" },
+        "duration_text":   { "node": "6", "field": "duration" },
+        "seed_text":       { "node": "6", "field": "seed" },
+        "seed_sampler":    { "node": "8", "field": "seed" }
+      }
     }
   }
 }

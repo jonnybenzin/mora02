@@ -10,8 +10,13 @@ from typing import Optional
 
 from mora02_core._common import get_logger
 from mora02_core.assets import Asset
-from mora02_core.comfyui.builders import build_video_workflow, build_workflow
+from mora02_core.comfyui.builders import (
+    build_music_workflow,
+    build_video_workflow,
+    build_workflow,
+)
 from mora02_core.comfyui.client import (
+    extract_audio_filenames,
     extract_error,
     extract_filenames,
     extract_video_filenames,
@@ -36,6 +41,15 @@ def _video_asset(filename: str) -> Asset:
     return Asset(
         id=filename,
         type="video",
+        path=Path("/output/comfyui-wip") / filename,
+        metadata={"url": f"/comfyui/wip/{filename}"},
+    )
+
+
+def _audio_asset(filename: str) -> Asset:
+    return Asset(
+        id=filename,
+        type="audio",
         path=Path("/output/comfyui-wip") / filename,
         metadata={"url": f"/comfyui/wip/{filename}"},
     )
@@ -192,5 +206,71 @@ async def generate_video(
         "seed": actual_seed,
         "prompt_id": prompt_id,
         "assets": [_video_asset(fname)],
+        "count": 1,
+    }
+
+
+async def generate_music(
+    tags: str,
+    flow: str = "ace-music",
+    lyrics: str = "",
+    seed: Optional[int] = None,
+    duration: Optional[int] = None,
+    steps: Optional[int] = None,
+    bpm: Optional[int] = None,
+    key: Optional[str] = None,
+    time_signature: Optional[str] = None,
+    language: Optional[str] = None,
+    cfg_scale: Optional[float] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    top_k: Optional[int] = None,
+    min_p: Optional[float] = None,
+    ref_audio: Optional[str] = None,
+    *,
+    user_id: str = "default",
+) -> dict:
+    flow = resolve_flow(flow)
+    flow_info = get_flow_info(flow)
+    actual_seed = seed or random.randint(0, 2**31 - 1)
+    _log.info("generate_music user=%s flow=%s seed=%d dur=%s", user_id, flow, actual_seed, duration)
+    workflow = build_music_workflow(
+        tags,
+        flow=flow,
+        lyrics=lyrics,
+        seed=actual_seed,
+        duration=duration,
+        steps=steps,
+        bpm=bpm,
+        key=key,
+        time_signature=time_signature,
+        language=language,
+        cfg_scale=cfg_scale,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        min_p=min_p,
+        ref_audio=ref_audio,
+    )
+    prompt_id = await queue_prompt(workflow, user_id=user_id)
+    history = await poll_completion(prompt_id, timeout=600, user_id=user_id)
+    filenames = extract_audio_filenames(history)
+
+    if not filenames:
+        return {
+            "subtype": "music_result",
+            "assets": [],
+            "error": extract_error(history) or "No audio output found",
+        }
+
+    fname = filenames[0]
+    return {
+        "subtype": "music_result",
+        "tags": tags,
+        "flow": flow,
+        "flow_name": flow_info["name"],
+        "seed": actual_seed,
+        "prompt_id": prompt_id,
+        "assets": [_audio_asset(fname)],
         "count": 1,
     }

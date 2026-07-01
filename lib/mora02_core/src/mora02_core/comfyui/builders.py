@@ -287,3 +287,88 @@ def build_video_workflow(
             node["inputs"]["filename_prefix"] = f"{old}_{ts}"
 
     return wf
+
+
+def build_music_workflow(
+    tags: str,
+    flow: str = "ace-music",
+    lyrics: str = "",
+    seed: Optional[int] = None,
+    duration: Optional[int] = None,
+    steps: Optional[int] = None,
+    bpm: Optional[int] = None,
+    key: Optional[str] = None,
+    time_signature: Optional[str] = None,
+    language: Optional[str] = None,
+    cfg_scale: Optional[float] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    top_k: Optional[int] = None,
+    min_p: Optional[float] = None,
+    ref_audio: Optional[str] = None,
+) -> dict:
+    """Pour music params into the ACE-Step workflow via its node_map.
+
+    Like build_video_workflow, but for the audio graph. Two params fan out to
+    two nodes each — duration feeds both the empty-latent (seconds) and the text
+    encoder (duration), and seed feeds both the text encoder and the sampler —
+    so the registry declares them as *_latent/_text and *_text/_sampler pairs.
+    An optional ref_audio adds the reference-timbre sub-graph and rewires the
+    sampler's positive conditioning to it (mirrors the pilot music route).
+    """
+    flow = resolve_flow(flow)
+    registry = load_registry()
+    flow_config = registry["flows"][flow]
+    node_map = flow_config.get("node_map", {})
+    wf = copy.deepcopy(load_workflow(flow))
+
+    def _patch(logical: str, value) -> None:
+        if value is None or logical not in node_map:
+            return
+        m = node_map[logical]
+        if m["node"] in wf:
+            wf[m["node"]]["inputs"][m["field"]] = value
+
+    _patch("tags", tags)
+    _patch("lyrics", lyrics)
+    _patch("key", key)
+    _patch("language", language)
+    _patch("time_signature", str(time_signature) if time_signature is not None else None)
+    _patch("bpm", int(bpm) if bpm is not None else None)
+    _patch("steps", int(steps) if steps is not None else None)
+    _patch("cfg_scale", float(cfg_scale) if cfg_scale is not None else None)
+    _patch("temperature", float(temperature) if temperature is not None else None)
+    _patch("top_p", float(top_p) if top_p is not None else None)
+    _patch("top_k", int(top_k) if top_k is not None else None)
+    _patch("min_p", float(min_p) if min_p is not None else None)
+
+    # Duration fans out to the latent length and the text encoder.
+    if duration is not None:
+        _patch("duration_latent", int(duration))
+        _patch("duration_text", int(duration))
+
+    # Seed fans out to the text encoder and the sampler (kept identical).
+    actual_seed = seed or random.randint(0, 2**31 - 1)
+    _patch("seed_text", actual_seed)
+    _patch("seed_sampler", actual_seed)
+
+    # Reference timbre: LoadAudio -> VAEEncodeAudio -> ReferenceTimbreAudio, then
+    # point the sampler's positive conditioning at the reference-augmented one.
+    if ref_audio:
+        wf["11"] = {"class_type": "LoadAudio", "inputs": {"audio": ref_audio}}
+        wf["12"] = {"class_type": "VAEEncodeAudio",
+                    "inputs": {"audio": ["11", 0], "vae": ["1", 2]}}
+        wf["13"] = {"class_type": "ReferenceTimbreAudio",
+                    "inputs": {"conditioning": ["6", 0], "latent": ["12", 0]}}
+        if "8" in wf:
+            wf["8"]["inputs"]["positive"] = ["13", 0]
+
+    # Dynamic filename prefix: music/mus_YYMMDD-HHMM
+    ts = datetime.now().strftime("%y%m%d-%H%M")
+    for _nid, node in wf.items():
+        if (node.get("class_type") in ("SaveAudioMP3", "SaveAudio")
+                and "filename_prefix" in node.get("inputs", {})):
+            old = node["inputs"]["filename_prefix"]
+            node["inputs"]["filename_prefix"] = f"{old}_{ts}"
+
+    return wf

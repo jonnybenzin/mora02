@@ -44,6 +44,8 @@ The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by o
 | [`stock.search`](#stocksearch) | 🟢 wired | web | `stock` | one (opt) | text | text |
 | [`stock.download`](#stockdownload) | 🟢 wired | web | `stock` | one (opt) | text | image |
 | [`notify`](#notify) | 🟢 wired | delivery | `notify` | one (opt) | any | any |
+| [`llm.switch`](#llmswitch) | 🟢 wired | llm | `llm` | one (opt) | any | any |
+| [`music.generate`](#musicgenerate) | 🟢 wired | audio | `music` | one (opt) | text | audio |
 
 ## source.file
 
@@ -512,4 +514,46 @@ Send the previous step's output (type-aware) to a channel, no pause; pass it thr
 | `message` | string | no |  | optional caption / text body |
 | `title` | string | no |  | optional title prepended to message |
 | `link` | string | no |  | optional link appended to message |
+
+## llm.switch
+
+🟢 **wired** · bucket: `llm`
+
+Switch the active local LLM (llama.cpp profile), like the Pilot model switcher. Takes ~10-20s; the swap is global and persistent across the whole box. Passes stdin through unchanged.
+
+- **Default step id:** `llm`  
+- **Consumes (stdin):** one (optional) (any)  
+- **Emits (stdout):** any
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `profile` | enum | yes |  | target llama.cpp profile to load (one of: qwen3-14b, qwen3-8b, qwen25-7b, qwen25-coder, nous-hermes, magistral) |
+
+## music.generate
+
+🟢 **wired** · bucket: `audio`
+
+Generate music/song audio from style tags + optional lyrics via ComfyUI ACE-Step 1.5 (local).
+
+- **Default step id:** `music`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** audio
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | string | no |  | music style/genre tags; falls back to the stdin value |
+| `lyrics` | string | no |  | lyrics text; empty = instrumental |
+| `duration` | int | no | `30` | length in seconds |
+| `bpm` | int | no | `120` | tempo in beats per minute |
+| `key` | string | no | `C major` | musical key/scale, e.g. 'C major', 'A minor' |
+| `time_signature` | string | no | `4` | time signature (beats per bar) |
+| `language` | string | no | `en` | lyrics language, e.g. en, de |
+| `steps` | int | no | `8` | sampler steps (turbo default 8) |
+| `seed` | int | no |  |  |
+| `cfg_scale` | string | no |  | text guidance strength (default 2.0) |
+| `temperature` | string | no |  | sampling temperature (default 0.85) |
+| `top_p` | string | no |  | nucleus sampling top-p (default 0.9) |
+| `top_k` | int | no |  | top-k sampling (default 0 = off) |
+| `min_p` | string | no |  | min-p sampling (default 0.0) |
+| `ref_audio` | string | no |  | optional reference-audio ref for timbre transfer |
 

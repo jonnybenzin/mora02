@@ -1,0 +1,9 @@
+[Unit]
+Description=mora02 Scheduled Publish — alle 15 Minuten Baserow auf faellige 'ready'-Posts pruefen
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
