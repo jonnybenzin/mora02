@@ -2,7 +2,7 @@
 
 > Generated from `mora02_core.pipeline.vocab` by `scripts/gen-pipeline-vocab-doc.py`. Do not edit by hand — edit the registry and regenerate.
 
-The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by op name; the compiler validates each against this vocabulary and emits a Lobster workflow. Step outputs are named refs — by default a step's id is the text before the first dot (`image.generate` → `image`), and a step reads the previous op step's output unless `in:` overrides it.
+The step *ops* a mora02 pipeline is built from, grouped by kind. Each op has a plain-language line (what it does) and the technical contract (what it reads/emits, its parameters). A pipeline spec lists steps by op name; the compiler validates each against this vocabulary and emits a Lobster workflow. Step outputs are named refs — by default a step's id is the text before the first dot (`image.generate` → `image`), and a step reads the previous step's output unless `in:` overrides it.
 
 **Status:** 🟢 `wired` = runnable today · 🟡 `planned` = capability exists (lib/endpoint) but no pipeline handler yet; the compiler refuses to build a pipeline that uses it until it is wired.
 
@@ -11,50 +11,111 @@ The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by o
 - **`gate`** 🟢 — a pure human pause: `- gate: "Approve?"`. Resumes with a yes/no decision; nothing is sent.
 - **`review`** 🟢 — human-in-the-loop with delivery: `- review: "Approve?"` sends the previous step's output to a human *type-aware* (image/video/audio/text, inferred from the prior op's output) **and** pauses for approval. Compiles to a `notify` sub-step + an input gate; supersedes the manual `notify.image` + `gate` pattern.
 
-## Ops by bucket
+## At a glance
 
-| Op | Status | Bucket | Default id | Consumes | Input | Output |
-|----|--------|--------|-----------|----------|-------|--------|
-| [`source.file`](#sourcefile) | 🟢 wired | source | `source` | none | any | image |
-| [`notify.image`](#notifyimage) | 🟢 wired | delivery | `notify` | one | image | image |
-| [`image.generate`](#imagegenerate) | 🟢 wired | visual | `image` | one (opt) | text | image |
-| [`image.upscale`](#imageupscale) | 🟢 wired | visual | `image` | one | image | image |
-| [`image.expand`](#imageexpand) | 🟢 wired | visual | `image` | one | image | image |
-| [`video.generate`](#videogenerate) | 🟢 wired | visual | `video` | one (opt) | any | video |
-| [`video.last_frame`](#videolast_frame) | 🟢 wired | visual | `video` | one | video | image |
-| [`clip.generate`](#clipgenerate) | 🟢 wired | media | `clip` | many | any | video |
-| [`text.overlay`](#textoverlay) | 🟢 wired | media | `text` | one (opt) | text | image |
-| [`gif.create`](#gifcreate) | 🟢 wired | media | `gif` | many | image | video |
-| [`tts.speak`](#ttsspeak) | 🟢 wired | audio | `tts` | one (opt) | text | audio |
-| [`llm.image_prompt`](#llmimage_prompt) | 🟢 wired | llm | `llm` | one (opt) | text | text |
-| [`llm.complete`](#llmcomplete) | 🟢 wired | llm | `llm` | one (opt) | text | text |
-| [`llm.summarize`](#llmsummarize) | 🟢 wired | llm | `llm` | one | text | text |
-| [`llm.classify`](#llmclassify) | 🟢 wired | llm | `llm` | one | text | text |
-| [`llm.extract`](#llmextract) | 🟢 wired | llm | `llm` | one | text | text |
-| [`llm.translate`](#llmtranslate) | 🟢 wired | llm | `llm` | one | text | text |
-| [`cloud.complete`](#cloudcomplete) | 🟢 wired | cloud | `cloud` | one (opt) | text | text |
-| [`cloud.vision`](#cloudvision) | 🟢 wired | cloud | `cloud` | one | image | text |
-| [`baserow.query`](#baserowquery) | 🟢 wired | data | `baserow` | none | any | text |
-| [`baserow.get`](#baserowget) | 🟢 wired | data | `baserow` | none | any | text |
-| [`baserow.insert`](#baserowinsert) | 🟢 wired | data | `baserow` | one (opt) | text | text |
-| [`baserow.update`](#baserowupdate) | 🟢 wired | data | `baserow` | one (opt) | text | text |
-| [`baserow.delete`](#baserowdelete) | 🟢 wired | data | `baserow` | none | any | text |
-| [`baserow.list_fields`](#baserowlist_fields) | 🟢 wired | data | `baserow` | none | any | text |
-| [`web.search`](#websearch) | 🟢 wired | web | `web` | one (opt) | text | text |
-| [`web.fetch`](#webfetch) | 🟢 wired | web | `web` | one (opt) | text | text |
-| [`stock.search`](#stocksearch) | 🟢 wired | web | `stock` | one (opt) | text | text |
-| [`stock.download`](#stockdownload) | 🟢 wired | web | `stock` | one (opt) | text | image |
-| [`notify`](#notify) | 🟢 wired | delivery | `notify` | one (opt) | any | any |
-| [`llm.switch`](#llmswitch) | 🟢 wired | llm | `llm` | one (opt) | any | any |
-| [`music.generate`](#musicgenerate) | 🟢 wired | audio | `music` | one (opt) | text | audio |
-| [`publish.linkedin`](#publishlinkedin) | 🟢 wired | publish | `publish` | one (opt) | image | text |
-| [`pixeltext.render`](#pixeltextrender) | 🟢 wired | visual | `pixeltext` | one (opt) | text | video |
+### Sources
 
-## source.file
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`source.file`](#sourcefile) | Grabs a file that already exists (e.g. the latest image ComfyUI made) and hands it to the next step. | 🟢 |
 
-🟢 **wired** · bucket: `source`
+### Image generation
 
-Bring an existing file from a store into the pipeline as a ref.
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`image.generate`](#imagegenerate) | Makes a brand-new picture from a text description. | 🟢 |
+| [`image.upscale`](#imageupscale) | Enlarges a picture and sharpens it, without making it blurry. | 🟢 |
+| [`image.expand`](#imageexpand) | Extends a picture beyond its edges, inventing more scenery around it (outpainting). | 🟢 |
+
+### Video
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`video.generate`](#videogenerate) | Turns a prompt (or a still image) into a short moving video clip. | 🟢 |
+| [`video.last_frame`](#videolast_frame) | Grabs the final still frame of a video, handy to keep a scene going into the next clip. | 🟢 |
+
+### 3D text (Blender / PixelText)
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`pixeltext.render`](#pixeltextrender) | Renders your word(s) as chunky 3D pixel-cube typography, as a short animated video. | 🟢 |
+
+### Media finishing
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`clip.generate`](#clipgenerate) | Stitches several videos together into one clip, optionally laying a music track over it. | 🟢 |
+| [`text.overlay`](#textoverlay) | Writes text onto a colored background as a simple image card. | 🟢 |
+| [`gif.create`](#gifcreate) | Turns several images into one looping animated GIF. | 🟢 |
+
+### Audio
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`tts.speak`](#ttsspeak) | Reads text out loud and saves it as an audio file (text-to-speech). | 🟢 |
+| [`music.generate`](#musicgenerate) | Composes an original piece of music from a description (mood, tempo, optional lyrics). | 🟢 |
+
+### Local LLM
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`llm.image_prompt`](#llmimage_prompt) | Takes a short idea and expands it into a rich, detailed prompt for image generation. | 🟢 |
+| [`llm.complete`](#llmcomplete) | Asks the local AI to write or answer something freely. | 🟢 |
+| [`llm.summarize`](#llmsummarize) | Shortens a long text down to its key points. | 🟢 |
+| [`llm.classify`](#llmclassify) | Sorts a text into one of a set of labels you provide. | 🟢 |
+| [`llm.extract`](#llmextract) | Pulls specific facts (e.g. name, date, price) out of a text. | 🟢 |
+| [`llm.translate`](#llmtranslate) | Translates text into another language. | 🟢 |
+| [`llm.switch`](#llmswitch) | Swaps which local AI model is running (a bigger or smaller brain), then continues the chain. | 🟢 |
+
+### Cloud LLM
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`cloud.complete`](#cloudcomplete) | Asks a cloud AI (Claude) to write or answer something, for the few tasks the local model can't handle. | 🟢 |
+| [`cloud.vision`](#cloudvision) | Shows a cloud AI (Claude) an image and asks it to describe or analyze it. | 🟢 |
+
+### Baserow (data)
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`baserow.query`](#baserowquery) | Looks up rows in a Baserow table that match a filter. | 🟢 |
+| [`baserow.get`](#baserowget) | Fetches one specific row from a Baserow table by its id. | 🟢 |
+| [`baserow.insert`](#baserowinsert) | Adds a new row to a Baserow table. | 🟢 |
+| [`baserow.update`](#baserowupdate) | Changes fields on an existing Baserow row. | 🟢 |
+| [`baserow.delete`](#baserowdelete) | Removes a row from a Baserow table. | 🟢 |
+| [`baserow.list_fields`](#baserowlist_fields) | Lists the columns (fields) a Baserow table has. | 🟢 |
+
+### Web & stock
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`web.search`](#websearch) | Searches the web (via your local SearXNG) and returns the hits. | 🟢 |
+| [`web.fetch`](#webfetch) | Downloads a web page and strips it down to plain readable text. | 🟢 |
+| [`stock.search`](#stocksearch) | Searches stock-photo sites (Pexels/Pixabay) for pictures matching a query. | 🟢 |
+| [`stock.download`](#stockdownload) | Downloads a chosen stock photo into your library so later steps can use it. | 🟢 |
+
+### Publishing
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`publish.linkedin`](#publishlinkedin) | Posts text (and optionally an image) to LinkedIn and returns the post link. | 🟢 |
+
+### Delivery / notify
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`notify.image`](#notifyimage) | Sends an image to your phone chat so you can look at it, then passes it along unchanged. | 🟢 |
+| [`notify`](#notify) | Sends the previous step's result (image/video/text) to a chat without pausing, just a heads-up. | 🟢 |
+
+## Reference
+
+### Sources
+
+#### `source.file` 🟢
+
+Grabs a file that already exists (e.g. the latest image ComfyUI made) and hands it to the next step.
+
+*Technical:* Bring an existing file from a store into the pipeline as a ref.
 
 - **Default step id:** `source`  
 - **Consumes (stdin):** none (any)  
@@ -66,27 +127,13 @@ Bring an existing file from a store into the pipeline as a ref.
 | `name` | string | no |  | exact filename; omit to auto-pick from the store |
 | `pick` | enum | no | `latest` | which file to pick when 'name' is omitted (by mtime) (one of: latest, oldest) |
 
-## notify.image
+### Image generation
 
-🟢 **wired** · bucket: `delivery`
+#### `image.generate` 🟢
 
-(superseded by 'notify') Send an image ref to a chat for review, pass it through.
+Makes a brand-new picture from a text description.
 
-- **Default step id:** `notify`  
-- **Consumes (stdin):** one (image)  
-- **Emits (stdout):** image
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `target` | string | no |  | E.164 recipient; falls back to env MORA02_SIGNAL_TARGET |
-| `channel` | string | no | `signal` | notify channel |
-| `message` | string | no |  | optional caption sent with the image |
-
-## image.generate
-
-🟢 **wired** · bucket: `visual`
-
-Generate an image from a prompt via ComfyUI (9 selectable flows).
+*Technical:* Generate an image from a prompt via ComfyUI (9 selectable flows).
 
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (optional) (text)  
@@ -100,11 +147,11 @@ Generate an image from a prompt via ComfyUI (9 selectable flows).
 | `batch_size` | int | no |  | number of images to generate |
 | `testrun` | bool | no |  | set '1' for a fast low-quality test run |
 
-## image.upscale
+#### `image.upscale` 🟢
 
-🟢 **wired** · bucket: `visual`
+Enlarges a picture and sharpens it, without making it blurry.
 
-Upscale an image (hybrid SDXL-Tile + UltraSharp).
+*Technical:* Upscale an image (hybrid SDXL-Tile + UltraSharp).
 
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (image)  
@@ -117,11 +164,11 @@ Upscale an image (hybrid SDXL-Tile + UltraSharp).
 | `denoise` | string | no |  | refinement denoise 0.05–0.5 (default 0.2) |
 | `seed` | int | no |  |  |
 
-## image.expand
+#### `image.expand` 🟢
 
-🟢 **wired** · bucket: `visual`
+Extends a picture beyond its edges, inventing more scenery around it (outpainting).
 
-Outpaint / expand an image to a larger canvas (FLUX).
+*Technical:* Outpaint / expand an image to a larger canvas (FLUX).
 
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (image)  
@@ -134,11 +181,13 @@ Outpaint / expand an image to a larger canvas (FLUX).
 | `feathering` | string | no |  | edge blend amount |
 | `seed` | int | no |  |  |
 
-## video.generate
+### Video
 
-🟢 **wired** · bucket: `visual`
+#### `video.generate` 🟢
 
-Generate video via WAN 2.2 — text-to-video, image-to-video, or start+end frames.
+Turns a prompt (or a still image) into a short moving video clip.
+
+*Technical:* Generate video via WAN 2.2 — text-to-video, image-to-video, or start+end frames.
 
 - **Default step id:** `video`  
 - **Consumes (stdin):** one (optional) (any)  
@@ -154,11 +203,11 @@ Generate video via WAN 2.2 — text-to-video, image-to-video, or start+end frame
 | `fps` | int | no |  | frames per second 8–60 |
 | `seed` | int | no |  |  |
 
-## video.last_frame
+#### `video.last_frame` 🟢
 
-🟢 **wired** · bucket: `visual`
+Grabs the final still frame of a video, handy to keep a scene going into the next clip.
 
-Extract the last frame of a video as an image ref — chains i2v videos (each new video starts from the previous one's final frame).
+*Technical:* Extract the last frame of a video as an image ref — chains i2v videos (each new video starts from the previous one's final frame).
 
 - **Default step id:** `video`  
 - **Consumes (stdin):** one (video)  
@@ -168,11 +217,38 @@ Extract the last frame of a video as an image ref — chains i2v videos (each ne
 |-------|------|----------|---------|-------------|
 | `position` | enum | no | `last` | which frame to grab (one of: last, first) |
 
-## clip.generate
+### 3D text (Blender / PixelText)
 
-🟢 **wired** · bucket: `media`
+#### `pixeltext.render` 🟢
 
-Assemble one or more image/video refs into a single MP4 (Ken-Burns).
+Renders your word(s) as chunky 3D pixel-cube typography, as a short animated video.
+
+*Technical:* Render a 3D pixel-cube text/word animation via the Blender PixelText worker (GPU). Text on stdin or ?text=. Returns an MP4 (or PNG) asset ref.
+
+- **Default step id:** `pixeltext`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** video
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `text` | string | no |  | the word(s) to render; falls back to stdin. In multi mode, split on '/' into a word sequence |
+| `mode` | enum | no | `single` | single word, or a multi-word transition sequence (split text on '/'). multi animates on its own; single is static unless an effect_* below is on (one of: single, multi) |
+| `template` | enum | no | `` | Blender .blend template (empty = worker procedural default) (one of: , default.blend, test3.blend, test4.blend, test5.blend) |
+| `render_format` | enum | no | `MP4` | animated MP4 or single-frame PNG (one of: MP4, PNG) |
+| `cube_color` | string | no | `#FFFFFF` | pixel cube color (hex) |
+| `bg_color` | string | no | `#000000` | background color (hex) |
+| `duration` | int | no | `5` | seconds (single mode / per-word hold) |
+| `effect_pulse` | bool | no | `False` | single mode: pulse cube size — adds motion |
+| `effect_float` | bool | no | `False` | single mode: bob/float the cubes — adds motion |
+| `effect_shuffle` | bool | no | `False` | single mode: random blink in/out loop — adds motion |
+
+### Media finishing
+
+#### `clip.generate` 🟢
+
+Stitches several videos together into one clip, optionally laying a music track over it.
+
+*Technical:* Assemble one or more image/video refs into a single MP4 (Ken-Burns).
 
 - **Default step id:** `clip`  
 - **Consumes (stdin):** many (any)  
@@ -186,11 +262,11 @@ Assemble one or more image/video refs into a single MP4 (Ken-Burns).
 | `animation` | enum | no | `pan` | motion style (one of: pan, zoom_in, zoom_out, none) |
 | `soundtrack` | string | no |  | optional audio ref to lay over the clip as its music track (handler support planned) |
 
-## text.overlay
+#### `text.overlay` 🟢
 
-🟢 **wired** · bucket: `media`
+Writes text onto a colored background as a simple image card.
 
-Render multi-line text onto a flat-color background as a PNG.
+*Technical:* Render multi-line text onto a flat-color background as a PNG.
 
 - **Default step id:** `text`  
 - **Consumes (stdin):** one (optional) (text)  
@@ -205,11 +281,11 @@ Render multi-line text onto a flat-color background as a PNG.
 | `fontsize` | string | no | `medium` | small|medium|large or px |
 | `layout` | enum | no | `left` |  (one of: left, centered) |
 
-## gif.create
+#### `gif.create` 🟢
 
-🟢 **wired** · bucket: `media`
+Turns several images into one looping animated GIF.
 
-Animate multiple images into an animated GIF.
+*Technical:* Animate multiple images into an animated GIF.
 
 - **Default step id:** `gif`  
 - **Consumes (stdin):** many (image)  
@@ -221,11 +297,13 @@ Animate multiple images into an animated GIF.
 | `quality` | enum | no | `medium` |  (one of: low, medium, high, ultra) |
 | `size` | string | no |  | output WxH or width-only |
 
-## tts.speak
+### Audio
 
-🟢 **wired** · bucket: `audio`
+#### `tts.speak` 🟢
 
-Synthesize speech audio from text (piper/kokoro/chatterbox).
+Reads text out loud and saves it as an audio file (text-to-speech).
+
+*Technical:* Synthesize speech audio from text (piper/kokoro/chatterbox).
 
 - **Default step id:** `tts`  
 - **Consumes (stdin):** one (optional) (text)  
@@ -240,318 +318,11 @@ Synthesize speech audio from text (piper/kokoro/chatterbox).
 | `engine` | enum | no | `auto` |  (one of: auto, piper, kokoro, chatterbox) |
 | `speed` | string | no |  | rate multiplier (default 1.0) |
 
-## llm.image_prompt
+#### `music.generate` 🟢
 
-🟢 **wired** · bucket: `llm`
+Composes an original piece of music from a description (mood, tempo, optional lyrics).
 
-Expand a short subject into one rich text-to-image prompt (local qwen).
-
-- **Default step id:** `llm`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `subject` | string | no |  | the subject; falls back to the stdin value if omitted |
-
-## llm.complete
-
-🟢 **wired** · bucket: `llm`
-
-Free-form text completion (local qwen).
-
-- **Default step id:** `llm`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `prompt` | string | no |  | user prompt; falls back to stdin |
-| `system` | string | no |  | system prompt |
-| `temperature` | string | no |  | sampling temperature (default 0.7) |
-| `max_tokens` | int | no |  | max output tokens (default 512) |
-
-## llm.summarize
-
-🟢 **wired** · bucket: `llm`
-
-Summarize the input text (local qwen, thin wrapper over llm.complete).
-
-- **Default step id:** `llm`  
-- **Consumes (stdin):** one (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `max_tokens` | int | no |  | summary length budget |
-
-## llm.classify
-
-🟢 **wired** · bucket: `llm`
-
-Classify the input text into one of the given labels (local qwen).
-
-- **Default step id:** `llm`  
-- **Consumes (stdin):** one (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `labels` | string | yes |  | comma-separated candidate labels |
-
-## llm.extract
-
-🟢 **wired** · bucket: `llm`
-
-Extract structured fields from the input text as JSON (local qwen).
-
-- **Default step id:** `llm`  
-- **Consumes (stdin):** one (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `fields` | string | yes |  | comma-separated fields to extract |
-
-## llm.translate
-
-🟢 **wired** · bucket: `llm`
-
-Translate the input text to a target language (local qwen).
-
-- **Default step id:** `llm`  
-- **Consumes (stdin):** one (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `to` | string | yes |  | target language, e.g. de, en |
-| `from` | string | no |  | source language; auto-detect if omitted |
-
-## cloud.complete
-
-🟢 **wired** · bucket: `cloud`
-
-Text completion via Claude (cloud; peripheral content tasks only).
-
-- **Default step id:** `cloud`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `prompt` | string | no |  | user prompt; falls back to stdin |
-| `system` | string | no |  | system prompt |
-| `model` | enum | no | `sonnet` |  (one of: haiku, sonnet, opus) |
-| `temperature` | string | no |  | sampling temperature (default 0.7) |
-| `max_tokens` | int | no |  |  |
-
-## cloud.vision
-
-🟢 **wired** · bucket: `cloud`
-
-Describe / analyze an image with an optional question (Claude vision).
-
-- **Default step id:** `cloud`  
-- **Consumes (stdin):** one (image)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `query` | string | no |  | what to ask about the image |
-| `model` | enum | no | `haiku` |  (one of: haiku, sonnet, opus) |
-
-## baserow.query
-
-🟢 **wired** · bucket: `data`
-
-Query rows from a table with filter/order/pagination.
-
-- **Default step id:** `baserow`  
-- **Consumes (stdin):** none (any)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `table` | string | yes |  | table name or numeric id |
-| `filter` | string | no |  | filter expression / JSON |
-| `order_by` | string | no |  | e.g. -created_at |
-| `size` | int | no | `50` | rows per page (max 200) |
-
-## baserow.get
-
-🟢 **wired** · bucket: `data`
-
-Fetch a single row by id.
-
-- **Default step id:** `baserow`  
-- **Consumes (stdin):** none (any)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `table` | string | yes |  |  |
-| `row_id` | int | yes |  |  |
-
-## baserow.insert
-
-🟢 **wired** · bucket: `data`
-
-Create a new row (field values from stdin JSON or 'data').
-
-- **Default step id:** `baserow`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `table` | string | yes |  |  |
-| `data` | string | no |  | JSON field values; falls back to stdin |
-
-## baserow.update
-
-🟢 **wired** · bucket: `data`
-
-Patch an existing row by id (partial update).
-
-- **Default step id:** `baserow`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `table` | string | yes |  |  |
-| `row_id` | int | yes |  |  |
-| `data` | string | no |  | JSON field values; falls back to stdin |
-
-## baserow.delete
-
-🟢 **wired** · bucket: `data`
-
-Delete a row by id.
-
-- **Default step id:** `baserow`  
-- **Consumes (stdin):** none (any)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `table` | string | yes |  |  |
-| `row_id` | int | yes |  |  |
-
-## baserow.list_fields
-
-🟢 **wired** · bucket: `data`
-
-Get the field schema for a table.
-
-- **Default step id:** `baserow`  
-- **Consumes (stdin):** none (any)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `table` | string | yes |  |  |
-
-## web.search
-
-🟢 **wired** · bucket: `web`
-
-Search the web via local SearXNG.
-
-- **Default step id:** `web`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `query` | string | no |  | search query; falls back to stdin |
-| `categories` | string | no | `general` | SearXNG category |
-
-## web.fetch
-
-🟢 **wired** · bucket: `web`
-
-Fetch a web page and return its text.
-
-- **Default step id:** `web`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `url` | string | no |  | page URL; falls back to stdin |
-
-## stock.search
-
-🟢 **wired** · bucket: `web`
-
-Search stock photos (Pexels / Pixabay).
-
-- **Default step id:** `stock`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** text
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `query` | string | no |  | search term; falls back to stdin |
-| `source` | enum | no | `pexels` |  (one of: pexels, pixabay) |
-| `count` | int | no | `5` |  |
-| `orientation` | enum | no | `landscape` |  (one of: landscape, portrait, square) |
-
-## stock.download
-
-🟢 **wired** · bucket: `web`
-
-Download a stock photo into a store as an image ref.
-
-- **Default step id:** `stock`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** image
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `source` | enum | yes |  |  (one of: pexels, pixabay) |
-| `image_url` | string | yes |  | full image URL |
-| `image_id` | string | no |  | stock API image id |
-
-## notify
-
-🟢 **wired** · bucket: `delivery`
-
-Send the previous step's output (type-aware) to a channel, no pause; pass it through.
-
-- **Default step id:** `notify`  
-- **Consumes (stdin):** one (optional) (any)  
-- **Emits (stdout):** any
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `channel` | string | no | `signal` | notify channel |
-| `target` | string | no |  | recipient; falls back to env MORA02_SIGNAL_TARGET |
-| `message` | string | no |  | optional caption / text body |
-| `title` | string | no |  | optional title prepended to message |
-| `link` | string | no |  | optional link appended to message |
-
-## llm.switch
-
-🟢 **wired** · bucket: `llm`
-
-Switch the active local LLM (llama.cpp profile), like the Pilot model switcher. Takes ~10-20s; the swap is global and persistent across the whole box. Passes stdin through unchanged.
-
-- **Default step id:** `llm`  
-- **Consumes (stdin):** one (optional) (any)  
-- **Emits (stdout):** any
-
-| Param | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `profile` | enum | yes |  | target llama.cpp profile to load (one of: qwen3-14b, qwen3-8b, qwen25-7b, qwen25-coder, nous-hermes, magistral) |
-
-## music.generate
-
-🟢 **wired** · bucket: `audio`
-
-Generate music/song audio from style tags + optional lyrics via ComfyUI ACE-Step 1.5 (local).
+*Technical:* Generate music/song audio from style tags + optional lyrics via ComfyUI ACE-Step 1.5 (local).
 
 - **Default step id:** `music`  
 - **Consumes (stdin):** one (optional) (text)  
@@ -575,11 +346,310 @@ Generate music/song audio from style tags + optional lyrics via ComfyUI ACE-Step
 | `min_p` | string | no |  | min-p sampling (default 0.0) |
 | `ref_audio` | string | no |  | optional reference-audio ref for timbre transfer |
 
-## publish.linkedin
+### Local LLM
 
-🟢 **wired** · bucket: `publish`
+#### `llm.image_prompt` 🟢
 
-Publish an image or text post to LinkedIn (UGC API). Image ref on stdin (optional — omit for a text-only post). Returns the post URL.
+Takes a short idea and expands it into a rich, detailed prompt for image generation.
+
+*Technical:* Expand a short subject into one rich text-to-image prompt (local qwen).
+
+- **Default step id:** `llm`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `subject` | string | no |  | the subject; falls back to the stdin value if omitted |
+
+#### `llm.complete` 🟢
+
+Asks the local AI to write or answer something freely.
+
+*Technical:* Free-form text completion (local qwen).
+
+- **Default step id:** `llm`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | string | no |  | user prompt; falls back to stdin |
+| `system` | string | no |  | system prompt |
+| `temperature` | string | no |  | sampling temperature (default 0.7) |
+| `max_tokens` | int | no |  | max output tokens (default 512) |
+
+#### `llm.summarize` 🟢
+
+Shortens a long text down to its key points.
+
+*Technical:* Summarize the input text (local qwen, thin wrapper over llm.complete).
+
+- **Default step id:** `llm`  
+- **Consumes (stdin):** one (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `max_tokens` | int | no |  | summary length budget |
+
+#### `llm.classify` 🟢
+
+Sorts a text into one of a set of labels you provide.
+
+*Technical:* Classify the input text into one of the given labels (local qwen).
+
+- **Default step id:** `llm`  
+- **Consumes (stdin):** one (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `labels` | string | yes |  | comma-separated candidate labels |
+
+#### `llm.extract` 🟢
+
+Pulls specific facts (e.g. name, date, price) out of a text.
+
+*Technical:* Extract structured fields from the input text as JSON (local qwen).
+
+- **Default step id:** `llm`  
+- **Consumes (stdin):** one (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `fields` | string | yes |  | comma-separated fields to extract |
+
+#### `llm.translate` 🟢
+
+Translates text into another language.
+
+*Technical:* Translate the input text to a target language (local qwen).
+
+- **Default step id:** `llm`  
+- **Consumes (stdin):** one (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `to` | string | yes |  | target language, e.g. de, en |
+| `from` | string | no |  | source language; auto-detect if omitted |
+
+#### `llm.switch` 🟢
+
+Swaps which local AI model is running (a bigger or smaller brain), then continues the chain.
+
+*Technical:* Switch the active local LLM (llama.cpp profile), like the Pilot model switcher. Takes ~10-20s; the swap is global and persistent across the whole box. Passes stdin through unchanged.
+
+- **Default step id:** `llm`  
+- **Consumes (stdin):** one (optional) (any)  
+- **Emits (stdout):** any
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `profile` | enum | yes |  | target llama.cpp profile to load (one of: qwen3-14b, qwen3-8b, qwen25-7b, qwen25-coder, nous-hermes, magistral) |
+
+### Cloud LLM
+
+#### `cloud.complete` 🟢
+
+Asks a cloud AI (Claude) to write or answer something, for the few tasks the local model can't handle.
+
+*Technical:* Text completion via Claude (cloud; peripheral content tasks only).
+
+- **Default step id:** `cloud`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | string | no |  | user prompt; falls back to stdin |
+| `system` | string | no |  | system prompt |
+| `model` | enum | no | `sonnet` |  (one of: haiku, sonnet, opus) |
+| `temperature` | string | no |  | sampling temperature (default 0.7) |
+| `max_tokens` | int | no |  |  |
+
+#### `cloud.vision` 🟢
+
+Shows a cloud AI (Claude) an image and asks it to describe or analyze it.
+
+*Technical:* Describe / analyze an image with an optional question (Claude vision).
+
+- **Default step id:** `cloud`  
+- **Consumes (stdin):** one (image)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `query` | string | no |  | what to ask about the image |
+| `model` | enum | no | `haiku` |  (one of: haiku, sonnet, opus) |
+
+### Baserow (data)
+
+#### `baserow.query` 🟢
+
+Looks up rows in a Baserow table that match a filter.
+
+*Technical:* Query rows from a table with filter/order/pagination.
+
+- **Default step id:** `baserow`  
+- **Consumes (stdin):** none (any)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `table` | string | yes |  | table name or numeric id |
+| `filter` | string | no |  | filter expression / JSON |
+| `order_by` | string | no |  | e.g. -created_at |
+| `size` | int | no | `50` | rows per page (max 200) |
+
+#### `baserow.get` 🟢
+
+Fetches one specific row from a Baserow table by its id.
+
+*Technical:* Fetch a single row by id.
+
+- **Default step id:** `baserow`  
+- **Consumes (stdin):** none (any)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `table` | string | yes |  |  |
+| `row_id` | int | yes |  |  |
+
+#### `baserow.insert` 🟢
+
+Adds a new row to a Baserow table.
+
+*Technical:* Create a new row (field values from stdin JSON or 'data').
+
+- **Default step id:** `baserow`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `table` | string | yes |  |  |
+| `data` | string | no |  | JSON field values; falls back to stdin |
+
+#### `baserow.update` 🟢
+
+Changes fields on an existing Baserow row.
+
+*Technical:* Patch an existing row by id (partial update).
+
+- **Default step id:** `baserow`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `table` | string | yes |  |  |
+| `row_id` | int | yes |  |  |
+| `data` | string | no |  | JSON field values; falls back to stdin |
+
+#### `baserow.delete` 🟢
+
+Removes a row from a Baserow table.
+
+*Technical:* Delete a row by id.
+
+- **Default step id:** `baserow`  
+- **Consumes (stdin):** none (any)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `table` | string | yes |  |  |
+| `row_id` | int | yes |  |  |
+
+#### `baserow.list_fields` 🟢
+
+Lists the columns (fields) a Baserow table has.
+
+*Technical:* Get the field schema for a table.
+
+- **Default step id:** `baserow`  
+- **Consumes (stdin):** none (any)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `table` | string | yes |  |  |
+
+### Web & stock
+
+#### `web.search` 🟢
+
+Searches the web (via your local SearXNG) and returns the hits.
+
+*Technical:* Search the web via local SearXNG.
+
+- **Default step id:** `web`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `query` | string | no |  | search query; falls back to stdin |
+| `categories` | string | no | `general` | SearXNG category |
+
+#### `web.fetch` 🟢
+
+Downloads a web page and strips it down to plain readable text.
+
+*Technical:* Fetch a web page and return its text.
+
+- **Default step id:** `web`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `url` | string | no |  | page URL; falls back to stdin |
+
+#### `stock.search` 🟢
+
+Searches stock-photo sites (Pexels/Pixabay) for pictures matching a query.
+
+*Technical:* Search stock photos (Pexels / Pixabay).
+
+- **Default step id:** `stock`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `query` | string | no |  | search term; falls back to stdin |
+| `source` | enum | no | `pexels` |  (one of: pexels, pixabay) |
+| `count` | int | no | `5` |  |
+| `orientation` | enum | no | `landscape` |  (one of: landscape, portrait, square) |
+
+#### `stock.download` 🟢
+
+Downloads a chosen stock photo into your library so later steps can use it.
+
+*Technical:* Download a stock photo into a store as an image ref.
+
+- **Default step id:** `stock`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** image
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `source` | enum | yes |  |  (one of: pexels, pixabay) |
+| `image_url` | string | yes |  | full image URL |
+| `image_id` | string | no |  | stock API image id |
+
+### Publishing
+
+#### `publish.linkedin` 🟢
+
+Posts text (and optionally an image) to LinkedIn and returns the post link.
+
+*Technical:* Publish an image or text post to LinkedIn (UGC API). Image ref on stdin (optional — omit for a text-only post). Returns the post URL.
 
 - **Default step id:** `publish`  
 - **Consumes (stdin):** one (optional) (image)  
@@ -591,26 +661,39 @@ Publish an image or text post to LinkedIn (UGC API). Image ref on stdin (optiona
 | `author` | string | no |  | author URN urn:li:person:…; falls back to env MORA02_LINKEDIN_AUTHOR |
 | `visibility` | enum | no | `PUBLIC` | post visibility (one of: PUBLIC, CONNECTIONS) |
 
-## pixeltext.render
+### Delivery / notify
 
-🟢 **wired** · bucket: `visual`
+#### `notify.image` 🟢
 
-Render a 3D pixel-cube text/word animation via the Blender PixelText worker (GPU). Text on stdin or ?text=. Returns an MP4 (or PNG) asset ref.
+Sends an image to your phone chat so you can look at it, then passes it along unchanged.
 
-- **Default step id:** `pixeltext`  
-- **Consumes (stdin):** one (optional) (text)  
-- **Emits (stdout):** video
+*Technical:* (superseded by 'notify') Send an image ref to a chat for review, pass it through.
+
+- **Default step id:** `notify`  
+- **Consumes (stdin):** one (image)  
+- **Emits (stdout):** image
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `text` | string | no |  | the word(s) to render; falls back to stdin. In multi mode, split on '/' into a word sequence |
-| `mode` | enum | no | `single` | single word, or a multi-word transition sequence (split text on '/'). multi animates on its own; single is static unless an effect_* below is on (one of: single, multi) |
-| `template` | enum | no | `` | Blender .blend template (empty = worker procedural default) (one of: , default.blend, test3.blend, test4.blend, test5.blend) |
-| `render_format` | enum | no | `MP4` | animated MP4 or single-frame PNG (one of: MP4, PNG) |
-| `cube_color` | string | no | `#FFFFFF` | pixel cube color (hex) |
-| `bg_color` | string | no | `#000000` | background color (hex) |
-| `duration` | int | no | `5` | seconds (single mode / per-word hold) |
-| `effect_pulse` | bool | no | `False` | single mode: pulse cube size — adds motion |
-| `effect_float` | bool | no | `False` | single mode: bob/float the cubes — adds motion |
-| `effect_shuffle` | bool | no | `False` | single mode: random blink in/out loop — adds motion |
+| `target` | string | no |  | E.164 recipient; falls back to env MORA02_SIGNAL_TARGET |
+| `channel` | string | no | `signal` | notify channel |
+| `message` | string | no |  | optional caption sent with the image |
+
+#### `notify` 🟢
+
+Sends the previous step's result (image/video/text) to a chat without pausing, just a heads-up.
+
+*Technical:* Send the previous step's output (type-aware) to a channel, no pause; pass it through.
+
+- **Default step id:** `notify`  
+- **Consumes (stdin):** one (optional) (any)  
+- **Emits (stdout):** any
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `channel` | string | no | `signal` | notify channel |
+| `target` | string | no |  | recipient; falls back to env MORA02_SIGNAL_TARGET |
+| `message` | string | no |  | optional caption / text body |
+| `title` | string | no |  | optional title prepended to message |
+| `link` | string | no |  | optional link appended to message |
 

@@ -52,6 +52,9 @@ class Op:
 
     name: str
     summary: str
+    # A jargon-free one-liner of what the op does, for the human-readable doc
+    # (docs/pipeline-vocabulary.md). The technical `summary` stays for engineers.
+    plain: str = ""
     params: tuple[Param, ...] = ()
     consumes: Consumes = "none"  # how many input refs/values it reads on stdin
     consumes_optional: bool = False  # stdin may be absent (value also from a param)
@@ -124,6 +127,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="source.file",
         summary="Bring an existing file from a store into the pipeline as a ref.",
+        plain="Grabs a file that already exists (e.g. the latest image ComfyUI made) and hands it to the next step.",
         bucket="source",
         params=(
             Param("store", default="comfyui", desc="logical store to read from"),
@@ -137,6 +141,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="notify.image",
         summary="(superseded by 'notify') Send an image ref to a chat for review, pass it through.",
+        plain="Sends an image to your phone chat so you can look at it, then passes it along unchanged.",
         bucket="delivery",
         params=(
             Param("target", desc="E.164 recipient; falls back to env MORA02_SIGNAL_TARGET"),
@@ -152,7 +157,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="image.generate",
         summary="Generate an image from a prompt via ComfyUI (9 selectable flows).",
-        bucket="visual",
+        plain="Makes a brand-new picture from a text description.",
+        bucket="image",
         params=(
             Param("prompt", desc="prompt text; falls back to the stdin value if omitted"),
             Param("flow", type="enum", default="photo", choices=_IMAGE_FLOWS,
@@ -169,7 +175,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="image.upscale",
         summary="Upscale an image (hybrid SDXL-Tile + UltraSharp).",
-        bucket="visual",
+        plain="Enlarges a picture and sharpens it, without making it blurry.",
+        bucket="image",
         params=(
             Param("factor", type="int", default="2", desc="scale factor 1.5–4.0"),
             Param("prompt", desc="optional guidance prompt"),
@@ -183,7 +190,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="image.expand",
         summary="Outpaint / expand an image to a larger canvas (FLUX).",
-        bucket="visual",
+        plain="Extends a picture beyond its edges, inventing more scenery around it (outpainting).",
+        bucket="image",
         params=(
             Param("prompt", desc="what to paint into the new area"),
             Param("target_size", type="int", default="1920", desc="target long edge in px"),
@@ -197,7 +205,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="video.generate",
         summary="Generate video via WAN 2.2 — text-to-video, image-to-video, or start+end frames.",
-        bucket="visual",
+        plain="Turns a prompt (or a still image) into a short moving video clip.",
+        bucket="video",
         params=(
             Param("prompt", desc="prompt; falls back to stdin"),
             Param("mode", type="enum", default="t2v", choices=("t2v", "i2v", "i2i2v"),
@@ -217,7 +226,8 @@ _OPS: tuple[Op, ...] = (
         name="video.last_frame",
         summary="Extract the last frame of a video as an image ref — chains i2v videos "
                 "(each new video starts from the previous one's final frame).",
-        bucket="visual",
+        plain="Grabs the final still frame of a video, handy to keep a scene going into the next clip.",
+        bucket="video",
         params=(
             Param("position", type="enum", default="last", choices=("last", "first"),
                   desc="which frame to grab", advanced=True),
@@ -231,6 +241,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="clip.generate",
         summary="Assemble one or more image/video refs into a single MP4 (Ken-Burns).",
+        plain="Stitches several videos together into one clip, optionally laying a music track over it.",
         bucket="media",
         params=(
             Param("name", desc="output filename; auto-generated if omitted", advanced=True),
@@ -248,6 +259,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="text.overlay",
         summary="Render multi-line text onto a flat-color background as a PNG.",
+        plain="Writes text onto a colored background as a simple image card.",
         bucket="media",
         params=(
             Param("text", desc="the text; falls back to stdin"),
@@ -267,6 +279,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="gif.create",
         summary="Animate multiple images into an animated GIF.",
+        plain="Turns several images into one looping animated GIF.",
         bucket="media",
         params=(
             Param("durations", default="1", desc="per-frame seconds (single or comma list)"),
@@ -281,6 +294,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="tts.speak",
         summary="Synthesize speech audio from text (piper/kokoro/chatterbox).",
+        plain="Reads text out loud and saves it as an audio file (text-to-speech).",
         bucket="audio",
         params=(
             Param("text", desc="text to speak; falls back to stdin"),
@@ -301,6 +315,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="llm.image_prompt",
         summary="Expand a short subject into one rich text-to-image prompt (local qwen).",
+        plain="Takes a short idea and expands it into a rich, detailed prompt for image generation.",
         bucket="llm",
         params=(
             Param("subject", desc="the subject; falls back to the stdin value if omitted"),
@@ -313,6 +328,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="llm.complete",
         summary="Free-form text completion (local qwen).",
+        plain="Asks the local AI to write or answer something freely.",
         bucket="llm",
         params=(
             Param("prompt", desc="user prompt; falls back to stdin"),
@@ -328,6 +344,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="llm.summarize",
         summary="Summarize the input text (local qwen, thin wrapper over llm.complete).",
+        plain="Shortens a long text down to its key points.",
         bucket="llm",
         params=(Param("max_tokens", type="int", desc="summary length budget"),),
         consumes="one",
@@ -337,6 +354,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="llm.classify",
         summary="Classify the input text into one of the given labels (local qwen).",
+        plain="Sorts a text into one of a set of labels you provide.",
         bucket="llm",
         params=(
             Param("labels", required=True, desc="comma-separated candidate labels"),
@@ -348,6 +366,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="llm.extract",
         summary="Extract structured fields from the input text as JSON (local qwen).",
+        plain="Pulls specific facts (e.g. name, date, price) out of a text.",
         bucket="llm",
         params=(
             Param("fields", required=True, desc="comma-separated fields to extract"),
@@ -359,6 +378,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="llm.translate",
         summary="Translate the input text to a target language (local qwen).",
+        plain="Translates text into another language.",
         bucket="llm",
         params=(
             Param("to", required=True, desc="target language, e.g. de, en"),
@@ -373,6 +393,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="cloud.complete",
         summary="Text completion via Claude (cloud; peripheral content tasks only).",
+        plain="Asks a cloud AI (Claude) to write or answer something, for the few tasks the local model can't handle.",
         bucket="cloud",
         params=(
             Param("prompt", desc="user prompt; falls back to stdin"),
@@ -389,6 +410,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="cloud.vision",
         summary="Describe / analyze an image with an optional question (Claude vision).",
+        plain="Shows a cloud AI (Claude) an image and asks it to describe or analyze it.",
         bucket="cloud",
         params=(
             Param("query", desc="what to ask about the image"),
@@ -403,7 +425,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="baserow.query",
         summary="Query rows from a table with filter/order/pagination.",
-        bucket="data",
+        plain="Looks up rows in a Baserow table that match a filter.",
+        bucket="baserow",
         params=(
             Param("table", required=True, desc="table name or numeric id"),
             Param("filter", desc="filter expression / JSON"),
@@ -416,7 +439,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="baserow.get",
         summary="Fetch a single row by id.",
-        bucket="data",
+        plain="Fetches one specific row from a Baserow table by its id.",
+        bucket="baserow",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -427,7 +451,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="baserow.insert",
         summary="Create a new row (field values from stdin JSON or 'data').",
-        bucket="data",
+        plain="Adds a new row to a Baserow table.",
+        bucket="baserow",
         params=(
             Param("table", required=True),
             Param("data", desc="JSON field values; falls back to stdin"),
@@ -440,7 +465,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="baserow.update",
         summary="Patch an existing row by id (partial update).",
-        bucket="data",
+        plain="Changes fields on an existing Baserow row.",
+        bucket="baserow",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -454,7 +480,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="baserow.delete",
         summary="Delete a row by id.",
-        bucket="data",
+        plain="Removes a row from a Baserow table.",
+        bucket="baserow",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -465,7 +492,8 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="baserow.list_fields",
         summary="Get the field schema for a table.",
-        bucket="data",
+        plain="Lists the columns (fields) a Baserow table has.",
+        bucket="baserow",
         params=(Param("table", required=True),),
         consumes="none",
         output_type="text",
@@ -475,6 +503,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="web.search",
         summary="Search the web via local SearXNG.",
+        plain="Searches the web (via your local SearXNG) and returns the hits.",
         bucket="web",
         params=(
             Param("query", desc="search query; falls back to stdin"),
@@ -488,6 +517,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="web.fetch",
         summary="Fetch a web page and return its text.",
+        plain="Downloads a web page and strips it down to plain readable text.",
         bucket="web",
         params=(Param("url", desc="page URL; falls back to stdin"),),
         consumes="one",
@@ -498,6 +528,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="stock.search",
         summary="Search stock photos (Pexels / Pixabay).",
+        plain="Searches stock-photo sites (Pexels/Pixabay) for pictures matching a query.",
         bucket="web",
         params=(
             Param("query", desc="search term; falls back to stdin"),
@@ -514,6 +545,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="stock.download",
         summary="Download a stock photo into a store as an image ref.",
+        plain="Downloads a chosen stock photo into your library so later steps can use it.",
         bucket="web",
         params=(
             Param("source", type="enum", required=True, choices=("pexels", "pixabay")),
@@ -530,6 +562,7 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="notify",
         summary="Send the previous step's output (type-aware) to a channel, no pause; pass it through.",
+        plain="Sends the previous step's result (image/video/text) to a chat without pausing, just a heads-up.",
         bucket="delivery",
         params=(
             Param("channel", default="signal", desc="notify channel"),
@@ -549,6 +582,7 @@ _OPS: tuple[Op, ...] = (
         summary="Switch the active local LLM (llama.cpp profile), like the Pilot "
                 "model switcher. Takes ~10-20s; the swap is global and persistent "
                 "across the whole box. Passes stdin through unchanged.",
+        plain="Swaps which local AI model is running (a bigger or smaller brain), then continues the chain.",
         bucket="llm",
         params=(
             Param("profile", type="enum", required=True, choices=_LLM_PROFILES,
@@ -565,6 +599,7 @@ _OPS: tuple[Op, ...] = (
         name="music.generate",
         summary="Generate music/song audio from style tags + optional lyrics via "
                 "ComfyUI ACE-Step 1.5 (local).",
+        plain="Composes an original piece of music from a description (mood, tempo, optional lyrics).",
         bucket="audio",
         params=(
             Param("prompt", desc="music style/genre tags; falls back to the stdin value"),
@@ -594,6 +629,7 @@ _OPS: tuple[Op, ...] = (
         name="publish.linkedin",
         summary="Publish an image or text post to LinkedIn (UGC API). Image ref on "
                 "stdin (optional — omit for a text-only post). Returns the post URL.",
+        plain="Posts text (and optionally an image) to LinkedIn and returns the post link.",
         bucket="publish",
         params=(
             Param("text", desc="post caption/body text (often a {\"from\": <llm step>} ref)"),
@@ -613,7 +649,8 @@ _OPS: tuple[Op, ...] = (
         summary="Render a 3D pixel-cube text/word animation via the Blender "
                 "PixelText worker (GPU). Text on stdin or ?text=. Returns an "
                 "MP4 (or PNG) asset ref.",
-        bucket="visual",
+        plain="Renders your word(s) as chunky 3D pixel-cube typography, as a short animated video.",
+        bucket="blender",
         params=(
             Param("text", desc="the word(s) to render; falls back to stdin. In "
                   "multi mode, split on '/' into a word sequence"),
