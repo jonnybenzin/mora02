@@ -766,6 +766,8 @@ services:
       # pipelines
       - /opt/mora02/volumes/openclaw/workspace:/data/openclaw/workspace
       - /opt/mora02/pipelines:/data/pipelines
+      # blender
+      - /opt/mora02/output/_default/pixeltext:/pixeltext-out:ro
 
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}
