@@ -48,6 +48,7 @@ The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by o
 | [`llm.switch`](#llmswitch) | 🟢 wired | llm | `llm` | one (opt) | any | any |
 | [`music.generate`](#musicgenerate) | 🟢 wired | audio | `music` | one (opt) | text | audio |
 | [`publish.linkedin`](#publishlinkedin) | 🟢 wired | publish | `publish` | one (opt) | image | text |
+| [`pixeltext.render`](#pixeltextrender) | 🟢 wired | visual | `pixeltext` | one (opt) | text | video |
 
 ## source.file
 
@@ -589,4 +590,24 @@ Publish an image or text post to LinkedIn (UGC API). Image ref on stdin (optiona
 | `text` | string | no |  | post caption/body text (often a {"from": <llm step>} ref) |
 | `author` | string | no |  | author URN urn:li:person:…; falls back to env MORA02_LINKEDIN_AUTHOR |
 | `visibility` | enum | no | `PUBLIC` | post visibility (one of: PUBLIC, CONNECTIONS) |
+
+## pixeltext.render
+
+🟢 **wired** · bucket: `visual`
+
+Render a 3D pixel-cube text/word animation via the Blender PixelText worker (GPU). Text on stdin or ?text=. Returns an MP4 (or PNG) asset ref.
+
+- **Default step id:** `pixeltext`  
+- **Consumes (stdin):** one (optional) (text)  
+- **Emits (stdout):** video
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `text` | string | no |  | the word(s) to render; falls back to stdin. In multi mode, split on '/' into a word sequence |
+| `mode` | enum | no | `single` | single word, or a multi-word transition sequence (one of: single, multi) |
+| `template` | string | no |  | Blender .blend template name (see the PixelText page); empty = worker default |
+| `render_format` | enum | no | `MP4` | animated MP4 or single-frame PNG (one of: MP4, PNG) |
+| `cube_color` | string | no | `#FFFFFF` | pixel cube color (hex) |
+| `bg_color` | string | no | `#000000` | background color (hex) |
+| `duration` | int | no | `5` | seconds (single mode / per-word hold) |
 

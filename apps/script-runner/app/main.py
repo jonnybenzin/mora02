@@ -2162,6 +2162,68 @@ async def _step_publish_linkedin(inputs: List[str], params: dict) -> dict:
             "type": "text", "log": {"post_id": result["post_id"]}}
 
 
+# PixelText 3D typography. Unlike the other media ops (which call a mora02_core
+# lib), this one POSTs to the standalone blender-worker service (GPU render),
+# mirroring the reference caller apps/pilot/bot_bridge.py::call_pixeltext.
+BLENDER_WORKER_URL = "http://blender-worker:8097"
+
+
+async def _step_pixeltext_render(inputs: List[str], params: dict) -> dict:
+    """pixeltext.render — 3D pixel-cube text animation via the Blender worker.
+
+    Text from ?text= or stdin. In multi mode the text is split on '/' into a word
+    sequence. Slim param surface (mode/template/format/colors/duration); all other
+    look knobs fall back to the worker's template defaults. Returns an MP4 (or PNG)
+    ref in the 'pixeltext' store (files land under <job_id>/<file>).
+    """
+    text = (params.get("text") or "\n".join(inputs)).strip()
+    if not text:
+        raise ValueError("pixeltext.render needs text (?text= or on stdin)")
+    mode = params.get("mode", "single")
+    if mode == "multi":
+        words = [w.strip().upper() for w in text.split("/") if w.strip()]
+    else:
+        words = [text.upper()]
+    if not words:
+        raise ValueError("pixeltext.render got no renderable words")
+
+    config = {
+        "mode": mode,
+        "words": words,
+        "text": words[0] if mode == "single" else "",
+        "render_format": params.get("render_format", "MP4"),
+    }
+    if params.get("template"):
+        config["template"] = params["template"]
+    if params.get("cube_color"):
+        config["cube_color"] = params["cube_color"]
+    if params.get("bg_color"):
+        config["bg_color"] = params["bg_color"]
+    if params.get("duration"):
+        config["single_duration_sec"] = int(params["duration"])
+
+    async with httpx.AsyncClient(timeout=900.0) as client:
+        resp = await client.post(
+            f"{BLENDER_WORKER_URL}/render",
+            files={"config": (None, json.dumps(config))},
+        )
+    data = resp.json()
+    if not data.get("success"):
+        # VRAM guard (503) and Blender render errors both arrive as success=false.
+        raise ValueError(f"pixeltext render failed: {str(data.get('error', 'unknown'))[:500]}")
+    files_out = data.get("files") or []
+    if not files_out:
+        raise ValueError("pixeltext render produced no output files")
+
+    job_id = data["job_id"]
+    out_ref = asset_refs.make_ref("pixeltext", f"{job_id}/{files_out[0]}")
+    out_type = "image" if files_out[0].lower().endswith(".png") else "video"
+    return {"ok": True, "op": "pixeltext.render", "out": out_ref, "type": out_type,
+            "url": asset_refs.url_for_ref(out_ref),
+            "log": {"job_id": job_id, "mode": mode, "words": words,
+                    "render_time_sec": data.get("render_time_sec")}}
+
+
 _PIPELINE_STEPS = {
     "source.file": _step_source_file,
     "llm.image_prompt": _step_llm_image_prompt,
@@ -2184,6 +2246,7 @@ _PIPELINE_STEPS = {
     "gif.create": _step_gif_create,
     "tts.speak": _step_tts_speak,
     "music.generate": _step_music_generate,
+    "pixeltext.render": _step_pixeltext_render,
     "baserow.query": _step_baserow_query,
     "baserow.get": _step_baserow_get,
     "baserow.insert": _step_baserow_insert,

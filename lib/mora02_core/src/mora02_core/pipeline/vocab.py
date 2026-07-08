@@ -597,6 +597,33 @@ _OPS: tuple[Op, ...] = (
         output_type="text",  # the post URL
     ),
 
+    # ----- 3D typography (Blender PixelText worker) ------------------------
+    Op(
+        name="pixeltext.render",
+        summary="Render a 3D pixel-cube text/word animation via the Blender "
+                "PixelText worker (GPU). Text on stdin or ?text=. Returns an "
+                "MP4 (or PNG) asset ref.",
+        bucket="visual",
+        params=(
+            Param("text", desc="the word(s) to render; falls back to stdin. In "
+                  "multi mode, split on '/' into a word sequence"),
+            Param("mode", type="enum", default="single", choices=("single", "multi"),
+                  desc="single word, or a multi-word transition sequence"),
+            Param("template", desc="Blender .blend template name (see the PixelText "
+                  "page); empty = worker default"),
+            Param("render_format", type="enum", default="MP4", choices=("MP4", "PNG"),
+                  desc="animated MP4 or single-frame PNG"),
+            Param("cube_color", default="#FFFFFF", desc="pixel cube color (hex)"),
+            Param("bg_color", default="#000000", desc="background color (hex)"),
+            Param("duration", type="int", default=5,
+                  desc="seconds (single mode / per-word hold)", advanced=True),
+        ),
+        consumes="one",
+        consumes_optional=True,
+        input_type="text",
+        output_type="video",
+    ),
+
     # <<< add-vocab: scripts/add-vocab.py inserts new Op() entries above this line >>>
 )
 
