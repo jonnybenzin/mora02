@@ -2201,6 +2201,11 @@ async def _step_pixeltext_render(inputs: List[str], params: dict) -> dict:
         config["bg_color"] = params["bg_color"]
     if params.get("duration"):
         config["single_duration_sec"] = int(params["duration"])
+    # Single-mode motion toggles (bool params arrive as strings). Without one of
+    # these a single word renders motionless; multi mode animates on its own.
+    for eff in ("effect_pulse", "effect_float", "effect_shuffle"):
+        if params.get(eff) is not None:
+            config[eff] = str(params[eff]).strip().lower() in ("1", "true", "on", "yes")
 
     async with httpx.AsyncClient(timeout=900.0) as client:
         resp = await client.post(

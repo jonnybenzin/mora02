@@ -109,6 +109,17 @@ _LLM_PROFILES = (
     "qwen3-14b", "qwen3-8b", "qwen25-7b", "qwen25-coder", "nous-hermes", "magistral",
 )
 
+# PixelText .blend templates for pixeltext.render (empty = worker procedural
+# default). Mirrors the files in apps/blender-worker/templates/*.blend — the same
+# list the PixelText UI page fetches from the worker's GET /templates. Kept static
+# here (that app is not on the pip path / not importable); keep in sync by hand
+# when templates are added or removed. The worker joins the value onto its
+# template dir, so a stale name simply surfaces a clear render error.
+_PIXELTEXT_TEMPLATES = (
+    "", "default.blend", "bulle.blend",
+    "test2.blend", "test3.blend", "test4.blend", "test5.blend",
+)
+
 _OPS: tuple[Op, ...] = (
     # ----- HITL / delivery / sources (wired) --------------------------------
     Op(
@@ -608,15 +619,25 @@ _OPS: tuple[Op, ...] = (
             Param("text", desc="the word(s) to render; falls back to stdin. In "
                   "multi mode, split on '/' into a word sequence"),
             Param("mode", type="enum", default="single", choices=("single", "multi"),
-                  desc="single word, or a multi-word transition sequence"),
-            Param("template", desc="Blender .blend template name (see the PixelText "
-                  "page); empty = worker default"),
+                  desc="single word, or a multi-word transition sequence (split "
+                  "text on '/'). multi animates on its own; single is static "
+                  "unless an effect_* below is on"),
+            Param("template", type="enum", default="", choices=_PIXELTEXT_TEMPLATES,
+                  desc="Blender .blend template (empty = worker procedural default)"),
             Param("render_format", type="enum", default="MP4", choices=("MP4", "PNG"),
                   desc="animated MP4 or single-frame PNG"),
             Param("cube_color", default="#FFFFFF", desc="pixel cube color (hex)"),
             Param("bg_color", default="#000000", desc="background color (hex)"),
             Param("duration", type="int", default=5,
                   desc="seconds (single mode / per-word hold)", advanced=True),
+            # Single-mode motion: without one of these, a single word renders as a
+            # motionless clip. multi mode animates via word transitions regardless.
+            Param("effect_pulse", type="bool", default=False,
+                  desc="single mode: pulse cube size — adds motion", advanced=True),
+            Param("effect_float", type="bool", default=False,
+                  desc="single mode: bob/float the cubes — adds motion", advanced=True),
+            Param("effect_shuffle", type="bool", default=False,
+                  desc="single mode: random blink in/out loop — adds motion", advanced=True),
         ),
         consumes="one",
         consumes_optional=True,

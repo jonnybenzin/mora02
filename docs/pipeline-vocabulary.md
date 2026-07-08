@@ -604,10 +604,13 @@ Render a 3D pixel-cube text/word animation via the Blender PixelText worker (GPU
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `text` | string | no |  | the word(s) to render; falls back to stdin. In multi mode, split on '/' into a word sequence |
-| `mode` | enum | no | `single` | single word, or a multi-word transition sequence (one of: single, multi) |
-| `template` | string | no |  | Blender .blend template name (see the PixelText page); empty = worker default |
+| `mode` | enum | no | `single` | single word, or a multi-word transition sequence (split text on '/'). multi animates on its own; single is static unless an effect_* below is on (one of: single, multi) |
+| `template` | enum | no | `` | Blender .blend template (empty = worker procedural default) (one of: , default.blend, bulle.blend, test2.blend, test3.blend, test4.blend, test5.blend) |
 | `render_format` | enum | no | `MP4` | animated MP4 or single-frame PNG (one of: MP4, PNG) |
 | `cube_color` | string | no | `#FFFFFF` | pixel cube color (hex) |
 | `bg_color` | string | no | `#000000` | background color (hex) |
 | `duration` | int | no | `5` | seconds (single mode / per-word hold) |
+| `effect_pulse` | bool | no | `False` | single mode: pulse cube size — adds motion |
+| `effect_float` | bool | no | `False` | single mode: bob/float the cubes — adds motion |
+| `effect_shuffle` | bool | no | `False` | single mode: random blink in/out loop — adds motion |
 
