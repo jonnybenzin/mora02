@@ -313,7 +313,7 @@ Reads text out loud and saves it as an audio file (text-to-speech).
 |-------|------|----------|---------|-------------|
 | `text` | string | no |  | text to speak; falls back to stdin |
 | `language` | string | no | `en` | e.g. en, de |
-| `voice` | string | no |  | voice id; default per language |
+| `voice` | enum | no | `` | named voice (en=kokoro af_*/am_*, de=piper thorsten/kerstin); empty = auto by language (one of: , af_bella, af_nova, am_adam, am_michael, thorsten, thorsten_emotional, kerstin) |
 | `format` | enum | no | `wav` |  (one of: wav, mp3) |
 | `engine` | enum | no | `auto` |  (one of: auto, piper, kokoro, chatterbox) |
 | `speed` | string | no |  | rate multiplier (default 1.0) |

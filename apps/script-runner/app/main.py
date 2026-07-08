@@ -1866,7 +1866,7 @@ async def _step_tts_speak(inputs: List[str], params: dict) -> dict:
     asset = await asyncio.to_thread(
         tts_lib.generate, text,
         language=params.get("language", "en"),
-        voice=params.get("voice"),
+        voice=params.get("voice") or None,  # empty enum choice -> auto by language
         format=params.get("format", "wav"),
         engine_pref=params.get("engine", "auto"),
         speed=float(params["speed"]) if params.get("speed") else 1.0,

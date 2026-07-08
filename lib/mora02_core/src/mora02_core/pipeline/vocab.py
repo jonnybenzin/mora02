@@ -122,6 +122,17 @@ _PIXELTEXT_TEMPLATES = (
     "", "default.blend", "test3.blend", "test4.blend", "test5.blend",
 )
 
+# Named TTS voices for tts.speak (empty = auto by language). Mirrors the VOICES
+# catalog in mora02_core/media/tts.py (kokoro EN + piper DE) — kept static here so
+# this SDK-free vocabulary need not import the tts module; keep in sync by hand.
+# Chatterbox cloned voices are dynamic (managed in the Pilot TTS studio) and are
+# addressed separately, so they are not enumerated here.
+_TTS_VOICES = (
+    "",                                              # auto by language
+    "af_bella", "af_nova", "am_adam", "am_michael",  # en / kokoro
+    "thorsten", "thorsten_emotional", "kerstin",     # de / piper
+)
+
 _OPS: tuple[Op, ...] = (
     # ----- HITL / delivery / sources (wired) --------------------------------
     Op(
@@ -299,7 +310,9 @@ _OPS: tuple[Op, ...] = (
         params=(
             Param("text", desc="text to speak; falls back to stdin"),
             Param("language", default="en", desc="e.g. en, de"),
-            Param("voice", desc="voice id; default per language"),
+            Param("voice", type="enum", default="", choices=_TTS_VOICES,
+                  desc="named voice (en=kokoro af_*/am_*, de=piper thorsten/kerstin); "
+                  "empty = auto by language"),
             Param("format", type="enum", default="wav", choices=("wav", "mp3")),
             Param("engine", type="enum", default="auto",
                   choices=("auto", "piper", "kokoro", "chatterbox")),
