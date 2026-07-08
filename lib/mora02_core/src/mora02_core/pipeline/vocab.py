@@ -110,14 +110,13 @@ _LLM_PROFILES = (
 )
 
 # PixelText .blend templates for pixeltext.render (empty = worker procedural
-# default). Mirrors the files in apps/blender-worker/templates/*.blend — the same
-# list the PixelText UI page fetches from the worker's GET /templates. Kept static
-# here (that app is not on the pip path / not importable); keep in sync by hand
-# when templates are added or removed. The worker joins the value onto its
-# template dir, so a stale name simply surfaces a clear render error.
+# default). A curated subset of apps/blender-worker/templates/*.blend — only the
+# ones that render a usable result were kept (surveyed 2026-07: bulle.blend has no
+# valid TEMPLATE_CUBE mesh and degrades to procedural; test2.blend renders the
+# text nearly invisible). Kept static here (that app is not on the pip path /
+# importable); keep in sync by hand when templates are added or vetted.
 _PIXELTEXT_TEMPLATES = (
-    "", "default.blend", "bulle.blend",
-    "test2.blend", "test3.blend", "test4.blend", "test5.blend",
+    "", "default.blend", "test3.blend", "test4.blend", "test5.blend",
 )
 
 _OPS: tuple[Op, ...] = (
