@@ -40,6 +40,10 @@ class Param:
     default: Any = None
     choices: tuple[str, ...] | None = None
     desc: str = ""
+    # "advanced" = a detail/"kleinkram" param (seed, steps, quality, cfg …). The
+    # block-authoring UI shows non-advanced params as basics and tucks the advanced
+    # ones behind an inner "detailed settings" sub-collapse. Purely a display hint.
+    advanced: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,8 +148,8 @@ _OPS: tuple[Op, ...] = (
             Param("flow", type="enum", default="photo", choices=_IMAGE_FLOWS,
                   desc="model/flow preset (local diffusion or external API)"),
             Param("format", desc="portrait|landscape|square or WIDTHxHEIGHT"),
-            Param("batch_size", type="int", desc="number of images to generate"),
-            Param("testrun", type="bool", desc="set '1' for a fast low-quality test run"),
+            Param("batch_size", type="int", desc="number of images to generate", advanced=True),
+            Param("testrun", type="bool", desc="set '1' for a fast low-quality test run", advanced=True),
         ),
         consumes="one",
         consumes_optional=True,
@@ -190,14 +194,27 @@ _OPS: tuple[Op, ...] = (
                   desc="t2v=text only, i2v=from start image, i2i2v=start+end frames"),
             Param("start_image", desc="start frame ref (i2v / i2i2v)"),
             Param("end_image", desc="end frame ref (i2i2v)"),
-            Param("length", type="int", desc="frames 17–201"),
-            Param("fps", type="int", desc="frames per second 8–60"),
-            Param("seed", type="int"),
+            Param("length", type="int", desc="frames 17–201", advanced=True),
+            Param("fps", type="int", desc="frames per second 8–60", advanced=True),
+            Param("seed", type="int", advanced=True),
         ),
         consumes="one",
         consumes_optional=True,
         input_type="any",
         output_type="video",
+    ),
+    Op(
+        name="video.last_frame",
+        summary="Extract the last frame of a video as an image ref — chains i2v videos "
+                "(each new video starts from the previous one's final frame).",
+        bucket="visual",
+        params=(
+            Param("position", type="enum", default="last", choices=("last", "first"),
+                  desc="which frame to grab", advanced=True),
+        ),
+        consumes="one",
+        input_type="video",
+        output_type="image",
     ),
 
     # ----- Media finishing --------------------------------------------------
@@ -206,11 +223,13 @@ _OPS: tuple[Op, ...] = (
         summary="Assemble one or more image/video refs into a single MP4 (Ken-Burns).",
         bucket="media",
         params=(
-            Param("name", desc="output filename; auto-generated if omitted"),
+            Param("name", desc="output filename; auto-generated if omitted", advanced=True),
             Param("resolution", default="1080p", desc="1080p|720p|4k|square|story|reels or WxH"),
             Param("durations", default="4", desc="per-input seconds (single or comma list)"),
             Param("animation", type="enum", default="pan",
                   choices=("pan", "zoom_in", "zoom_out", "none"), desc="motion style"),
+            Param("soundtrack", desc="optional audio ref to lay over the clip as its music "
+                                     "track (handler support planned)"),
         ),
         consumes="many",
         input_type="any",
@@ -288,8 +307,8 @@ _OPS: tuple[Op, ...] = (
         params=(
             Param("prompt", desc="user prompt; falls back to stdin"),
             Param("system", desc="system prompt"),
-            Param("temperature", desc="sampling temperature (default 0.7)"),
-            Param("max_tokens", type="int", desc="max output tokens (default 512)"),
+            Param("temperature", desc="sampling temperature (default 0.7)", advanced=True),
+            Param("max_tokens", type="int", desc="max output tokens (default 512)", advanced=True),
         ),
         consumes="one",
         consumes_optional=True,
@@ -545,13 +564,13 @@ _OPS: tuple[Op, ...] = (
             Param("key", default="C major", desc="musical key/scale, e.g. 'C major', 'A minor'"),
             Param("time_signature", default="4", desc="time signature (beats per bar)"),
             Param("language", default="en", desc="lyrics language, e.g. en, de"),
-            Param("steps", type="int", default="8", desc="sampler steps (turbo default 8)"),
-            Param("seed", type="int"),
-            Param("cfg_scale", desc="text guidance strength (default 2.0)"),
-            Param("temperature", desc="sampling temperature (default 0.85)"),
-            Param("top_p", desc="nucleus sampling top-p (default 0.9)"),
-            Param("top_k", type="int", desc="top-k sampling (default 0 = off)"),
-            Param("min_p", desc="min-p sampling (default 0.0)"),
+            Param("steps", type="int", default="8", desc="sampler steps (turbo default 8)", advanced=True),
+            Param("seed", type="int", advanced=True),
+            Param("cfg_scale", desc="text guidance strength (default 2.0)", advanced=True),
+            Param("temperature", desc="sampling temperature (default 0.85)", advanced=True),
+            Param("top_p", desc="nucleus sampling top-p (default 0.9)", advanced=True),
+            Param("top_k", type="int", desc="top-k sampling (default 0 = off)", advanced=True),
+            Param("min_p", desc="min-p sampling (default 0.0)", advanced=True),
             Param("ref_audio", desc="optional reference-audio ref for timbre transfer"),
         ),
         consumes="one",

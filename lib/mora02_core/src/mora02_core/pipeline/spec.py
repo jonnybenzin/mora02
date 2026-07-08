@@ -83,6 +83,16 @@ def _is_ref(value: Any) -> bool:
     from the run bucket in the executor (see mora02_core.pipeline.runbucket)."""
     return isinstance(value, dict) and "from" in value
 
+
+def _is_arg(value: Any) -> bool:
+    """A param value that references a variable run INPUT: ``{"arg": "<name>"}``.
+
+    The run's ``args`` are seeded into the bucket under ``args.<name>`` at run start,
+    so an arg reference resolves on the same ``__ref_`` transport as :func:`_is_ref`
+    — one mechanism, two sources (earlier steps + run inputs). May carry a ``default``
+    key for the authoring UI; the compiler ignores it."""
+    return isinstance(value, dict) and "arg" in value
+
 # Default response schema for a bare ``gate`` (a yes/no approval).
 _DEFAULT_GATE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -378,8 +388,11 @@ def compile_to_lobster(
             continue
 
         ref_params = {k: v["from"] for k, v in step.params.items() if _is_ref(v)}
-        literal_params = {k: v for k, v in step.params.items() if not _is_ref(v)}
-        validate_op(step.op, literal_params, ref_params=set(ref_params))
+        arg_params = {k: v["arg"] for k, v in step.params.items() if _is_arg(v)}
+        literal_params = {
+            k: v for k, v in step.params.items() if not _is_ref(v) and not _is_arg(v)
+        }
+        validate_op(step.op, literal_params, ref_params=set(ref_params) | set(arg_params))
         if not is_wired(step.op):
             raise PipelineError(
                 f"op {step.op!r} is in the vocabulary but not implemented yet "
@@ -398,7 +411,28 @@ def compile_to_lobster(
                     f"step {step.id!r}: param {pname!r} refers to unknown or later "
                     f"step id {src!r}"
                 )
-        source_id = _resolve_source(step, last_op_id, defined_ids)
+        # An arg reference just needs a non-empty name; its value is seeded into the
+        # bucket at run start (args.<name>), so it is always available.
+        for pname, an in arg_params.items():
+            if not isinstance(an, str) or not an:
+                raise PipelineError(
+                    f"step {step.id!r}: param {pname!r} 'arg' must be a name string"
+                )
+        # Fan-in on the input side: `in: [a, b, c]` collects several earlier steps'
+        # outputs into a "many"-consuming op (e.g. clip.generate). Lobster can't pipe
+        # multiple stdouts into one stdin, so the collect is resolved from the run
+        # bucket in the executor — the compiled step carries `__collect=a,b,c`.
+        collect_ids = None
+        if isinstance(step.in_, list):
+            for cid in step.in_:
+                if cid not in defined_ids:
+                    raise PipelineError(
+                        f"step {step.id!r}: in-list refers to unknown or later step {cid!r}"
+                    )
+            collect_ids = list(step.in_)
+            source_id = None
+        else:
+            source_id = _resolve_source(step, last_op_id, defined_ids)
         compiled: dict[str, Any] = {"id": step.id}
         if source_id is not None:
             compiled["stdin"] = f"${source_id}.stdout"
@@ -406,7 +440,7 @@ def compile_to_lobster(
             compiled["condition"] = f"${last_gate_id}.response.approved"
         compiled["run"] = _build_run(
             step.op, step.params, has_stdin=source_id is not None,
-            run_id=run_id, step_id=step.id,
+            run_id=run_id, step_id=step.id, collect=collect_ids,
         )
 
         out_steps.append(compiled)
@@ -443,6 +477,7 @@ def _build_run(
     has_stdin: bool,
     run_id: str | None = None,
     step_id: str | None = None,
+    collect: list[str] | None = None,
 ) -> str:
     """Build the curl command for one op step (params URL-encoded, fmt=out).
 
@@ -455,9 +490,13 @@ def _build_run(
     for k, v in params.items():
         if _is_ref(v):
             pairs.append(f"__ref_{quote(str(k), safe='')}={quote(str(v['from']), safe='')}")
+        elif _is_arg(v):
+            pairs.append(f"__ref_{quote(str(k), safe='')}={quote('args.' + str(v['arg']), safe='')}")
         else:
             pairs.append(f"{quote(str(k), safe='')}={quote(str(v), safe='')}")
     pairs.append("fmt=out")
+    if collect:
+        pairs.append("__collect=" + quote(",".join(collect), safe=","))
     if run_id:
         pairs.append(f"run_id={quote(run_id, safe='')}")
         pairs.append(f"step_id={quote(str(step_id), safe='')}")

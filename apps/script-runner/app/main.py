@@ -35,7 +35,7 @@ from mora02_core.comfyui import (
 )
 from mora02_core.llm import complete_qwen, complete_qwen_usage, complete_claude_usage
 from mora02_core.media import tts as tts_lib
-from mora02_core.media import MediaError, create_clip, create_gif, create_text_frame
+from mora02_core.media import MediaError, create_clip, create_gif, create_text_frame, extract_frame, mux_audio
 from mora02_core.notify import notify, NotifyError
 from mora02_core.pipeline import run_pipeline, run_pipeline_spec, resume_pipeline, PipelineError, vocab as pipeline_vocab, runlog as pipeline_runlog, runbucket as pipeline_runbucket
 from mora02_core.publish import post_to_linkedin, LinkedInError
@@ -1001,6 +1001,8 @@ class PipelineResumeRequest(BaseModel):
     approve: Optional[bool] = None  # yes/no for an approval: gate
     cancel: bool = False            # cancel the workflow instead of continuing
     runner: Optional[str] = None
+    background: bool = False        # fire-and-forget: resume runs the (possibly long)
+                                    # remaining tail without blocking the HTTP call
 
 
 def _pipeline_result_to_dict(res) -> dict:
@@ -1076,9 +1078,166 @@ async def pipeline_run_spec(req: PipelineRunSpecRequest):
     return _pipeline_result_to_dict(res)
 
 
+@app.get("/pipeline/flows")
+async def pipeline_flows():
+    """The flow LIBRARY — the named flows under pipelines/specs/.
+
+    Each entry is a saved pipeline spec (name + steps). Consumed by the /flow
+    authoring tool to offer a picker and to load a flow by name.
+    """
+    flows = []
+    specs = Path(_PIPELINE_SPECS_DIR)
+    if specs.is_dir():
+        for p in sorted(specs.glob("*.json")):
+            try:
+                spec = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            flows.append({
+                "name": spec.get("name") or p.stem,
+                "file": p.stem,
+                "description": spec.get("description", ""),
+                "steps": len(spec.get("steps", [])),
+            })
+    return {"flows": flows}
+
+
+@app.get("/pipeline/flow/{name}")
+async def pipeline_flow(name: str):
+    """Return one named flow spec (matched by spec name or filename stem)."""
+    specs = Path(_PIPELINE_SPECS_DIR)
+    if specs.is_dir():
+        for p in specs.glob("*.json"):
+            try:
+                spec = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if spec.get("name") == name or p.stem == name:
+                return spec
+    raise HTTPException(status_code=404, detail=f"flow {name!r} not found")
+
+
+def _read_run_events(run_id: str):
+    """Parse a run's JSONL log into a list of events, or None if it doesn't exist."""
+    path = os.path.join(pipeline_runlog.log_dir(), f"{run_id}.jsonl")
+    events = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        return None
+    return events
+
+
+@app.get("/pipeline/runs")
+async def pipeline_runs():
+    """List recent pipeline runs (newest first) for the Runs view — a summary per run."""
+    d = pipeline_runlog.log_dir()
+    runs = []
+    try:
+        files = sorted(Path(d).glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:40]
+    except OSError:
+        files = []
+    for p in files:
+        events = _read_run_events(p.stem) or []
+        start = next((e for e in events if e.get("kind") == "run_start"), {})
+        steps = [e for e in events if e.get("kind") == "step"]
+        result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
+        last = steps[-1] if steps else None
+        try:
+            active = (time.time() - p.stat().st_mtime) < 90  # log touched recently
+        except OSError:
+            active = False
+        runs.append({
+            "run_id": p.stem,
+            "pipeline": start.get("pipeline") or p.stem,
+            "args": start.get("args"),
+            "ts": start.get("ts"),
+            "steps_done": len(steps),
+            "last_op": last.get("op") if last else None,
+            "last_status": last.get("status") if last else None,
+            "failed": any(s.get("status") == "failed" for s in steps),
+            "active": active,
+            "result": result.get("status") if result else None,
+        })
+    return {"runs": runs}
+
+
+@app.get("/pipeline/run/{run_id}")
+async def pipeline_run_detail(run_id: str):
+    """Full step-by-step detail of one run (for the live Runs view)."""
+    events = _read_run_events(os.path.basename(run_id))
+    if events is None:
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+    start = next((e for e in events if e.get("kind") == "run_start"), {})
+    result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
+    steps = []
+    for e in events:
+        if e.get("kind") != "step":
+            continue
+        out = e.get("out")
+        url = None
+        if isinstance(out, str) and out.startswith("asset://"):
+            try:
+                url = asset_refs.url_for_ref(out)
+            except Exception:
+                url = None
+        steps.append({
+            "step_id": e.get("step_id"), "op": e.get("op"), "status": e.get("status"),
+            "out": out, "out_type": e.get("out_type"), "url": url, "error": e.get("error"),
+        })
+    return {
+        "run_id": run_id,
+        "pipeline": start.get("pipeline"),
+        "args": start.get("args"),
+        "ts": start.get("ts"),
+        "steps": steps,
+        "result": result.get("status") if result else None,
+    }
+
+
+_bg_resume_tasks: set = set()  # keep detached resume tasks referenced until done
+_PILOT_URL = os.environ.get("PILOT_URL", "http://pilot:8098")
+
+
+async def _bg_resume_and_refile(req: "PipelineResumeRequest") -> None:
+    """Run a detached resume; if it pauses again at a further gate, ask Pilot to
+    re-file that decision into the HITL inbox so multi-gate flows keep working."""
+    try:
+        res = await resume_pipeline(
+            req.token, response=req.response, approve=req.approve,
+            cancel=req.cancel, runner=req.runner,
+        )
+    except Exception:
+        _log.exception("background resume failed")
+        return
+    d = _pipeline_result_to_dict(res)
+    if d.get("is_paused") and d.get("resume_token"):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as c:
+                await c.post(f"{_PILOT_URL}/inbox/refile", json=d)
+        except Exception:
+            _log.warning("could not re-file the next gate into the inbox")
+
+
 @app.post("/pipeline/resume")
 async def pipeline_resume(req: PipelineResumeRequest):
-    """Resume a paused workflow with the external decision (Pilot inbox click)."""
+    """Resume a paused workflow with the external decision (Pilot inbox click).
+
+    ``background=True`` detaches the resume: the remaining tail (which can be long —
+    several video steps after a gate) runs without blocking the HTTP call, so the
+    inbox click returns at once and the run continues server-side (visible in the
+    run log). A further gate is re-filed into the inbox via the Pilot callback.
+    """
+    if req.background:
+        task = asyncio.create_task(_bg_resume_and_refile(req))
+        _bg_resume_tasks.add(task)
+        task.add_done_callback(_bg_resume_tasks.discard)
+        return {"ok": True, "status": "resuming", "is_paused": False}
     try:
         res = await resume_pipeline(
             req.token,
@@ -1444,6 +1603,30 @@ async def _step_video_generate(inputs: List[str], params: dict) -> dict:
             "log": {"seed": result.get("seed"), "flow": result.get("flow")}}
 
 
+async def _step_video_last_frame(inputs: List[str], params: dict) -> dict:
+    """video.last_frame — extract a video's last (or first) frame as an image ref.
+
+    Chains i2v videos: each new video starts from the prior video's final frame, so a
+    continuous motion sequence grows one clip at a time. Input: one video ref on stdin.
+    Param: position (last|first). The frame lands in the clipper store (writable and
+    nginx-served, so it can feed video.generate's start_image). ffmpeg runs off the
+    event loop.
+    """
+    if not inputs:
+        raise ValueError("video.last_frame needs a video ref on stdin")
+    in_ref = inputs[0]
+    video_path = asset_refs.resolve_ref(in_ref)
+    if not video_path.is_file():
+        raise ValueError(f"video.last_frame: video not found for ref {in_ref!r}")
+    position = params.get("position", "last")
+    out_name = f"frame_{uuid.uuid4().hex[:8]}.png"
+    out_path = asset_refs.store_root("clipper") / out_name
+    await asyncio.to_thread(extract_frame, str(video_path), str(out_path), position)
+    out_ref = asset_refs.make_ref("clipper", out_name)
+    return {"ok": True, "op": "video.last_frame", "out": out_ref, "type": "image",
+            "url": asset_refs.url_for_ref(out_ref)}
+
+
 async def _step_music_generate(inputs: List[str], params: dict) -> dict:
     """music.generate — ACE-Step 1.5 tags(+optional lyrics)-to-music -> audio ref.
 
@@ -1605,7 +1788,18 @@ async def _step_clip_generate(inputs: List[str], params: dict) -> dict:
         durations=params.get("durations", "4"),
         animation=params.get("animation", "pan"),
     )
-    out_ref = asset_refs.ref_for_path(clip.path, out_store)
+    # Optional soundtrack: lay a resolved audio ref (e.g. a music.generate output)
+    # over the assembled clip as its music track, cut to the clip length.
+    soundtrack = params.get("soundtrack")
+    if soundtrack and str(soundtrack).startswith("asset://"):
+        audio_path = asset_refs.resolve_ref(soundtrack)
+        if not audio_path.is_file():
+            raise ValueError(f"clip.generate: soundtrack not found for ref {soundtrack!r}")
+        muxed = asset_refs.store_root(out_store) / f"snd_{out_name}"
+        await asyncio.to_thread(mux_audio, clip.path, audio_path, muxed)
+        out_ref = asset_refs.ref_for_path(muxed, out_store)
+    else:
+        out_ref = asset_refs.ref_for_path(clip.path, out_store)
     return {"ok": True, "op": "clip.generate",
             "out": out_ref, "type": "video", "url": asset_refs.url_for_ref(out_ref)}
 
@@ -1981,6 +2175,7 @@ _PIPELINE_STEPS = {
     "image.upscale": _step_image_upscale,
     "image.expand": _step_image_expand,
     "video.generate": _step_video_generate,
+    "video.last_frame": _step_video_last_frame,
     "notify.image": _step_notify_image,
     "notify": _step_notify,
     "publish.linkedin": _step_publish_linkedin,
@@ -2076,6 +2271,17 @@ async def pipeline_step(op: str, request: Request):
                 status_code=400,
                 detail=(f"step {op}: param {pname!r} references step {source_id!r}, "
                         "which has no output in the run bucket (did it run first?)"),
+            )
+    # Input fan-in: __collect=a,b,c pulls several earlier step outputs from the run
+    # bucket and hands them to a "many"-consuming op (e.g. clip.generate) as its inputs.
+    collect = params.pop("__collect", None)
+    if collect:
+        try:
+            inputs = [pipeline_runbucket.get(run_id, cid) for cid in collect.split(",") if cid]
+        except KeyError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"step {op}: collect source {e} has no output in the run bucket",
             )
     started = time.monotonic()
 

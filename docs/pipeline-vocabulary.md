@@ -21,6 +21,7 @@ The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by o
 | [`image.upscale`](#imageupscale) | 🟢 wired | visual | `image` | one | image | image |
 | [`image.expand`](#imageexpand) | 🟢 wired | visual | `image` | one | image | image |
 | [`video.generate`](#videogenerate) | 🟢 wired | visual | `video` | one (opt) | any | video |
+| [`video.last_frame`](#videolast_frame) | 🟢 wired | visual | `video` | one | video | image |
 | [`clip.generate`](#clipgenerate) | 🟢 wired | media | `clip` | many | any | video |
 | [`text.overlay`](#textoverlay) | 🟢 wired | media | `text` | one (opt) | text | image |
 | [`gif.create`](#gifcreate) | 🟢 wired | media | `gif` | many | image | video |
@@ -46,6 +47,7 @@ The step *ops* a mora02 pipeline is built from. A pipeline spec lists steps by o
 | [`notify`](#notify) | 🟢 wired | delivery | `notify` | one (opt) | any | any |
 | [`llm.switch`](#llmswitch) | 🟢 wired | llm | `llm` | one (opt) | any | any |
 | [`music.generate`](#musicgenerate) | 🟢 wired | audio | `music` | one (opt) | text | audio |
+| [`publish.linkedin`](#publishlinkedin) | 🟢 wired | publish | `publish` | one (opt) | image | text |
 
 ## source.file
 
@@ -151,6 +153,20 @@ Generate video via WAN 2.2 — text-to-video, image-to-video, or start+end frame
 | `fps` | int | no |  | frames per second 8–60 |
 | `seed` | int | no |  |  |
 
+## video.last_frame
+
+🟢 **wired** · bucket: `visual`
+
+Extract the last frame of a video as an image ref — chains i2v videos (each new video starts from the previous one's final frame).
+
+- **Default step id:** `video`  
+- **Consumes (stdin):** one (video)  
+- **Emits (stdout):** image
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `position` | enum | no | `last` | which frame to grab (one of: last, first) |
+
 ## clip.generate
 
 🟢 **wired** · bucket: `media`
@@ -167,6 +183,7 @@ Assemble one or more image/video refs into a single MP4 (Ken-Burns).
 | `resolution` | string | no | `1080p` | 1080p|720p|4k|square|story|reels or WxH |
 | `durations` | string | no | `4` | per-input seconds (single or comma list) |
 | `animation` | enum | no | `pan` | motion style (one of: pan, zoom_in, zoom_out, none) |
+| `soundtrack` | string | no |  | optional audio ref to lay over the clip as its music track (handler support planned) |
 
 ## text.overlay
 
@@ -556,4 +573,20 @@ Generate music/song audio from style tags + optional lyrics via ComfyUI ACE-Step
 | `top_k` | int | no |  | top-k sampling (default 0 = off) |
 | `min_p` | string | no |  | min-p sampling (default 0.0) |
 | `ref_audio` | string | no |  | optional reference-audio ref for timbre transfer |
+
+## publish.linkedin
+
+🟢 **wired** · bucket: `publish`
+
+Publish an image or text post to LinkedIn (UGC API). Image ref on stdin (optional — omit for a text-only post). Returns the post URL.
+
+- **Default step id:** `publish`  
+- **Consumes (stdin):** one (optional) (image)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `text` | string | no |  | post caption/body text (often a {"from": <llm step>} ref) |
+| `author` | string | no |  | author URN urn:li:person:…; falls back to env MORA02_LINKEDIN_AUTHOR |
+| `visibility` | enum | no | `PUBLIC` | post visibility (one of: PUBLIC, CONNECTIONS) |
 

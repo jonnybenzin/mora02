@@ -1794,13 +1794,22 @@ async def pipeline_run(request: Request):
     """Start a HITL pipeline. If it pauses at a gate, file it in the inbox."""
     body = await request.json()
     pipeline_path = body.get("pipeline_path")
-    if not pipeline_path:
-        return JSONResponse(status_code=400, content={"error": "pipeline_path required"})
-    payload: dict = {"pipeline_path": pipeline_path}
+    name = body.get("name")
+    # Two entry shapes: a pre-compiled .lobster path, or a named library flow (which
+    # script-runner compiles from pipelines/specs/ via run-spec). Either way, a pause
+    # at a gate is filed into the inbox here so the UI can surface + resolve it.
+    if pipeline_path:
+        endpoint, payload = "/pipeline/run", {"pipeline_path": pipeline_path}
+        title_default = Path(pipeline_path).stem
+    elif name:
+        endpoint, payload = "/pipeline/run-spec", {"name": name}
+        title_default = name
+    else:
+        return JSONResponse(status_code=400, content={"error": "pipeline_path or name required"})
     if body.get("args") is not None:
         payload["args"] = body["args"]
     try:
-        result = await _script_runner_pipeline("/pipeline/run", payload)
+        result = await _script_runner_pipeline(endpoint, payload)
     except Exception as e:
         return JSONResponse(status_code=502, content={"error": f"script-runner: {e}"})
 
@@ -1808,8 +1817,8 @@ async def pipeline_run(request: Request):
     if result.get("is_paused") and result.get("resume_token"):
         inbox_item = inbox_store.add(_inbox_item_from_result(
             result,
-            title=body.get("title") or Path(pipeline_path).stem,
-            pipeline_path=pipeline_path,
+            title=body.get("title") or title_default,
+            pipeline_path=pipeline_path or name,
         ))
     return {"result": result, "inbox_item": inbox_item}
 
@@ -1832,8 +1841,12 @@ async def inbox_resolve(item_id: str, request: Request):
         payload["cancel"] = True
     elif body.get("response") is not None:
         payload["response"] = body["response"]
+        # Resume the (possibly long) tail detached so the click doesn't block; a
+        # further gate is re-filed via /inbox/refile.
+        payload["background"] = True
     elif body.get("approve") is not None:
         payload["approve"] = bool(body["approve"])
+        payload["background"] = True
     else:
         return JSONResponse(status_code=400, content={"error": "need response, approve, or cancel"})
 
@@ -1852,6 +1865,19 @@ async def inbox_resolve(item_id: str, request: Request):
     # On a workflow runtime error (ok=False, not paused) we keep the item so the
     # user can see the error and cancel it; the error travels in `result`.
     return {"result": result}
+
+
+@app.post("/inbox/refile")
+async def inbox_refile(request: Request):
+    """Re-file a further gate into the inbox — called by script-runner when a
+    backgrounded resume pauses again at a gate. Body = the paused result dict."""
+    result = await request.json()
+    item = None
+    if result.get("is_paused") and result.get("resume_token"):
+        item = inbox_store.add(_inbox_item_from_result(
+            result, title=result.get("pipeline") or "Pipeline", pipeline_path="",
+        ))
+    return {"inbox_item": item}
 
 
 if __name__ == "__main__":

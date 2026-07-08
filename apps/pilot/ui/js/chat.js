@@ -83,7 +83,7 @@ async function sendChatMessage() {
   // Intercept bare tool commands → render inline widget
   var toolWidget = matchToolWidget(text);
   if (toolWidget) {
-    renderToolWidget(toolWidget.page, toolWidget.init);
+    renderToolWidget(toolWidget.page, toolWidget.init, toolWidget.args);
     return;
   }
 
@@ -384,20 +384,27 @@ var TOOL_WIDGETS = [
   { match: '/pix',   page: 'pixeltext',      label: 'PIXELTEXT',    init: 'initPixelText' },
   { match: '/music', page: 'musicgen',       label: 'MUSIC GEN',    init: 'initMusicGen' },
   { match: '/voice', page: 'ttsgen',         label: 'VOICE GEN',    init: 'initTtsGen' },
+  { match: '/flow',  page: 'flow-builder',   label: 'FLOW',         init: 'initFlowBuilder', args: true },
 ];
 
+// Returns {page, init, args} for a matched command. Widgets flagged `args:true`
+// also match as a prefix (`/flow tanzbär`) and hand the trailing text to the init.
 function matchToolWidget(text) {
-  var t = text.trim().toLowerCase();
+  var t = text.trim();
+  var tl = t.toLowerCase();
   for (var i = 0; i < TOOL_WIDGETS.length; i++) {
     var w = TOOL_WIDGETS[i];
-    if (t === w.match || t === w.match + ' ') {
-      return w;
+    if (tl === w.match || tl === w.match + ' ') {
+      return { page: w.page, init: w.init, args: '' };
+    }
+    if (w.args && tl.indexOf(w.match + ' ') === 0) {
+      return { page: w.page, init: w.init, args: t.slice(w.match.length).trim() };
     }
   }
   return null;
 }
 
-async function renderToolWidget(page, initFnName) {
+async function renderToolWidget(page, initFnName, args) {
   try {
     var resp = await fetch('pages/' + page + '.html');
     var html = await resp.text();
@@ -405,7 +412,7 @@ async function renderToolWidget(page, initFnName) {
     var head = msgHeadHTML(label, 'var(--tx-muted)', getActivePersona());
     var el = appendBotEl('system', head + '<div class="msg-body post-widget" style="border:1px solid #444;border-radius:8px;padding:4px">' + html + '</div>');
     if (typeof initToolPage === 'function') initToolPage(page);
-    if (initFnName && typeof window[initFnName] === 'function') window[initFnName]();
+    if (initFnName && typeof window[initFnName] === 'function') window[initFnName](args);
     scrollToBottom();
   } catch (e) {
     addSystemMessage('Could not load widget: ' + e.message);

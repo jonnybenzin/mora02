@@ -1,0 +1,55 @@
+<!-- /flow tool widget fragment — injected into a chat bubble by renderToolWidget.
+     Styling scoped to .fb-* (reuses Pilot design tokens). Logic in js/flowbuilder.js. -->
+<style>
+  .fb-wrap{font-family:var(--font,monospace)}
+  .fb-title{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-muted,#888);margin:2px 0 2px}
+  .fb-name{font-size:17px;font-weight:700;margin:0 0 12px;color:var(--tx-primary,#eee)}
+  .fb-note{font-size:11px;color:var(--tx-muted,#888)}
+
+  /* picker */
+  .fb-pick{display:flex;flex-direction:column;gap:8px}
+  .fb-card{border:1px solid var(--bd,#2a2a2a);border-radius:9px;padding:11px 13px;background:var(--c-grey1,#141414);cursor:pointer}
+  .fb-card:hover{background:var(--c-grey2,#1c1c1c);border-color:var(--accent,#2b7)}
+  .fb-card-name{font-weight:700;font-size:13px;color:var(--tx-primary,#eee)}
+  .fb-card-desc{font-size:11px;color:var(--tx-muted,#888);margin-top:2px}
+  .fb-card-meta{font-size:10px;color:var(--tx-muted,#777);margin-top:4px}
+
+  /* inputs panel */
+  .fb-inputs{border:1px solid var(--bd,#2a2a2a);border-radius:9px;padding:10px 12px;margin-bottom:14px;background:var(--c-grey1,#141414)}
+  .fb-inputs-h{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent,#2b7)}
+  .fb-field{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+  .fb-field label{font-size:11px;color:var(--tx-muted,#888)}
+  .fb-in,.fb-sel{background:var(--c-black,#0e0e0e);border:1px solid var(--bd,#2a2a2a);border-radius:6px;padding:7px 9px;color:var(--tx-primary,#eee);font-family:var(--font,monospace);font-size:12px;width:100%;box-sizing:border-box}
+  .fb-sel{cursor:pointer}
+
+  /* blocks */
+  .fb-block{border:1px solid var(--bd,#2a2a2a);border-radius:9px;margin-bottom:8px;background:var(--c-grey1,#141414);overflow:hidden}
+  .fb-block.planned{border-style:dashed}
+  .fb-head{display:flex;align-items:center;gap:9px;padding:10px 12px;cursor:pointer;user-select:none}
+  .fb-head:hover{background:var(--c-grey2,#1c1c1c)}
+  .fb-chev{width:11px;flex-shrink:0;color:var(--tx-muted,#888);transition:transform .15s}
+  .fb-block.open>.fb-head .fb-chev{transform:rotate(90deg)}
+  .fb-op{font-weight:700;font-size:12px;color:var(--tx-primary,#eee)}
+  .fb-id{font-size:11px;color:var(--tx-muted,#777)}
+  .fb-summary{flex:1;text-align:right;font-size:11px;color:var(--tx-muted,#888);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fb-badge{font-size:9px;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:var(--c-grey2,#222);color:var(--tx-muted,#9ab);flex-shrink:0}
+  .fb-badge.out{color:#8ec}
+  .fb-badge.plan{color:#e9a;border:1px solid #a56}
+  .fb-badge.gate{color:#eb4;border:1px solid #a83}
+  .fb-block.fb-gate{border-color:#8a6a1e;border-style:dashed;background:#17140c}
+  .fb-body{display:none;padding:2px 12px 12px;border-top:1px solid var(--bd,#2a2a2a)}
+  .fb-block.open>.fb-body{display:block}
+  .fb-io{font-size:11px;color:var(--tx-muted,#888);margin:9px 0 2px}
+  .fb-io b{color:var(--accent,#2b7);font-weight:600}
+  .fb-detail{margin-top:10px;border-top:1px dashed var(--bd,#2a2a2a);padding-top:6px}
+  .fb-detail-h{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--tx-muted,#888);cursor:pointer;user-select:none}
+  .fb-detail.open .fb-detail-h .fb-chev{transform:rotate(90deg)}
+  .fb-detail-body{display:none;padding-top:8px}
+  .fb-detail.open .fb-detail-body{display:block}
+  .fb-connector{width:2px;height:9px;background:var(--bd,#333);margin:0 auto}
+
+  .fb-run{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .fb-runbtn{background:var(--accent,#2b7);color:#031;border:none;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;font-family:var(--font,monospace)}
+  .fb-status{font-size:11px;color:var(--tx-muted,#888)}
+</style>
+<div class="fb-wrap" data-fb-wrap></div>

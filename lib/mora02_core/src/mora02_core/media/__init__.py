@@ -15,12 +15,15 @@ from mora02_core.media import tts
 from mora02_core.media._errors import MediaError
 from mora02_core.media.gifer import create_gif
 from mora02_core.media.typer import create_text_frame
-from mora02_core.media.clipper import create_clip
+from mora02_core.media.clipper import create_clip, mux_audio
+from mora02_core.media.frames import extract_frame
 
 __all__ = [
     "MediaError",
     "create_gif",
     "create_text_frame",
     "create_clip",
+    "mux_audio",
+    "extract_frame",
     "tts",
 ]

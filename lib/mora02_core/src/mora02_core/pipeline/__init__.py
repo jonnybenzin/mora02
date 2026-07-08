@@ -30,7 +30,7 @@ from mora02_core.pipeline._errors import PipelineError
 from mora02_core.pipeline.base import PipelineResult, PipelineRunner
 from mora02_core.pipeline.lobster import LobsterRunner
 from mora02_core.pipeline.registry import get_runner, register_runner
-from mora02_core.pipeline import runlog, vocab
+from mora02_core.pipeline import runbucket, runlog, vocab
 from mora02_core.pipeline.spec import (
     GateStep,
     OpStep,
@@ -154,6 +154,11 @@ async def run_pipeline_spec(
     """
     loaded = load_spec(spec)
     run_id = runlog.new_run_id()
+    # Seed the run's variable inputs into the run bucket under "args.<name>" so a
+    # {"arg": "<name>"} param resolves the same way a {"from": "<step>"} ref does
+    # (see spec._is_arg / runbucket). Done before the first step runs.
+    for _k, _v in (args or {}).items():
+        runbucket.put(run_id, "args." + _k, _v)
     lobster = compile_to_lobster(loaded, run_id=run_id)
 
     ws = workspace or os.environ.get("MORA02_PIPELINE_WORKSPACE", _DEFAULT_WORKSPACE)

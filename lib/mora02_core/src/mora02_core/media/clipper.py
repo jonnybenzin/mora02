@@ -133,6 +133,25 @@ def _video_has_audio(video_path: Path) -> bool:
     return bool(result.stdout.strip())
 
 
+def mux_audio(video_path, audio_path, out_path) -> Path:
+    """Lay an audio track over a video as its soundtrack (replacing existing audio).
+
+    Cut to the shorter of the two (``-shortest``) so the clip length drives. Video is
+    stream-copied (no re-encode); audio is encoded to AAC. Backs the ``soundtrack``
+    param of the clip.generate op.
+    """
+    out_path = Path(out_path)
+    cmd = [
+        "ffmpeg", "-y", "-i", str(video_path), "-i", str(audio_path),
+        "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
+        "-b:a", "192k", "-shortest", str(out_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0 or not out_path.is_file():
+        raise MediaError(f"audio mux failed: {proc.stderr[-300:]}")
+    return out_path
+
+
 def create_clip(
     input_files: List[Path],
     output_path: Path,
