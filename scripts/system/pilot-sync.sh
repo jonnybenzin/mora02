@@ -5,6 +5,10 @@
 
 BASEROW_URL="http://mora02.local:8085"
 BASEROW_TOKEN="${BASEROW_TOKEN:?BASEROW_TOKEN environment variable required}"
+# Account credentials for the JWT login further down. They live in docker/.env,
+# never in this file - load it first:  set -a; . /opt/mora02/docker/.env; set +a
+export BASEROW_ACCOUNT_EMAIL="${BASEROW_ACCOUNT_EMAIL:?BASEROW_ACCOUNT_EMAIL environment variable required}"
+export BASEROW_ACCOUNT_PASSWORD="${BASEROW_ACCOUNT_PASSWORD:?BASEROW_ACCOUNT_PASSWORD environment variable required}"
 TABLE_CONTEXT=572
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOW_LOCAL=$(date '+%Y-%m-%d %H:%M')
@@ -104,8 +108,8 @@ fi
 # ── 7. BASEROW TABLES ──
 OUT+="## Baserow Tables\n"
 BTABLES=$(python3 -c "
-import requests, json
-r = requests.post('$BASEROW_URL/api/user/token-auth/', json={'email':'jonnybenzin@gmail.com','password':'MaGGan99@'})
+import requests, json, os
+r = requests.post('$BASEROW_URL/api/user/token-auth/', json={'email':os.environ['BASEROW_ACCOUNT_EMAIL'],'password':os.environ['BASEROW_ACCOUNT_PASSWORD']})
 jwt = r.json().get('access_token','')
 h = {'Authorization': f'JWT {jwt}'}
 apps = requests.get('$BASEROW_URL/api/applications/', headers=h).json()

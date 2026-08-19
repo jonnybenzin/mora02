@@ -13,7 +13,7 @@ set -euo pipefail
 
 BASEROW_URL="http://mora02.local:8085"
 DATABASE_TOKEN="${BASEROW_TOKEN:?BASEROW_TOKEN environment variable required}"
-EMAIL="jonnybenzin@gmail.com"
+EMAIL="${BASEROW_ACCOUNT_EMAIL:?BASEROW_ACCOUNT_EMAIL environment variable required}"
 SESSIONS_TABLE_ID=571
 
 echo "============================================================"

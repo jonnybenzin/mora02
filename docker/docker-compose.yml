@@ -244,7 +244,7 @@ services:
     image: redis:7-alpine
     container_name: redis-dify
     restart: unless-stopped
-    command: redis-server --requirepass dify_redis_password
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - /opt/mora02/volumes/redis:/data
     networks:
@@ -407,7 +407,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_USE_SSL: "false"
-      CELERY_BROKER_URL: redis://:dify_redis_password@redis-dify:6379/1
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis-dify:6379/1
       # Storage
       STORAGE_TYPE: opendal
       OPENDAL_SCHEME: fs
@@ -459,7 +459,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_USE_SSL: "false"
-      CELERY_BROKER_URL: redis://:dify_redis_password@redis-dify:6379/1
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis-dify:6379/1
       STORAGE_TYPE: opendal
       OPENDAL_SCHEME: fs
       OPENDAL_FS_ROOT: storage
@@ -498,7 +498,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_USE_SSL: "false"
-      CELERY_BROKER_URL: redis://:dify_redis_password@redis-dify:6379/1
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis-dify:6379/1
       STORAGE_TYPE: opendal
       OPENDAL_SCHEME: fs
       OPENDAL_FS_ROOT: storage
@@ -612,7 +612,7 @@ services:
       PENPOT_DATABASE_URI: "postgresql://postgres-tools/penpot"
       PENPOT_DATABASE_USERNAME: penpot
       PENPOT_DATABASE_PASSWORD: ${PENPOT_DATABASE_PASSWORD}
-      PENPOT_REDIS_URI: "redis://:dify_redis_password@redis-dify:6379/1"
+      PENPOT_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis-dify:6379/1"
       PENPOT_ASSETS_STORAGE_BACKEND: assets-fs
       PENPOT_STORAGE_ASSETS_FS_DIRECTORY: /opt/data/assets
       PENPOT_TELEMETRY_ENABLED: "false"
@@ -635,7 +635,7 @@ services:
       - /opt/mora02/volumes/fonts:/usr/share/fonts/custom:ro
     environment:
       PENPOT_PUBLIC_URI: "http://penpot-frontend:8080"
-      PENPOT_REDIS_URI: "redis://:dify_redis_password@redis-dify:6379/2"
+      PENPOT_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis-dify:6379/2"
       PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
     networks:
       - mora02-net

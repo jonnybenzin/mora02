@@ -2,11 +2,13 @@
 """
 AP20: Baserow-Tabellen für Pilot Bot erstellen
 """
-import requests, json, time, sys
+import requests, json, time, sys, os
 
 BASEROW_URL = "http://mora02.local:8085"
-EMAIL = "jonnybenzin@gmail.com"
-PASSWORD = "MaGGan99@"
+# Account credentials come from docker/.env, never from this file.
+# Load it first:  set -a; . /opt/mora02/docker/.env; set +a
+EMAIL = os.environ["BASEROW_ACCOUNT_EMAIL"]
+PASSWORD = os.environ["BASEROW_ACCOUNT_PASSWORD"]
 DATABASE_ID = 113
 
 def get_jwt():
