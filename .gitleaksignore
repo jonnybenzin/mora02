@@ -1,0 +1,13 @@
+# Known false positives, by fingerprint (commit:file:rule:line).
+#
+# Add an entry only after opening the file and confirming the value is not a
+# real credential. A fingerprint silences one exact spot in one exact commit and
+# nothing else - that narrowness is the point. The working copy additionally
+# carries inline "gitleaks:allow" markers, which is what covers future commits;
+# these entries cover the commit where the lines were introduced without them.
+#
+# lib/mora02_core/tests/test_pipeline.py: the string "eyJ0b2tlbiI6ICJhYmMifQ"
+# is base64 for {"token": "abc"} - an invented fixture for the resume-token
+# test. gitleaks flags it because real JWTs also begin with eyJ.
+230cb0ba9fe7c3319fc818c4a10654414fd4f923:lib/mora02_core/tests/test_pipeline.py:generic-api-key:26
+230cb0ba9fe7c3319fc818c4a10654414fd4f923:lib/mora02_core/tests/test_pipeline.py:generic-api-key:46
