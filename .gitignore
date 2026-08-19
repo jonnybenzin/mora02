@@ -107,3 +107,14 @@ apps/matrix-tool/
 apps/chatterbox-api/
 x_briefing/
 llm-switch/
+
+# --- Repository boundary: what belongs to a different lifecycle ---
+# Host infrastructure, not the mora02 application. The backup system really
+# lives in /root/backup-fullsystem.sh, a systemd timer and the Borg repo on the
+# NAS; only three convenience wrappers ever sat here. Headed for its own
+# private repo together with those parts.
+scripts/backup/
+
+# Separate product with its own release cycle, destined for private GitLab.
+# Must never land in this public repository.
+apps/matrix-tool-v2/
