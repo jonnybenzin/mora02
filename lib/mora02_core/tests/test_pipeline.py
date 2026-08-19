@@ -23,7 +23,7 @@ _RUN_PAUSED = json.dumps(
             "prompt": "Approve to continue the pipeline?",
             "responseSchema": {"type": "object", "properties": {"approved": {"type": "boolean"}}},
             "subject": "Sent via Signal. Message ID: 1781332708085",
-            "resumeToken": "eyJ0b2tlbiI6ICJhYmMifQ",
+            "resumeToken": "eyJ0b2tlbiI6ICJhYmMifQ",  # gitleaks:allow - fixture, base64 of {"token": "abc"}
         },
     }
 ).encode()
@@ -43,7 +43,7 @@ def test_parse_paused_run_lifts_resume_token():
     assert res.ok is True
     assert res.status == "needs_input"
     assert res.is_paused is True
-    assert res.resume_token == "eyJ0b2tlbiI6ICJhYmMifQ"
+    assert res.resume_token == "eyJ0b2tlbiI6ICJhYmMifQ"  # gitleaks:allow - same fixture as above
     assert res.requires_input["prompt"].startswith("Approve")
 
 

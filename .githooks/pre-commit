@@ -1,0 +1,30 @@
+#!/bin/sh
+# Refuse commits that carry credentials.
+#
+# Why this exists: in March 2026 a personal password plus the matching e-mail
+# address reached this repository inside a login payload and stayed public for
+# five months. A security sweep in May touched the very same file and missed it,
+# because the value did not *look* like a secret - a short, pronounceable word
+# in a JSON literal rather than a random-looking string. gitleaks matches on
+# context (password=, token-auth payloads, connection URIs), not on shape.
+#
+# Scope: staged changes only, so it stays fast. History is not rescanned - the
+# old values are rotated and therefore worthless.
+#
+# Bypass, only when you are certain it is a false positive:
+#   git commit --no-verify
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "pre-commit: gitleaks is not installed - install it with 'sudo apt install gitleaks'." >&2
+    echo "            Commit refused rather than silently unchecked." >&2
+    exit 1
+fi
+
+# --redact keeps any finding out of the terminal and out of session logs.
+if ! gitleaks protect --staged --redact --verbose; then
+    echo "" >&2
+    echo "pre-commit: a credential was found in the staged changes - commit refused." >&2
+    echo "            Move the value into docker/.env (or another file outside git)" >&2
+    echo "            and reference it from the code instead." >&2
+    exit 1
+fi
