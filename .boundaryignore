@@ -1,0 +1,25 @@
+# Justified exceptions to the boundary guard (.githooks/boundary-guard).
+#
+# Format - the reason is part of the syntax, not decoration:
+#
+#     path/or/glob        # why this file passes the clone test
+#
+# An entry WITHOUT a '#' reason is ignored by the guard, so it grants nothing.
+# That is deliberate: this file is the known weak point of the construction, and
+# a bare list of paths would turn it into the dumping ground ADR-025 warns about.
+#
+# The reason should answer the clone test, not restate the file's purpose:
+#   good  # container-internal paths only; the host side is always under /opt/mora02
+#   bad   # needed for the build
+#
+# Shell globs are allowed (config/foo/*). Paths are relative to the repo root.
+#
+# Empty on purpose. Entries are added when a real false positive shows up, never
+# in advance - an exception for a case that never occurred hides the next one.
+
+.githooks/boundary-guard	# the guard's own marker documentation; it names host paths in comments in order to recognise them, and configures nothing
+config/dify-ssrf-proxy/*	# container-internal squid config: /var/log and /etc paths live inside the container, and the RFC 1918 entries are ACL ranges describing the docker network, not addresses of this machine
+scripts/system/mora02-scheduled-publish.service	# clone test passed (ADR-025): paths under /opt/mora02 only, values from docker/.env, names neither a user nor an address
+scripts/system/mora02-scheduled-publish.timer	# clone test passed, see the matching .service
+scripts/install-llm-switch.sh	# clone test passed: the units it writes reference only /opt/mora02 paths and name no user, host or address - same construction as mora02-scheduled-publish.service. It installs an application feature, it does not operate this machine
+scripts/system/nvidia-persistence.service	# clone test passed: no user, no host path, no address - just 'nvidia-smi -pm 1'. The GPU is part of the system definition (ADR-025), so it stays in the public repository

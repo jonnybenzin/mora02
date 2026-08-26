@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+#
+# Boundary guard - stage 2 of the pre-commit hook.
+#
+# Stage 1 (gitleaks) checks the VALUE level: does this change carry a secret?
+# This stage checks the ASSIGNMENT level: does this file belong in a public
+# application repository at all? Those are different failure classes. A host
+# artefact without any secret in it - a systemd unit, a wrapper naming the NAS -
+# passes gitleaks cleanly and still does not belong here.
+#
+# Why a .gitignore cannot do this job: it knows only directories somebody named
+# in advance. Host artefacts appear continuously and land in scripts/ because
+# scripts/ is "for scripts". The rule has to hang on the NATURE of the file,
+# which is what the markers below approximate.
+#
+# What this cannot do: markers approximate nature, they do not determine it. A
+# file that is entirely about this machine while naming no host path and running
+# no inventory command passes cleanly. The guard is a net under the rule, not a
+# replacement for asking the three questions.
+#
+# Scope: newly ADDED files only. A file already tracked has been judged once;
+# rechecking it on every edit would produce noise nobody reads. Rules in
+# kompendium/adrs/025-repository-grenze-lebenszyklus.md.
+#
+# Exit 0 = clean, 1 = refused.
+
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+IGNORE_FILE="$REPO_ROOT/.boundaryignore"
+
+# Volume mounts pair an in-repo host path with a container-internal target:
+#   - /opt/mora02/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+# The right-hand side lives inside a container and is perfectly portable, so it
+# must not count as a host marker. Collapse those pairs before scanning. A real
+# host mount (- /root/secrets:/data) has no in-repo left side and survives.
+# It also neutralises placeholder home directories: /home/user in a README is
+# an example, not this machine's account. grep -E has no negative lookahead, so
+# the exclusion happens here rather than inside the pattern.
+collapse_mounts() {
+    sed -E \
+        -e 's#(^|[[:space:]])(\./|\.\./|/opt/mora02/)[^:[:space:]]+:[^[:space:]]*#\1\2MOUNT#g' \
+        -e 's#/home/(user|username|USERNAME|<user>|\$\{?USER\}?)#/home/PLACEHOLDER#g'
+}
+
+# Strong markers - one hit is enough to refuse. Each names something that is
+# true of THIS machine and of no other.
+#   /home/<name>  real account names only; user/$USER/<user> are placeholders
+#   IPv4          a specific address, not an RFC 1918 range in CIDR notation
+#                 (10.0.0.0/8 in an ACL describes a network, not a host)
+strong_markers() {
+    cat <<'PATTERNS'
+systemd-unit|^\[(Unit|Service|Timer|Install|Socket|Path|Mount)\]
+root-home|(^|[^[:alnum:]_/])/root/
+user-home|(^|[^[:alnum:]_/])/home/[a-z][a-z0-9_-]*/
+system-log|(^|[^[:alnum:]_/])/var/log/
+system-bin|(^|[^[:alnum:]_/])/usr/local/(bin|sbin)/
+systemd-dir|/etc/systemd/
+sudoers|/etc/sudoers
+runtime-uid|/run/user/[0-9]+
+private-ip|(^|[^0-9.])(192\.168|10\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9./]|$)
+PATTERNS
+}
+
+# Weak markers - two DISTINCT hits are needed. Alone each is too common to act
+# on: a README explaining "sudo apt install gitleaks" is documentation, while a
+# script that both sudos and drives systemctl is host operation.
+#
+# host-inventory covers the blind spot markers otherwise have: a script can be
+# entirely about THIS machine without naming a single absolute path, by asking
+# the machine about itself. nvidia-smi is deliberately absent - GPU scripts stay
+# in mora02 because the card is part of the system definition (ADR-025).
+weak_markers() {
+    cat <<'PATTERNS'
+sudo|(^|[^[:alnum:]_-])sudo[[:space:]]
+host-inventory|(^|[^[:alnum:]_-])(dmidecode|journalctl|lsblk|lsb_release|dpkg -l)([^[:alnum:]_-]|$)
+systemctl|(^|[^[:alnum:]_-])systemctl[[:space:]]
+etc-path|(^|[^[:alnum:]_/])/etc/[a-z]
+PATTERNS
+}
+
+# .boundaryignore entries must carry a reason on the same line:
+#   path/or/glob    # why this file is genuinely portable
+# An entry without a reason is not honoured. Without that rule the file becomes
+# the dumping ground the ADR warns about, and the guard quietly stops guarding.
+is_ignored() {
+    local file="$1" pattern reason line
+    [ -r "$IGNORE_FILE" ] || return 1
+    while IFS= read -r line; do
+        case "$line" in ''|'#'*) continue ;; esac
+        pattern="${line%%[[:space:]]*}"
+        reason="${line#"$pattern"}"
+        reason="${reason#"${reason%%[![:space:]]*}"}"
+        case "$reason" in
+            '#'*) reason="${reason#\#}" ;;
+            *)    continue ;;   # no reason given -> entry does not count
+        esac
+        [ -n "${reason//[[:space:]]/}" ] || continue
+        # shellcheck disable=SC2254  # the pattern is meant to glob
+        case "$file" in $pattern) IGNORE_REASON="${reason# }"; return 0 ;; esac
+    done < "$IGNORE_FILE"
+    return 1
+}
+
+added="$(git diff --cached --diff-filter=A --name-only)"
+[ -n "$added" ] || exit 0
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+refused=0
+notices=""
+report=""
+
+while IFS= read -r file; do
+    [ -n "$file" ] || continue
+
+    # Read the STAGED content, not the working tree - that is what gets committed.
+    git show ":$file" > "$tmp" 2>/dev/null || continue
+    grep -Iq . "$tmp" || continue          # binary, nothing to read
+
+    hits=""
+    weak_hits=""
+    sample=""
+
+    while IFS='|' read -r name pattern; do
+        [ -n "$name" ] || continue
+        if line="$(collapse_mounts < "$tmp" | grep -nEm1 "$pattern")"; then
+            hits="$hits $name"
+            [ -n "$sample" ] || sample="$line"
+        fi
+    done < <(strong_markers)
+
+    while IFS='|' read -r name pattern; do
+        [ -n "$name" ] || continue
+        if line="$(collapse_mounts < "$tmp" | grep -nEm1 "$pattern")"; then
+            weak_hits="$weak_hits $name"
+            [ -n "$sample" ] || sample="$line"
+        fi
+    done < <(weak_markers)
+
+    weak_count="$(printf '%s' "$weak_hits" | wc -w)"
+    if [ -z "$hits" ] && [ "$weak_count" -lt 2 ]; then
+        continue
+    fi
+
+    IGNORE_REASON=""
+    if is_ignored "$file"; then
+        notices="${notices}boundary-guard: exception honoured for $file
+    reason: $IGNORE_REASON
+"
+        continue
+    fi
+
+    refused=1
+    report="${report}  $file
+    markers:${hits}${weak_hits}
+    e.g. line ${sample%%:*}: $(printf '%s' "${sample#*:}" | cut -c1-100)
+"
+done <<< "$added"
+
+# Both lists are buffered rather than streamed, for two reasons: honoured
+# exceptions would otherwise be interleaved into the refusals, and - worse -
+# they used to be dropped entirely as soon as any other file was refused, which
+# is exactly the moment somebody needs to see which files got waved through.
+[ -n "$notices" ] && printf '%s\n' "$notices" >&2
+
+[ "$refused" -eq 0 ] && exit 0
+
+{
+    echo "boundary-guard: this commit adds files that look like host infrastructure."
+    echo ""
+    printf '%s\n' "$report"
+} >&2
+
+cat >&2 <<'EXPLAIN'
+mora02 is public. Before this file is committed here, answer three questions in
+order (ADR-025):
+
+  1. Secret test - does it carry a value that must not be public? Try moving the
+     value into docker/.env first. If that works, continue with question 2.
+  2. Clone test  - after a fresh clone on SOMEBODY ELSE'S machine, does the file
+     still make sense without anyone editing values inside it?
+     yes -> mora02          no -> mora02-host
+  3. Cycle test  - own product, own audience, own release rhythm? Own repository.
+
+  Divisible: a file with both natures gets SPLIT, not filed. The portable part
+  stays here, the machine-specific values go to docker/.env or to mora02-host.
+
+Three ways forward:
+
+  a) It belongs to the host    -> move it to /opt/mora02-host, add a manifest.tsv
+                                  row there, unstage it here (git restore --staged)
+  b) It is genuinely portable  -> add a line to .boundaryignore WITH a reason:
+                                     path/to/file    # why it passes the clone test
+  c) It is divisible           -> split it, then commit only the portable half
+
+Bypassing with --no-verify skips the credential scan too. Use a) or b) instead.
+EXPLAIN
+
+exit 1

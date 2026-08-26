@@ -1,4 +1,14 @@
 #!/bin/sh
+# Two-stage commit gate.
+#
+#   Stage 1  gitleaks      - the VALUE level: does this change carry a secret?
+#   Stage 2  boundary-guard - the ASSIGNMENT level: does this file belong in a
+#                             public application repository at all?
+#
+# They catch different failure classes. A systemd unit naming the NAS carries no
+# secret and passes stage 1 cleanly, yet publishes a map of this machine.
+#
+# ---------------------------------------------------------------- stage 1 ----
 # Refuse commits that carry credentials.
 #
 # Why this exists: in March 2026 a personal password plus the matching e-mail
@@ -26,5 +36,19 @@ if ! gitleaks protect --staged --redact --verbose; then
     echo "pre-commit: a credential was found in the staged changes - commit refused." >&2
     echo "            Move the value into docker/.env (or another file outside git)" >&2
     echo "            and reference it from the code instead." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------- stage 2 ----
+# Refuse commits that add host infrastructure to this public repository.
+# Runs only after stage 1 passes, so a file is never judged on assignment while
+# it still carries a secret. See .githooks/boundary-guard and .boundaryignore.
+
+HOOK_DIR=$(dirname "$0")
+if [ -x "$HOOK_DIR/boundary-guard" ]; then
+    "$HOOK_DIR/boundary-guard" || exit 1
+else
+    echo "pre-commit: boundary-guard missing or not executable - commit refused" >&2
+    echo "            rather than silently unchecked. Expected: $HOOK_DIR/boundary-guard" >&2
     exit 1
 fi
