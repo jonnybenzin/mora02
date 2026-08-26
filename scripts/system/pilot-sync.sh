@@ -95,9 +95,16 @@ fi
 OUT+="\n"
 
 # ── 5. BACKUP ──
-OUT+="## Backup\n"
-LAST_BACKUP=$(sudo borg list /home/jonnybenzin/synology-backup --last 1 --format '{name} {time}' 2>/dev/null || echo "unavailable")
-OUT+="Last: $LAST_BACKUP\n\n"
+# The Borg repository path belongs to this machine, not to the application, so
+# it comes from the environment (docker/.env: BORG_REPO) instead of standing
+# here. Unset means the section is skipped: a clone on another machine reports
+# no backup rather than failing against a path that does not exist there.
+# ADR-025, clone test - the file stays portable, the machine-specific value moves.
+if [ -n "${BORG_REPO:-}" ]; then
+    OUT+="## Backup\n"
+    LAST_BACKUP=$(sudo borg list "$BORG_REPO" --last 1 --format '{name} {time}' 2>/dev/null || echo "unavailable")
+    OUT+="Last: $LAST_BACKUP\n\n"
+fi
 
 # ── 6. CRONTABS ──
 CRONTAB_CONTENT=$(crontab -l 2>/dev/null | grep -v '^#' | grep -v '^$')
