@@ -10,7 +10,7 @@ services:
     container_name: llama-server
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - /opt/mora02/ai-models/llama-cpp:/models
     environment:
@@ -40,7 +40,7 @@ services:
     container_name: llama-server
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - /opt/mora02/ai-models/llama-cpp:/models
     environment:
@@ -70,7 +70,7 @@ services:
     container_name: llama-server
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - /opt/mora02/ai-models/llama-cpp:/models
     environment:
@@ -100,7 +100,7 @@ services:
     container_name: llama-server
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - /opt/mora02/ai-models/llama-cpp:/models
     environment:
@@ -130,7 +130,7 @@ services:
     container_name: llama-server
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - /opt/mora02/ai-models/llama-cpp:/models
     environment:
@@ -160,7 +160,7 @@ services:
     container_name: llama-server
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - /opt/mora02/ai-models/llama-cpp:/models
     environment:
@@ -193,7 +193,7 @@ services:
     restart: unless-stopped
     user: "1000:1000"
     ports:
-      - "8188:8188"
+      - "127.0.0.1:8188:8188"
     environment:
       - CLI_ARGS=--listen 0.0.0.0 --port 8188 --normalvram --reserve-vram 1.0 --preview-method none
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -225,7 +225,7 @@ services:
     container_name: activepieces
     restart: unless-stopped
     ports:
-      - "8089:80"
+      - "127.0.0.1:8089:80"
     volumes:
       - /opt/mora02/docker/activepieces/.activepieces:/root/.activepieces
       - /opt/mora02/output:/opt/mora02/output
@@ -282,7 +282,7 @@ services:
     container_name: postgres-dify-new
     restart: unless-stopped
     ports:
-      - "5433:5432" 
+      - "127.0.0.1:5433:5432" 
     environment:
       POSTGRES_USER: dify
       POSTGRES_PASSWORD: ${POSTGRES_DIFY_PASSWORD}
@@ -374,7 +374,7 @@ services:
       PLUGIN_STORAGE_TYPE: local
       PLUGIN_STORAGE_LOCAL_ROOT: /app/storage
     ports:
-      - "5003:5003"
+      - "127.0.0.1:5003:5003"
     volumes:
       - /opt/mora02/volumes/dify-new/plugin_daemon:/app/storage
     depends_on:
@@ -389,7 +389,7 @@ services:
     container_name: dify-api-new
     restart: unless-stopped
     ports:
-      - "8191:5001"
+      - "127.0.0.1:8191:5001"
     environment:
       MODE: api
       LOG_LEVEL: INFO
@@ -516,7 +516,7 @@ services:
     container_name: dify-web-new
     restart: unless-stopped
     ports:
-      - "8190:3000"
+      - "127.0.0.1:8190:3000"
     environment:
       EDITION: SELF_HOSTED
       CONSOLE_API_URL: http://mora02.local:8191
@@ -645,7 +645,7 @@ services:
     container_name: penpot-frontend
     restart: unless-stopped
     ports:
-      - "8101:8080"
+      - "127.0.0.1:8101:8080"
     volumes:
       - /opt/mora02/volumes/penpot-assets:/opt/data/assets
     environment:
@@ -668,7 +668,7 @@ services:
     container_name: excalidraw-room
     restart: unless-stopped
     ports:
-      - "8103:80"
+      - "127.0.0.1:8103:80"
     networks:
       - mora02-net
 
@@ -677,7 +677,7 @@ services:
     container_name: excalidraw
     restart: unless-stopped
     ports:
-      - "8102:80"
+      - "127.0.0.1:8102:80"
     environment:
       - REACT_APP_WS_SERVER_URL=ws://mora02.local:8103
       - REACT_APP_HTTP_STORAGE_BACKEND_URL=http://excalidraw-room:80
@@ -726,7 +726,7 @@ services:
     container_name: searxng
     restart: unless-stopped
     ports:
-      - "8094:8080"
+      - "127.0.0.1:8094:8080"
     volumes:
       - /opt/mora02/docker/searxng:/etc/searxng
     environment:
@@ -747,7 +747,7 @@ services:
     container_name: script-runner
     restart: unless-stopped
     ports:
-      - "8096:8096"
+      - "127.0.0.1:8096:8096"
     volumes:
       # Data directory for wip and final outputs
       - /opt/mora02/output/_default/script-bot:/data
@@ -802,7 +802,7 @@ services:
     container_name: blender-worker
     restart: unless-stopped
     ports:
-      - "8097:8097"
+      - "127.0.0.1:8097:8097"
     volumes:
       - /opt/mora02/output/_default/pixeltext:/output
       - /opt/mora02/apps/blender-worker/scripts:/scripts:ro
@@ -838,7 +838,7 @@ services:
     volumes:
       - /opt/mora02/volumes/ollama:/root/.ollama
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     deploy:
       resources:
         reservations:
@@ -858,7 +858,7 @@ services:
     container_name: kokoro-tts
     restart: unless-stopped
     ports:
-      - "8106:8880"
+      - "127.0.0.1:8106:8880"
     networks:
       - mora02-net
     healthcheck:
@@ -874,7 +874,7 @@ services:
     container_name: chatterbox-tts
     restart: "no"
     ports:
-      - "8108:4123"
+      - "127.0.0.1:8108:4123"
     environment:
       - DEVICE=cuda
       - EXAGGERATION=0.5
@@ -908,7 +908,7 @@ services:
     container_name: piper-tts
     restart: unless-stopped
     ports:
-      - "8107:8107"
+      - "127.0.0.1:8107:8107"
     volumes:
       - /opt/mora02/ai-models/piper:/models:ro
     networks:
@@ -976,7 +976,7 @@ services:
     container_name: mora02-signal-cli
     restart: unless-stopped
     ports:
-      - "8099:8080"          # host 8099 -> REST API 8080 (Phase-0 port)
+      - "127.0.0.1:8099:8080"          # host 8099 -> REST API 8080 (Phase-0 port)
     environment:
       - MODE=json-rpc        # persistent json-rpc daemon (validated in Phase 0)
       - TZ=Europe/Berlin
