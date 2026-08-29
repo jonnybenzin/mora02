@@ -24,6 +24,8 @@ from pydantic import BaseModel
 
 from mora02_core import auth
 from mora02_core import assets as asset_refs
+from mora02_core import pricing
+from mora02_core.llm import models as llm_models
 from mora02_core._common import get_logger
 from mora02_core.db import api as db_api
 from mora02_core.comfyui import (
@@ -2765,6 +2767,143 @@ if _wired_names != _handler_names:
         sorted(_handler_names - _wired_names),
         sorted(_wired_names - _handler_names),
     )
+
+
+# ---------------------------------------------------------------------------
+# What the vocabulary COSTS in practice - measured, not declared.
+#
+# vocab.py states what cannot be measured: where an op runs, whether money moves,
+# whether it can be undone. Everything else a human wants before putting an op in
+# a loop - how long it really takes, when it last worked, what it has actually
+# cost - is in the run log, and a number typed into a table by hand ages into a
+# lie. So it is read back out of what really happened.
+# ---------------------------------------------------------------------------
+
+_VOCAB_STATS_CACHE: dict = {"signature": None, "payload": None}
+
+
+def _spec_op_usage() -> dict:
+    """op name -> [flow names that use it], read from the saved library."""
+    usage: dict[str, list] = {}
+    specs = Path(_PIPELINE_SPECS_DIR)
+    if not specs.is_dir():
+        return usage
+    for path in sorted(specs.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for raw in data.get("steps") or []:
+            if isinstance(raw, dict) and len(raw) == 1:
+                op = next(iter(raw))
+                if op not in ("gate", "review"):
+                    usage.setdefault(op, []).append(path.stem)
+    return usage
+
+
+def _median(values: list) -> Optional[int]:
+    if not values:
+        return None
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return int(ordered[middle])
+    return int((ordered[middle - 1] + ordered[middle]) / 2)
+
+
+@app.get("/pipeline/vocab-stats")
+async def pipeline_vocab_stats(window_days: int = 30):
+    """Per-op reality: how often, how long, how much, when last, where it lands.
+
+    Read from the run logs on every call (cached against the directory's state),
+    so it cannot drift from what the machine actually did.
+    """
+    log_dir = Path(pipeline_runlog.log_dir())
+    files = sorted(log_dir.glob("*.jsonl")) if log_dir.is_dir() else []
+    signature = (len(files), max((f.stat().st_mtime for f in files), default=0), window_days)
+    if _VOCAB_STATS_CACHE["signature"] == signature:
+        return _VOCAB_STATS_CACHE["payload"]
+
+    cutoff = time.time() - window_days * 86400
+    stats: dict = {}
+    scanned = 0
+    for path in files:
+        scanned += 1
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a half-written line must not cost the whole answer
+            if event.get("kind") != "step":
+                continue
+            op = event.get("op")
+            if not op:
+                continue
+            entry = stats.setdefault(op, {"runs": 0, "ok": 0, "failed": 0, "last_ok": None,
+                                          "durations": [], "spend_usd": 0.0, "stores": []})
+            entry["runs"] += 1
+            status = event.get("status")
+            if status == "ok":
+                entry["ok"] += 1
+                ts = event.get("ts")
+                if ts and (entry["last_ok"] is None or ts > entry["last_ok"]):
+                    entry["last_ok"] = ts
+                if isinstance(event.get("duration_ms"), (int, float)):
+                    entry["durations"].append(event["duration_ms"])
+                out = event.get("out")
+                if isinstance(out, str) and out.startswith("asset://"):
+                    store = out[len("asset://"):].split("/", 1)[0]
+                    if store and store not in entry["stores"]:
+                        entry["stores"].append(store)
+            elif status == "failed":
+                entry["failed"] += 1
+            cost = event.get("cost_usd")
+            if isinstance(cost, (int, float)):
+                stamp = event.get("ts") or ""
+                # Cheap window check: the log stamps are ISO, so a string compare
+                # against the cutoff's ISO form is enough and needs no parsing.
+                if not stamp or stamp >= datetime.fromtimestamp(cutoff, timezone.utc).isoformat():
+                    entry["spend_usd"] += float(cost)
+
+    usage = _spec_op_usage()
+    ops_out = {}
+    for op, entry in stats.items():
+        ops_out[op] = {
+            "runs": entry["runs"],
+            "ok": entry["ok"],
+            "failed": entry["failed"],
+            "last_ok": entry["last_ok"],
+            "median_ms": _median(entry["durations"]),
+            "spend_eur": pricing.to_eur(entry["spend_usd"]) if entry["spend_usd"] else 0.0,
+            "stores": entry["stores"],
+            "used_by": usage.get(op, []),
+        }
+    for op, flows in usage.items():
+        ops_out.setdefault(op, {"runs": 0, "ok": 0, "failed": 0, "last_ok": None,
+                                "median_ms": None, "spend_eur": 0.0, "stores": [],
+                                "used_by": flows})
+
+    payload = {
+        "window_days": window_days,
+        "scanned_runs": scanned,
+        "rate": {"usd_eur": pricing.usd_eur(), "date": pricing.RATE_DATE,
+                 "note": pricing.rate_note()},
+        "models": [
+            {"key": key,
+             "name": cfg.get("name"),
+             "in_eur_per_1m": pricing.to_eur(cfg.get("cost_input_per_1m")),
+             "out_eur_per_1m": pricing.to_eur(cfg.get("cost_output_per_1m"))}
+            for key, cfg in llm_models.MODELS.items()
+            if cfg.get("cost_input_per_1m")
+        ],
+        "ops": ops_out,
+    }
+    _VOCAB_STATS_CACHE.update(signature=signature, payload=payload)
+    return payload
 
 
 @app.get("/pipeline/ops")

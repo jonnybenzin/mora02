@@ -65,6 +65,21 @@ _CONSUMES = ("none", "one", "many")
 # Spec gathering
 # --------------------------------------------------------------------------- #
 
+_RUNS_ON = ("local-gpu", "local-cpu", "local-service", "cloud", "gateway")
+_COST = ("free", "paid", "mixed")
+_EFFECT = ("none", "writes", "outward")
+
+
+def _ask_list(prompt: str) -> list[str]:
+    """Collect zero or more short lines; a blank answer ends the list."""
+    out: list[str] = []
+    while True:
+        val = input(f"{prompt} (blank = done): ").strip()
+        if not val:
+            return out
+        out.append(val)
+
+
 def _ask(prompt: str, default: str = "", choices: tuple[str, ...] | None = None) -> str:
     hint = f" [{default}]" if default else ""
     if choices:
@@ -87,6 +102,19 @@ def interview() -> dict:
     # the very places a human meets it.
     spec["plain"] = _ask("plain-language line (what it does, for a non-programmer)")
     spec["bucket"] = _ask("bucket (service family)", default=spec["name"].split(".")[0])
+
+    # What the VOKABULAR table needs and nothing can measure: where the work
+    # happens, whether money moves, whether it can be undone. Asked here because
+    # an op added without them leaves a hole in that table, and a table with
+    # holes stops being consulted.
+    spec["runs_on"] = _ask("runs on", default="local-cpu", choices=_RUNS_ON)
+    spec["service"] = _ask("service behind it (e.g. 'ComfyUI', 'Anthropic API')")
+    spec["cost"] = _ask("costs money?", default="free", choices=_COST)
+    if spec["cost"] != "free":
+        spec["cost_note"] = _ask("  what exactly is billed (in EUR)")
+    spec["effect"] = _ask("side effect", default="none", choices=_EFFECT)
+    spec["caveats"] = [c for c in _ask_list("caveat (what surprises people)")]
+    spec["requires"] = [r for r in _ask_list("requirement (service that must run, key that must be set)")]
     spec["consumes"] = _ask("consumes (stdin cardinality)", default="none", choices=_CONSUMES)
     if spec["consumes"] != "none":
         spec["consumes_optional"] = _ask("stdin optional?", default="no", choices=("yes", "no")) == "yes"
@@ -155,6 +183,20 @@ def render_op(spec: dict) -> str:
     lines.append(f"        summary={_s(spec['summary'])},")
     lines.append(f"        plain={_s(spec['plain'])},")
     lines.append(f"        bucket={_s(spec.get('bucket', ''))},")
+    lines.append(f"        runs_on={_s(spec.get('runs_on', ''))},")
+    lines.append(f"        service={_s(spec.get('service', ''))},")
+    if spec.get("cost", "free") != "free":
+        lines.append(f"        cost={_s(spec['cost'])},")
+        if spec.get("cost_note"):
+            lines.append(f"        cost_note={_s(spec['cost_note'])},")
+    if spec.get("effect", "none") != "none":
+        lines.append(f"        effect={_s(spec['effect'])},")
+    for field in ("caveats", "requires"):
+        items = [i for i in (spec.get(field) or []) if i]
+        if items:
+            lines.append(f"        {field}=(")
+            lines += [f"            {_s(i)}," for i in items]
+            lines.append("        ),")
     lines.append('        status="planned",')
     params = spec.get("params") or []
     if params:

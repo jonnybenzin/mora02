@@ -18,6 +18,7 @@ var wikiTabs = [
   { id: 'glossar', label: 'GLOSSAR', kind: 'sections', path: 'glossar.md' },
   { id: 'bash',    label: 'BASH',    kind: 'sections', path: 'bash.md' },
   { id: 'adr',     label: 'ADR',     kind: 'files',    path: 'adrs/' },
+  { id: 'vocab',   label: 'VOKABULAR', kind: 'table' },
   { id: 'xray',    label: 'X-RAY',   kind: 'iframe' }
 ];
 
@@ -51,6 +52,8 @@ async function initWiki() {
 }
 
 function wikiOnSearchInput() {
+  var value = (document.getElementById('wiki-search') || {}).value || '';
+  if (wikiActive === 'vocab') { vocabOnSearch(value); return; }
   wikiUpdateCount();
   wikiRenderList();
 }
@@ -92,13 +95,26 @@ async function wikiLoadTab(tabId) {
     return;
   }
 
+  /* VOKABULAR renders its own table into the list area: it is not a pile of
+     documents but one live view, fed from /pipeline/ops rather than from a file. */
+  if (tab.kind === 'table') {
+    wikiHideDoc();
+    wikiHideXray();
+    var vs = document.getElementById('wiki-search');
+    if (vs) { vs.style.display = ''; vs.placeholder = 'Vokabel, Zweck oder Dienst suchen…'; }
+    var vc = document.getElementById('wiki-count');
+    if (vc) vc.textContent = '';
+    await vocabShow();
+    return;
+  }
+
   /* Reset to nav view */
   wikiHideDoc();
   wikiHideXray();
 
   /* Hide search field for X-Ray-only tabs, show otherwise */
   var search = document.getElementById('wiki-search');
-  if (search) search.style.display = '';
+  if (search) { search.style.display = ''; search.placeholder = 'Filter by filename...'; }
 
   /* Load entries (cached) */
   if (!wikiCache[tabId]) {

@@ -148,7 +148,30 @@ def render() -> str:
                 f"\n- **Consumes (stdin):** {consumes} ({d['input_type']})  "
                 f"\n- **Emits (stdout):** {d['output_type']}"
             )
+            # What it costs a human to use. Duration and actual spend are NOT here:
+            # those are measured from the run log and shown live in the VOKABULAR
+            # tab, because a number typed into a document ages into a lie.
+            facts = []
+            if d.get("runs_on"):
+                facts.append(f"- **Runs on:** {d['runs_on']}"
+                             + (f" — {d['service']}" if d.get("service") else ""))
+            money = {"free": "free", "paid": "**costs money**",
+                     "mixed": "**depends on the flow**"}.get(d.get("cost", "free"), d.get("cost"))
+            facts.append("- **Money:** " + money
+                         + (f" — {d['cost_note']}" if d.get("cost_note") else ""))
+            if d.get("effect", "none") != "none":
+                effect = {"writes": "writes to a store",
+                          "outward": "**leaves the house** — visible outside this machine"}
+                facts.append("- **Side effect:** " + effect.get(d["effect"], d["effect"]))
+            if d.get("requires"):
+                facts.append("- **Needs:** " + "; ".join(d["requires"]))
+            L.append("  \n".join(facts))
             L.append("")
+            if d.get("caveats"):
+                L.append("**Worth knowing:**")
+                for c in d["caveats"]:
+                    L.append(f"- {c}")
+                L.append("")
             if d["params"]:
                 L.append("| Param | Type | Required | Default | Description |")
                 L.append("|-------|------|----------|---------|-------------|")

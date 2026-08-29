@@ -93,7 +93,7 @@ The step *ops* a mora02 pipeline is built from, grouped by kind. Each op has a p
 
 | Op | What it does | Status |
 |----|--------------|--------|
-| [`data.pick`](#datapick) | Greift einen einzelnen Wert aus dem Ergebnis eines früheren Schritts heraus — etwa die Adresse des ersten Suchtreffers. | 🟢 |
+| [`data.pick`](#datapick) | Picks a single value out of an earlier step's result — the address of the first search hit, say. | 🟢 |
 
 ### Web & stock
 
@@ -130,6 +130,11 @@ Grabs a file that already exists (e.g. the latest image ComfyUI made) and hands 
 - **Default step id:** `source`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** image
+- **Runs on:** local-cpu — the asset stores  
+- **Money:** free
+
+**Worth knowing:**
+- pick=latest looks at image files only.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -148,6 +153,13 @@ Makes a brand-new picture from a text description.
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** image
+- **Runs on:** local-gpu — ComfyUI  
+- **Money:** **depends on the flow** — sd15/photo/concept/epic/flux run locally and cost nothing. Paid, per image, at the rate below: nanban (Nano Banana 2, Google) ~0,058 € at 1K and 0,039-0,130 € depending on resolution; nanban-pro (Nano Banana, Google) ~0,034 €; flux-ultra (FLUX 1.1 Pro Ultra via fal.ai) ~0,052 €. List prices looked up 2026-08-29.  
+- **Needs:** ComfyUI running; GOOGLE_API_KEY / FAL_KEY for the paid flows
+
+**Worth knowing:**
+- Which flow you pick decides both the look and whether it costs money.
+- The labels are the wrong way round: nanban runs Nano Banana 2, while nanban-pro runs the older Nano Banana.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -166,6 +178,9 @@ Enlarges a picture and sharpens it, without making it blurry.
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (image)  
 - **Emits (stdout):** image
+- **Runs on:** local-gpu — ComfyUI  
+- **Money:** free  
+- **Needs:** ComfyUI running
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -183,6 +198,12 @@ Extends a picture beyond its edges, inventing more scenery around it (outpaintin
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (image)  
 - **Emits (stdout):** image
+- **Runs on:** local-gpu — ComfyUI  
+- **Money:** free  
+- **Needs:** ComfyUI running
+
+**Worth knowing:**
+- The slowest of the image ops by a wide margin — check the measured time before putting it in a loop.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -200,6 +221,9 @@ Changes a picture you already have — e.g. put a blue hat on the rabbit — ins
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (image)  
 - **Emits (stdout):** image
+- **Runs on:** cloud — ComfyUI → Gemini image models  
+- **Money:** **costs money** — Per image, by the flow it uses. The default nanban (Nano Banana 2) is ~0,058 € at 1K, 0,039-0,130 € depending on resolution; nanban-pro ~0,034 €. List prices looked up 2026-08-29.  
+- **Needs:** ComfyUI running; GOOGLE_API_KEY
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -217,6 +241,9 @@ Frees the main subject from its background and hands on a picture with a see-thr
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (image)  
 - **Emits (stdout):** image
+- **Runs on:** local-gpu — ComfyUI  
+- **Money:** free  
+- **Needs:** ComfyUI running
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -232,6 +259,12 @@ Takes the main subject out of a picture and paints the background back in where 
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (image)  
 - **Emits (stdout):** image
+- **Runs on:** local-gpu — ComfyUI  
+- **Money:** free  
+- **Needs:** ComfyUI running
+
+**Worth knowing:**
+- Needs a recognisable subject; on an empty scene it has nothing to remove.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -250,6 +283,12 @@ Sharpens the faces in a picture — useful when people stand far enough away tha
 - **Default step id:** `image`  
 - **Consumes (stdin):** one (image)  
 - **Emits (stdout):** image
+- **Runs on:** local-gpu — ComfyUI  
+- **Money:** free  
+- **Needs:** ComfyUI running
+
+**Worth knowing:**
+- Touches faces only; the rest of the picture is left alone.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -269,6 +308,13 @@ Turns a prompt (or a still image) into a short moving video clip.
 - **Default step id:** `video`  
 - **Consumes (stdin):** one (optional) (any)  
 - **Emits (stdout):** video
+- **Runs on:** local-gpu — ComfyUI (WAN 2.2)  
+- **Money:** free  
+- **Needs:** ComfyUI running
+
+**Worth knowing:**
+- Minutes per clip — with pixeltext.render the heaviest op in the vocabulary.
+- Three modes: t2v, i2v and start+end frame.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -289,6 +335,11 @@ Grabs the final still frame of a video, handy to keep a scene going into the nex
 - **Default step id:** `video`  
 - **Consumes (stdin):** one (video)  
 - **Emits (stdout):** image
+- **Runs on:** local-cpu — ffmpeg  
+- **Money:** free
+
+**Worth knowing:**
+- The way to chain i2v videos into one another.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -305,6 +356,12 @@ Renders your word(s) as chunky 3D pixel-cube typography, as a short animated vid
 - **Default step id:** `pixeltext`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** video
+- **Runs on:** local-gpu — Blender PixelText worker  
+- **Money:** free  
+- **Needs:** the Blender worker container
+
+**Worth knowing:**
+- Minutes per render — one of the two slowest ops.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -330,6 +387,11 @@ Stitches several videos together into one clip, optionally laying a music track 
 - **Default step id:** `clip`  
 - **Consumes (stdin):** many (any)  
 - **Emits (stdout):** video
+- **Runs on:** local-cpu — ffmpeg  
+- **Money:** free
+
+**Worth knowing:**
+- Takes images and videos in the same list; the order follows the list, not the ids.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -348,6 +410,8 @@ Writes text onto a colored background as a simple image card.
 - **Default step id:** `text`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** image
+- **Runs on:** local-cpu — Pillow  
+- **Money:** free
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -367,6 +431,8 @@ Turns several images into one looping animated GIF.
 - **Default step id:** `gif`  
 - **Consumes (stdin):** many (image)  
 - **Emits (stdout):** video
+- **Runs on:** local-cpu — ffmpeg / Pillow  
+- **Money:** free
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -385,6 +451,11 @@ Reads text out loud and saves it as an audio file (text-to-speech).
 - **Default step id:** `tts`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** audio
+- **Runs on:** local-cpu — piper / kokoro / chatterbox  
+- **Money:** free
+
+**Worth knowing:**
+- The voice list depends on the engine; an empty voice picks one by language.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -404,6 +475,12 @@ Composes an original piece of music from a description (mood, tempo, optional ly
 - **Default step id:** `music`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** audio
+- **Runs on:** local-gpu — ComfyUI (music flow)  
+- **Money:** free  
+- **Needs:** ComfyUI running
+
+**Worth knowing:**
+- Style tags carry further than full sentences; lyrics are optional.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -434,6 +511,12 @@ Takes a short idea and expands it into a rich, detailed prompt for image generat
 - **Default step id:** `llm`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-gpu — llama.cpp (local qwen)  
+- **Money:** free  
+- **Needs:** llama-server running — llm.switch names the active profile
+
+**Worth knowing:**
+- Writes the prompt, it does not draw — chain image.generate after it.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -448,6 +531,12 @@ Asks the local AI to write or answer something freely.
 - **Default step id:** `llm`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-gpu — llama.cpp (local qwen)  
+- **Money:** free  
+- **Needs:** llama-server running — llm.switch names the active profile
+
+**Worth knowing:**
+- No length limit by default; a cut answer is flagged as truncated in the run log.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -465,6 +554,9 @@ Shortens a long text down to its key points.
 - **Default step id:** `llm`  
 - **Consumes (stdin):** one (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-gpu — llama.cpp (local qwen)  
+- **Money:** free  
+- **Needs:** llama-server running — llm.switch names the active profile
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -479,6 +571,13 @@ Sorts a text into one of a set of labels you provide.
 - **Default step id:** `llm`  
 - **Consumes (stdin):** one (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-gpu — llama.cpp (local qwen)  
+- **Money:** free  
+- **Needs:** llama-server running — llm.switch names the active profile
+
+**Worth knowing:**
+- Refuses an answer that is none of the labels — llm.complete is the op for free-form text.
+- Handed its predecessor's own label as text, the model tends to echo that instead of choosing.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -493,6 +592,12 @@ Pulls specific facts (e.g. name, date, price) out of a text.
 - **Default step id:** `llm`  
 - **Consumes (stdin):** one (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-gpu — llama.cpp (local qwen)  
+- **Money:** free  
+- **Needs:** llama-server running — llm.switch names the active profile
+
+**Worth knowing:**
+- Returns JSON — chain data.pick to get a single field out of it.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -507,6 +612,9 @@ Translates text into another language.
 - **Default step id:** `llm`  
 - **Consumes (stdin):** one (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-gpu — llama.cpp (local qwen)  
+- **Money:** free  
+- **Needs:** llama-server running — llm.switch names the active profile
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -522,6 +630,14 @@ Swaps which local AI model is running (a bigger or smaller brain), then continue
 - **Default step id:** `llm`  
 - **Consumes (stdin):** one (optional) (any)  
 - **Emits (stdout):** any
+- **Runs on:** local-service — llama.cpp profile switcher  
+- **Money:** free  
+- **Side effect:** writes to a store  
+- **Needs:** the profile watcher on the host (/opt/mora02/llm-switch)
+
+**Worth knowing:**
+- Takes the local model down for about a minute; no llm.* op can answer meanwhile.
+- Passes its input through unchanged, so the chain continues.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -538,6 +654,13 @@ Asks a cloud AI (Claude) to write or answer something, for the few tasks the loc
 - **Default step id:** `cloud`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
+- **Runs on:** cloud — Anthropic API (Claude)  
+- **Money:** **costs money** — Per token, and the rate differs by model — the price list is shown with the op.  
+- **Needs:** ANTHROPIC_API_KEY
+
+**Worth knowing:**
+- No temperature — the current models removed the sampling parameters.
+- Answers are capped at 16000 tokens; a cut answer is flagged.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -555,6 +678,13 @@ Shows a cloud AI (Claude) an image and asks it to describe or analyze it.
 - **Default step id:** `cloud`  
 - **Consumes (stdin):** one (image)  
 - **Emits (stdout):** text
+- **Runs on:** cloud — Anthropic API (Claude)  
+- **Money:** **costs money** — Per token, and the rate differs by model — the price list is shown with the op.  
+- **Needs:** ANTHROPIC_API_KEY
+
+**Worth knowing:**
+- The answer is capped at 1024 tokens.
+- Its parameter is called query, while cloud.complete calls it prompt.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -573,6 +703,9 @@ Looks up rows in a table that match a filter.
 - **Default step id:** `db`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** text
+- **Runs on:** local-service — Baserow  
+- **Money:** free  
+- **Needs:** Baserow running; BASEROW_TOKEN
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -590,6 +723,9 @@ Fetches one specific row from a table by its id.
 - **Default step id:** `db`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** text
+- **Runs on:** local-service — Baserow  
+- **Money:** free  
+- **Needs:** Baserow running; BASEROW_TOKEN
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -605,6 +741,13 @@ Adds a new row to a table.
 - **Default step id:** `db`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-service — Baserow  
+- **Money:** free  
+- **Side effect:** writes to a store  
+- **Needs:** Baserow running; BASEROW_TOKEN
+
+**Worth knowing:**
+- Field values arrive as JSON — chain data.pick when they have to be built from an earlier step.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -620,6 +763,10 @@ Changes fields on an existing row.
 - **Default step id:** `db`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-service — Baserow  
+- **Money:** free  
+- **Side effect:** writes to a store  
+- **Needs:** Baserow running; BASEROW_TOKEN
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -636,6 +783,13 @@ Removes a row from a table.
 - **Default step id:** `db`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** text
+- **Runs on:** local-service — Baserow  
+- **Money:** free  
+- **Side effect:** writes to a store  
+- **Needs:** Baserow running; BASEROW_TOKEN
+
+**Worth knowing:**
+- Deletes without asking; the pipeline has no undo.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -651,6 +805,9 @@ Lists the columns (fields) a table has.
 - **Default step id:** `db`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** text
+- **Runs on:** local-service — Baserow  
+- **Money:** free  
+- **Needs:** Baserow running; BASEROW_TOKEN
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -660,13 +817,19 @@ Lists the columns (fields) a table has.
 
 #### `data.pick` 🟢
 
-Greift einen einzelnen Wert aus dem Ergebnis eines früheren Schritts heraus — etwa die Adresse des ersten Suchtreffers.
+Picks a single value out of an earlier step's result — the address of the first search hit, say.
 
 *Technical:* Take one value out of an earlier step's JSON (dotted path, list indices as numbers). The joint between ops that emit a structure and ops that want single values.
 
 - **Default step id:** `data`  
 - **Consumes (stdin):** one (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-cpu — in-process  
+- **Money:** free
+
+**Worth knowing:**
+- A missing path is an error unless `default` is set — an empty value would travel on unnoticed.
+- A scalar travels on as itself, a branch as JSON.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -684,6 +847,9 @@ Searches the web (via your local SearXNG) and returns the hits.
 - **Default step id:** `web`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
+- **Runs on:** local-service — SearXNG  
+- **Money:** free  
+- **Needs:** SearXNG running
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -699,6 +865,11 @@ Downloads a web page and strips it down to plain readable text.
 - **Default step id:** `web`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
+- **Runs on:** cloud — the open web  
+- **Money:** free
+
+**Worth knowing:**
+- Cuts at max_chars (20000 by default) and reports the true length.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -714,6 +885,9 @@ Searches stock-photo sites (Pexels/Pixabay) for pictures matching a query.
 - **Default step id:** `stock`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
+- **Runs on:** cloud — Pexels / Pixabay  
+- **Money:** free  
+- **Needs:** PEXELS_API_KEY / PIXABAY_API_KEY
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -731,6 +905,12 @@ Downloads a chosen stock photo into your library so later steps can use it.
 - **Default step id:** `stock`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** image
+- **Runs on:** cloud — Pexels / Pixabay  
+- **Money:** free  
+- **Needs:** PEXELS_API_KEY / PIXABAY_API_KEY
+
+**Worth knowing:**
+- Takes no stdin: chain stock.search → data.pick → this op.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -749,6 +929,14 @@ Posts text (and optionally an image) to LinkedIn and returns the post link.
 - **Default step id:** `publish`  
 - **Consumes (stdin):** one (optional) (any)  
 - **Emits (stdout):** text
+- **Runs on:** cloud — LinkedIn UGC API  
+- **Money:** free  
+- **Side effect:** **leaves the house** — visible outside this machine  
+- **Needs:** MORA02_LINKEDIN_TOKEN (expires after about 60 days); MORA02_LINKEDIN_AUTHOR
+
+**Worth knowing:**
+- Publishes publicly, and nothing here can take it back.
+- An asset ref on stdin becomes an image post; any other value becomes the text.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -767,6 +955,14 @@ Sends an image to your phone chat so you can look at it, then passes it along un
 - **Default step id:** `notify`  
 - **Consumes (stdin):** one (image)  
 - **Emits (stdout):** image
+- **Runs on:** gateway — OpenClaw gateway → Signal  
+- **Money:** free  
+- **Side effect:** **leaves the house** — visible outside this machine  
+- **Needs:** the OpenClaw gateway container; MORA02_SIGNAL_TARGET, unless ?target= is given
+
+**Worth knowing:**
+- Superseded by notify, which handles any media type.
+- Same two-message behaviour for the caption.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -783,6 +979,14 @@ Sends the previous step's result (image/video/text) to a chat without pausing, j
 - **Default step id:** `notify`  
 - **Consumes (stdin):** one (optional) (any)  
 - **Emits (stdout):** any
+- **Runs on:** gateway — OpenClaw gateway → Signal  
+- **Money:** free  
+- **Side effect:** **leaves the house** — visible outside this machine  
+- **Needs:** the OpenClaw gateway container; MORA02_SIGNAL_TARGET, unless ?target= is given
+
+**Worth knowing:**
+- An image with a caption goes as TWO messages: the picture, then the words. The gateway cuts a caption sent with media down to its first character.
+- Passes its input through unchanged, so the chain continues.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|

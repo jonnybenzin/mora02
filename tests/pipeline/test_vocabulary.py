@@ -26,7 +26,9 @@ Usage:
     python3 tests/pipeline/test_vocabulary.py --tier 1,2,3
 
 Environment: SCRIPT_RUNNER_URL, MORA02_PIPELINE_LOG_DIR, MORA02_TEST_TABLE
-(a Baserow table id used for db reads; defaults to the feedback table).
+(a SCRATCH Baserow table — the db ops create, change and delete a row in it, so
+never point it at a live table. Unset means the db ops report themselves as not
+run, with the reason.)
 """
 
 from __future__ import annotations
@@ -150,6 +152,39 @@ def check(op: str, tier: int, steps: list, out_type: str, timeout: int = 900) ->
         ok = isinstance(out, str) and out.strip() != ""
         detail = f"{took}s -> {out[:56]!r}" if ok else "empty output"
     record("PASS" if ok else "FAIL", f"[{tier}] {op}", detail)
+
+
+def audit_facts() -> None:
+    """Every wired op must carry what the VOKABULAR table cannot measure.
+
+    Duration, spend and last-use come from the run log. Where an op runs, what
+    it is built on, whether money moves and whether it can be undone cannot be
+    derived from anything - they have to be stated. An op added without them
+    leaves a hole in the table, and a table with holes stops being consulted,
+    which is a slower and more expensive failure than a red test.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib/mora02_core/src"))
+    try:
+        from mora02_core.pipeline import vocab
+    except ImportError as e:
+        record("FAIL", "vocabulary facts", f"cannot import the vocabulary: {e}")
+        return
+
+    gaps = []
+    for op in vocab.all_ops():
+        if op.status != "wired":
+            continue
+        missing = [f for f in ("runs_on", "service") if not getattr(op, f, "")]
+        if op.cost in ("paid", "mixed") and not op.cost_note:
+            missing.append("cost_note (it costs money, so say what is billed)")
+        if missing:
+            gaps.append(f"{op.name}: {', '.join(missing)}")
+    if gaps:
+        record("FAIL", "every wired op states its facts",
+               f"{len(gaps)} incomplete: {'; '.join(gaps[:3])}")
+    else:
+        record("PASS", "every wired op states its facts",
+               f"{len(vocab.wired_op_names())} ops carry runs_on, service and a price note")
 
 
 def tier1() -> None:
@@ -353,6 +388,7 @@ def main() -> int:
         print("say which tiers to run, e.g. --tier 1  (see the docstring for costs)")
         return 2
 
+    audit_facts()   # needs no services, so it runs whatever tier was asked for
     if 1 in tiers:
         tier1()
     if 2 in tiers:

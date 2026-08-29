@@ -67,6 +67,21 @@ class Op:
     status: str = "wired"
     bucket: str = ""  # service family for grouping in docs / front-ends
 
+    # ---- what it costs a human to use ------------------------------------
+    # Written for the VOKABULAR table in the Pilot wiki, where someone decides
+    # whether to put an op in a loop, in a nightly job, or in front of an
+    # audience. Duration and actual spend are NOT here: those are measured from
+    # the run log rather than declared, because a number somebody typed once
+    # ages into a lie. What is declared here is what cannot be measured -
+    # where the work happens, whether money moves, and whether it can be undone.
+    runs_on: str = ""       # local-gpu | local-cpu | local-service | cloud | gateway
+    service: str = ""       # the backend behind it: "ComfyUI (SDXL)", "Anthropic API", …
+    cost: str = "free"      # free | paid | mixed (mixed: depends on the chosen flow)
+    cost_note: str = ""     # list price in EUR, or what makes it "mixed"
+    effect: str = "none"    # none | writes | outward (outward = leaves the house)
+    caveats: tuple[str, ...] = ()   # what surprises people, in one sentence each
+    requires: tuple[str, ...] = ()  # services that must run, keys that must be set
+
     @property
     def default_id(self) -> str:
         """Default step id when ``id:`` is omitted — the text before the first dot."""
@@ -140,6 +155,11 @@ _OPS: tuple[Op, ...] = (
         summary="Bring an existing file from a store into the pipeline as a ref.",
         plain="Grabs a file that already exists (e.g. the latest image ComfyUI made) and hands it to the next step.",
         bucket="source",
+        runs_on='local-cpu',
+        service='the asset stores',
+        caveats=(
+            'pick=latest looks at image files only.',
+        ),
         params=(
             Param("store", default="comfyui", desc="logical store to read from"),
             Param("name", desc="exact filename; omit to auto-pick from the store"),
@@ -154,6 +174,17 @@ _OPS: tuple[Op, ...] = (
         summary="(superseded by 'notify') Send an image ref to a chat for review, pass it through.",
         plain="Sends an image to your phone chat so you can look at it, then passes it along unchanged.",
         bucket="delivery",
+        runs_on='gateway',
+        service='OpenClaw gateway → Signal',
+        effect='outward',
+        caveats=(
+            'Superseded by notify, which handles any media type.',
+            'Same two-message behaviour for the caption.',
+        ),
+        requires=(
+            'the OpenClaw gateway container',
+            'MORA02_SIGNAL_TARGET, unless ?target= is given',
+        ),
         params=(
             Param("target", desc="E.164 recipient; falls back to env MORA02_SIGNAL_TARGET"),
             Param("channel", default="signal", desc="notify channel"),
@@ -170,6 +201,23 @@ _OPS: tuple[Op, ...] = (
         summary="Generate an image from a prompt via ComfyUI (9 selectable flows).",
         plain="Makes a brand-new picture from a text description.",
         bucket="image",
+        runs_on='local-gpu',
+        service='ComfyUI',
+        cost='mixed',
+        cost_note='sd15/photo/concept/epic/flux run locally and cost nothing. Paid, '
+                  'per image, at the rate below: nanban (Nano Banana 2, Google) ~0,058 € '
+                  'at 1K and 0,039-0,130 € depending on resolution; nanban-pro (Nano '
+                  'Banana, Google) ~0,034 €; flux-ultra (FLUX 1.1 Pro Ultra via fal.ai) '
+                  '~0,052 €. List prices looked up 2026-08-29.',
+        caveats=(
+            'Which flow you pick decides both the look and whether it costs money.',
+            'The labels are the wrong way round: nanban runs Nano Banana 2, while '
+            'nanban-pro runs the older Nano Banana.',
+        ),
+        requires=(
+            'ComfyUI running',
+            'GOOGLE_API_KEY / FAL_KEY for the paid flows',
+        ),
         params=(
             Param("prompt", desc="prompt text; falls back to the stdin value if omitted"),
             Param("flow", type="enum", default="photo", choices=_IMAGE_FLOWS,
@@ -188,6 +236,11 @@ _OPS: tuple[Op, ...] = (
         summary="Upscale an image (hybrid SDXL-Tile + UltraSharp).",
         plain="Enlarges a picture and sharpens it, without making it blurry.",
         bucket="image",
+        runs_on='local-gpu',
+        service='ComfyUI',
+        requires=(
+            'ComfyUI running',
+        ),
         params=(
             Param("factor", type="int", default="2", desc="scale factor 1.5–4.0"),
             Param("prompt", desc="optional guidance prompt"),
@@ -203,6 +256,14 @@ _OPS: tuple[Op, ...] = (
         summary="Outpaint / expand an image to a larger canvas (FLUX).",
         plain="Extends a picture beyond its edges, inventing more scenery around it (outpainting).",
         bucket="image",
+        runs_on='local-gpu',
+        service='ComfyUI',
+        caveats=(
+            'The slowest of the image ops by a wide margin — check the measured time before putting it in a loop.',
+        ),
+        requires=(
+            'ComfyUI running',
+        ),
         params=(
             Param("prompt", desc="what to paint into the new area"),
             Param("target_size", type="int", default="1920", desc="target long edge in px"),
@@ -218,6 +279,15 @@ _OPS: tuple[Op, ...] = (
         summary="Generate video via WAN 2.2 — text-to-video, image-to-video, or start+end frames.",
         plain="Turns a prompt (or a still image) into a short moving video clip.",
         bucket="video",
+        runs_on='local-gpu',
+        service='ComfyUI (WAN 2.2)',
+        caveats=(
+            'Minutes per clip — with pixeltext.render the heaviest op in the vocabulary.',
+            'Three modes: t2v, i2v and start+end frame.',
+        ),
+        requires=(
+            'ComfyUI running',
+        ),
         params=(
             Param("prompt", desc="prompt; falls back to stdin"),
             Param("mode", type="enum", default="t2v", choices=("t2v", "i2v", "i2i2v"),
@@ -239,6 +309,11 @@ _OPS: tuple[Op, ...] = (
                 "(each new video starts from the previous one's final frame).",
         plain="Grabs the final still frame of a video, handy to keep a scene going into the next clip.",
         bucket="video",
+        runs_on='local-cpu',
+        service='ffmpeg',
+        caveats=(
+            'The way to chain i2v videos into one another.',
+        ),
         params=(
             Param("position", type="enum", default="last", choices=("last", "first"),
                   desc="which frame to grab", advanced=True),
@@ -254,6 +329,11 @@ _OPS: tuple[Op, ...] = (
         summary="Assemble one or more image/video refs into a single MP4 (Ken-Burns).",
         plain="Stitches several videos together into one clip, optionally laying a music track over it.",
         bucket="media",
+        runs_on='local-cpu',
+        service='ffmpeg',
+        caveats=(
+            'Takes images and videos in the same list; the order follows the list, not the ids.',
+        ),
         params=(
             Param("name", desc="output filename; auto-generated if omitted", advanced=True),
             Param("resolution", default="1080p", desc="1080p|720p|4k|square|story|reels or WxH"),
@@ -272,6 +352,8 @@ _OPS: tuple[Op, ...] = (
         summary="Render multi-line text onto a flat-color background as a PNG.",
         plain="Writes text onto a colored background as a simple image card.",
         bucket="media",
+        runs_on='local-cpu',
+        service='Pillow',
         params=(
             Param("text", desc="the text; falls back to stdin"),
             Param("size", default="1080x1080", desc="canvas WxH"),
@@ -292,6 +374,8 @@ _OPS: tuple[Op, ...] = (
         summary="Animate multiple images into an animated GIF.",
         plain="Turns several images into one looping animated GIF.",
         bucket="media",
+        runs_on='local-cpu',
+        service='ffmpeg / Pillow',
         params=(
             Param("durations", default="1", desc="per-frame seconds (single or comma list)"),
             Param("quality", type="enum", default="medium",
@@ -307,6 +391,11 @@ _OPS: tuple[Op, ...] = (
         summary="Synthesize speech audio from text (piper/kokoro/chatterbox).",
         plain="Reads text out loud and saves it as an audio file (text-to-speech).",
         bucket="audio",
+        runs_on='local-cpu',
+        service='piper / kokoro / chatterbox',
+        caveats=(
+            'The voice list depends on the engine; an empty voice picks one by language.',
+        ),
         params=(
             Param("text", desc="text to speak; falls back to stdin"),
             Param("language", default="en", desc="e.g. en, de"),
@@ -330,6 +419,14 @@ _OPS: tuple[Op, ...] = (
         summary="Expand a short subject into one rich text-to-image prompt (local qwen).",
         plain="Takes a short idea and expands it into a rich, detailed prompt for image generation.",
         bucket="llm",
+        runs_on='local-gpu',
+        service='llama.cpp (local qwen)',
+        caveats=(
+            'Writes the prompt, it does not draw — chain image.generate after it.',
+        ),
+        requires=(
+            'llama-server running — llm.switch names the active profile',
+        ),
         params=(
             Param("subject", desc="the subject; falls back to the stdin value if omitted"),
         ),
@@ -343,6 +440,14 @@ _OPS: tuple[Op, ...] = (
         summary="Free-form text completion (local qwen).",
         plain="Asks the local AI to write or answer something freely.",
         bucket="llm",
+        runs_on='local-gpu',
+        service='llama.cpp (local qwen)',
+        caveats=(
+            'No length limit by default; a cut answer is flagged as truncated in the run log.',
+        ),
+        requires=(
+            'llama-server running — llm.switch names the active profile',
+        ),
         params=(
             Param("prompt", desc="user prompt; falls back to stdin"),
             Param("system", desc="system prompt"),
@@ -362,6 +467,11 @@ _OPS: tuple[Op, ...] = (
         summary="Summarize the input text (local qwen, thin wrapper over llm.complete).",
         plain="Shortens a long text down to its key points.",
         bucket="llm",
+        runs_on='local-gpu',
+        service='llama.cpp (local qwen)',
+        requires=(
+            'llama-server running — llm.switch names the active profile',
+        ),
         params=(Param("max_tokens", type="int", desc="summary length budget"),),
         consumes="one",
         input_type="text",
@@ -372,6 +482,15 @@ _OPS: tuple[Op, ...] = (
         summary="Classify the input text into one of the given labels (local qwen).",
         plain="Sorts a text into one of a set of labels you provide.",
         bucket="llm",
+        runs_on='local-gpu',
+        service='llama.cpp (local qwen)',
+        caveats=(
+            'Refuses an answer that is none of the labels — llm.complete is the op for free-form text.',
+            "Handed its predecessor's own label as text, the model tends to echo that instead of choosing.",
+        ),
+        requires=(
+            'llama-server running — llm.switch names the active profile',
+        ),
         params=(
             Param("labels", required=True, desc="comma-separated candidate labels"),
         ),
@@ -384,6 +503,14 @@ _OPS: tuple[Op, ...] = (
         summary="Extract structured fields from the input text as JSON (local qwen).",
         plain="Pulls specific facts (e.g. name, date, price) out of a text.",
         bucket="llm",
+        runs_on='local-gpu',
+        service='llama.cpp (local qwen)',
+        caveats=(
+            'Returns JSON — chain data.pick to get a single field out of it.',
+        ),
+        requires=(
+            'llama-server running — llm.switch names the active profile',
+        ),
         params=(
             Param("fields", required=True, desc="comma-separated fields to extract"),
         ),
@@ -396,6 +523,11 @@ _OPS: tuple[Op, ...] = (
         summary="Translate the input text to a target language (local qwen).",
         plain="Translates text into another language.",
         bucket="llm",
+        runs_on='local-gpu',
+        service='llama.cpp (local qwen)',
+        requires=(
+            'llama-server running — llm.switch names the active profile',
+        ),
         params=(
             Param("to", required=True, desc="target language, e.g. de, en"),
             Param("from", desc="source language; auto-detect if omitted"),
@@ -411,6 +543,17 @@ _OPS: tuple[Op, ...] = (
         summary="Text completion via Claude (cloud; peripheral content tasks only).",
         plain="Asks a cloud AI (Claude) to write or answer something, for the few tasks the local model can't handle.",
         bucket="cloud",
+        runs_on='cloud',
+        service='Anthropic API (Claude)',
+        cost='paid',
+        cost_note='Per token, and the rate differs by model — the price list is shown with the op.',
+        caveats=(
+            'No temperature — the current models removed the sampling parameters.',
+            'Answers are capped at 16000 tokens; a cut answer is flagged.',
+        ),
+        requires=(
+            'ANTHROPIC_API_KEY',
+        ),
         params=(
             Param("prompt", desc="user prompt; falls back to stdin"),
             Param("system", desc="system prompt"),
@@ -431,6 +574,17 @@ _OPS: tuple[Op, ...] = (
         summary="Describe / analyze an image with an optional question (Claude vision).",
         plain="Shows a cloud AI (Claude) an image and asks it to describe or analyze it.",
         bucket="cloud",
+        runs_on='cloud',
+        service='Anthropic API (Claude)',
+        cost='paid',
+        cost_note='Per token, and the rate differs by model — the price list is shown with the op.',
+        caveats=(
+            'The answer is capped at 1024 tokens.',
+            'Its parameter is called query, while cloud.complete calls it prompt.',
+        ),
+        requires=(
+            'ANTHROPIC_API_KEY',
+        ),
         params=(
             Param("query", desc="what to ask about the image"),
             Param("model", type="enum", default="haiku", choices=("haiku", "sonnet", "opus")),
@@ -448,6 +602,12 @@ _OPS: tuple[Op, ...] = (
         summary="Query rows from a table with filter/order/pagination.",
         plain="Looks up rows in a table that match a filter.",
         bucket="db",
+        runs_on='local-service',
+        service='Baserow',
+        requires=(
+            'Baserow running',
+            'BASEROW_TOKEN',
+        ),
         params=(
             Param("table", required=True, desc="table name or numeric id"),
             Param("filter", desc="filter expression / JSON"),
@@ -462,6 +622,12 @@ _OPS: tuple[Op, ...] = (
         summary="Fetch a single row by id.",
         plain="Fetches one specific row from a table by its id.",
         bucket="db",
+        runs_on='local-service',
+        service='Baserow',
+        requires=(
+            'Baserow running',
+            'BASEROW_TOKEN',
+        ),
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -474,6 +640,16 @@ _OPS: tuple[Op, ...] = (
         summary="Create a new row (field values from stdin JSON or 'data').",
         plain="Adds a new row to a table.",
         bucket="db",
+        runs_on='local-service',
+        service='Baserow',
+        effect='writes',
+        caveats=(
+            'Field values arrive as JSON — chain data.pick when they have to be built from an earlier step.',
+        ),
+        requires=(
+            'Baserow running',
+            'BASEROW_TOKEN',
+        ),
         params=(
             Param("table", required=True),
             Param("data", desc="JSON field values; falls back to stdin"),
@@ -488,6 +664,13 @@ _OPS: tuple[Op, ...] = (
         summary="Patch an existing row by id (partial update).",
         plain="Changes fields on an existing row.",
         bucket="db",
+        runs_on='local-service',
+        service='Baserow',
+        effect='writes',
+        requires=(
+            'Baserow running',
+            'BASEROW_TOKEN',
+        ),
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -503,6 +686,16 @@ _OPS: tuple[Op, ...] = (
         summary="Delete a row by id.",
         plain="Removes a row from a table.",
         bucket="db",
+        runs_on='local-service',
+        service='Baserow',
+        effect='writes',
+        caveats=(
+            'Deletes without asking; the pipeline has no undo.',
+        ),
+        requires=(
+            'Baserow running',
+            'BASEROW_TOKEN',
+        ),
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -515,6 +708,12 @@ _OPS: tuple[Op, ...] = (
         summary="Get the field schema for a table.",
         plain="Lists the columns (fields) a table has.",
         bucket="db",
+        runs_on='local-service',
+        service='Baserow',
+        requires=(
+            'Baserow running',
+            'BASEROW_TOKEN',
+        ),
         params=(Param("table", required=True),),
         consumes="none",
         output_type="text",
@@ -526,6 +725,11 @@ _OPS: tuple[Op, ...] = (
         summary="Search the web via local SearXNG.",
         plain="Searches the web (via your local SearXNG) and returns the hits.",
         bucket="web",
+        runs_on='local-service',
+        service='SearXNG',
+        requires=(
+            'SearXNG running',
+        ),
         params=(
             Param("query", desc="search query; falls back to stdin"),
             Param("categories", default="general", desc="SearXNG category"),
@@ -541,6 +745,11 @@ _OPS: tuple[Op, ...] = (
                 "cut is reported in the run log).",
         plain="Downloads a web page and strips it down to plain readable text.",
         bucket="web",
+        runs_on='cloud',
+        service='the open web',
+        caveats=(
+            'Cuts at max_chars (20000 by default) and reports the true length.',
+        ),
         params=(
             Param("url", desc="page URL; falls back to stdin"),
             Param("max_chars", type="int", default="20000",
@@ -556,6 +765,11 @@ _OPS: tuple[Op, ...] = (
         summary="Search stock photos (Pexels / Pixabay).",
         plain="Searches stock-photo sites (Pexels/Pixabay) for pictures matching a query.",
         bucket="web",
+        runs_on='cloud',
+        service='Pexels / Pixabay',
+        requires=(
+            'PEXELS_API_KEY / PIXABAY_API_KEY',
+        ),
         params=(
             Param("query", desc="search term; falls back to stdin"),
             Param("source", type="enum", default="pexels", choices=("pexels", "pixabay")),
@@ -573,9 +787,15 @@ _OPS: tuple[Op, ...] = (
         summary="Take one value out of an earlier step's JSON (dotted path, list "
                 "indices as numbers). The joint between ops that emit a structure "
                 "and ops that want single values.",
-        plain="Greift einen einzelnen Wert aus dem Ergebnis eines früheren Schritts "
-              "heraus — etwa die Adresse des ersten Suchtreffers.",
+        plain="Picks a single value out of an earlier step's result — the address of "
+              "the first search hit, say.",
         bucket="data",
+        runs_on='local-cpu',
+        service='in-process',
+        caveats=(
+            'A missing path is an error unless `default` is set — an empty value would travel on unnoticed.',
+            'A scalar travels on as itself, a branch as JSON.',
+        ),
         params=(
             Param("path", required=True,
                   desc="dotted path, e.g. results.0.url; -1 is the last entry"),
@@ -595,6 +815,14 @@ _OPS: tuple[Op, ...] = (
                 "result by a field-pick step, not by this op.",
         plain="Downloads a chosen stock photo into your library so later steps can use it.",
         bucket="web",
+        runs_on='cloud',
+        service='Pexels / Pixabay',
+        caveats=(
+            'Takes no stdin: chain stock.search → data.pick → this op.',
+        ),
+        requires=(
+            'PEXELS_API_KEY / PIXABAY_API_KEY',
+        ),
         params=(
             Param("source", type="enum", required=True, choices=("pexels", "pixabay")),
             Param("image_url", required=True, desc="full image URL"),
@@ -616,6 +844,17 @@ _OPS: tuple[Op, ...] = (
         summary="Send the previous step's output (type-aware) to a channel, no pause; pass it through.",
         plain="Sends the previous step's result (image/video/text) to a chat without pausing, just a heads-up.",
         bucket="delivery",
+        runs_on='gateway',
+        service='OpenClaw gateway → Signal',
+        effect='outward',
+        caveats=(
+            'An image with a caption goes as TWO messages: the picture, then the words. The gateway cuts a caption sent with media down to its first character.',
+            'Passes its input through unchanged, so the chain continues.',
+        ),
+        requires=(
+            'the OpenClaw gateway container',
+            'MORA02_SIGNAL_TARGET, unless ?target= is given',
+        ),
         params=(
             Param("channel", default="signal", desc="notify channel"),
             Param("target", desc="recipient; falls back to env MORA02_SIGNAL_TARGET"),
@@ -636,6 +875,16 @@ _OPS: tuple[Op, ...] = (
                 "across the whole box. Passes stdin through unchanged.",
         plain="Swaps which local AI model is running (a bigger or smaller brain), then continues the chain.",
         bucket="llm",
+        runs_on='local-service',
+        service='llama.cpp profile switcher',
+        effect='writes',
+        caveats=(
+            'Takes the local model down for about a minute; no llm.* op can answer meanwhile.',
+            'Passes its input through unchanged, so the chain continues.',
+        ),
+        requires=(
+            'the profile watcher on the host (/opt/mora02/llm-switch)',
+        ),
         params=(
             Param("profile", type="enum", required=True, choices=_LLM_PROFILES,
                   desc="target llama.cpp profile to load"),
@@ -653,6 +902,14 @@ _OPS: tuple[Op, ...] = (
                 "ComfyUI ACE-Step 1.5 (local).",
         plain="Composes an original piece of music from a description (mood, tempo, optional lyrics).",
         bucket="audio",
+        runs_on='local-gpu',
+        service='ComfyUI (music flow)',
+        caveats=(
+            'Style tags carry further than full sentences; lyrics are optional.',
+        ),
+        requires=(
+            'ComfyUI running',
+        ),
         params=(
             Param("prompt", desc="music style/genre tags; falls back to the stdin value"),
             Param("lyrics", desc="lyrics text; empty = instrumental"),
@@ -684,6 +941,17 @@ _OPS: tuple[Op, ...] = (
                 "pass ?text=). Returns the post URL.",
         plain="Posts text (and optionally an image) to LinkedIn and returns the post link.",
         bucket="publish",
+        runs_on='cloud',
+        service='LinkedIn UGC API',
+        effect='outward',
+        caveats=(
+            'Publishes publicly, and nothing here can take it back.',
+            'An asset ref on stdin becomes an image post; any other value becomes the text.',
+        ),
+        requires=(
+            'MORA02_LINKEDIN_TOKEN (expires after about 60 days)',
+            'MORA02_LINKEDIN_AUTHOR',
+        ),
         params=(
             Param("text", desc="post caption/body text (often a {\"from\": <llm step>} ref)"),
             Param("author", desc="author URN urn:li:person:…; falls back to env MORA02_LINKEDIN_AUTHOR"),
@@ -708,6 +976,14 @@ _OPS: tuple[Op, ...] = (
                 "MP4 (or PNG) asset ref.",
         plain="Renders your word(s) as chunky 3D pixel-cube typography, as a short animated video.",
         bucket="blender",
+        runs_on='local-gpu',
+        service='Blender PixelText worker',
+        caveats=(
+            'Minutes per render — one of the two slowest ops.',
+        ),
+        requires=(
+            'the Blender worker container',
+        ),
         params=(
             Param("text", desc="the word(s) to render; falls back to stdin. In "
                   "multi mode, split on '/' into a word sequence"),
@@ -743,6 +1019,16 @@ _OPS: tuple[Op, ...] = (
         summary="Edit an existing image from a prompt (Gemini image models).",
         plain="Changes a picture you already have — e.g. put a blue hat on the rabbit — instead of drawing a new one.",
         bucket="image",
+        runs_on='cloud',
+        service='ComfyUI → Gemini image models',
+        cost='paid',
+        cost_note='Per image, by the flow it uses. The default nanban (Nano Banana 2) '
+                  'is ~0,058 € at 1K, 0,039-0,130 € depending on resolution; nanban-pro '
+                  '~0,034 €. List prices looked up 2026-08-29.',
+        requires=(
+            'ComfyUI running',
+            'GOOGLE_API_KEY',
+        ),
         status="wired",
         params=(
             Param("prompt", required=True,
@@ -763,6 +1049,11 @@ _OPS: tuple[Op, ...] = (
         summary="Cut the subject out of an image and return a PNG with an alpha channel.",
         plain="Frees the main subject from its background and hands on a picture with a see-through background.",
         bucket="image",
+        runs_on='local-gpu',
+        service='ComfyUI',
+        requires=(
+            'ComfyUI running',
+        ),
         status="wired",
         params=(
             Param("model", type="enum", default="isnet", choices=("isnet", "u2net", "human", "anime", "silueta", "inspyrenet",), desc="matting model; 'human' for people, 'inspyrenet' is finer on hair and fur but slower"),
@@ -777,6 +1068,14 @@ _OPS: tuple[Op, ...] = (
         summary="Remove the subject from an image and fill the gap with the surrounding scene (Flux Fill).",
         plain="Takes the main subject out of a picture and paints the background back in where it stood.",
         bucket="image",
+        runs_on='local-gpu',
+        service='ComfyUI',
+        caveats=(
+            'Needs a recognisable subject; on an empty scene it has nothing to remove.',
+        ),
+        requires=(
+            'ComfyUI running',
+        ),
         status="wired",
         params=(
             Param("prompt", desc="what the emptied area should show; omit for a plain continuation of the scene"),
@@ -798,6 +1097,14 @@ _OPS: tuple[Op, ...] = (
         summary="Re-render the faces in an image at higher detail, leaving the rest untouched.",
         plain="Sharpens the faces in a picture — useful when people stand far enough away that their features came out mushy.",
         bucket="image",
+        runs_on='local-gpu',
+        service='ComfyUI',
+        caveats=(
+            'Touches faces only; the rest of the picture is left alone.',
+        ),
+        requires=(
+            'ComfyUI running',
+        ),
         status="wired",
         params=(
             Param("prompt", desc="what the refined face should look like; omit for a plain detail pass"),

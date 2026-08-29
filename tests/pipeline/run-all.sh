@@ -15,7 +15,8 @@
 #
 # What the suites need:
 #   - a running stack (script-runner on 8096); everything talks to real services
-#   - the browser suite additionally needs Playwright + Chromium and nginx on 8092
+#   - the browser suites additionally need Playwright + Chromium and nginx on 8092
+#   - the db ops in the vocabulary suite need MORA02_TEST_TABLE set to a scratch table
 #   - the vocabulary suite spends real resources from tier 2 upward: GPU minutes,
 #     then money, then messages that reach a phone. Nothing above tier 1 runs
 #     unless its number is named, and publish.linkedin needs --i-mean-it on top.
@@ -77,6 +78,7 @@ run_suite "truncation - does every cut announce itself"    tests/pipeline/test_t
 
 if [ "$WITH_UI" = "1" ]; then
     run_suite "builder UI - the browser half of the builder" tests/pipeline/test_builder_ui.py
+    run_suite "wiki VOKABULAR - the vocabulary as a table"   tests/pipeline/test_wiki_vocab.py
 fi
 
 if [ -n "$VOCAB_TIERS" ]; then
