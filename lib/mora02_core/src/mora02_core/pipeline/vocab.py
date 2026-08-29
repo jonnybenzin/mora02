@@ -534,10 +534,15 @@ _OPS: tuple[Op, ...] = (
     ),
     Op(
         name="web.fetch",
-        summary="Fetch a web page and return its text.",
+        summary="Fetch a web page and return its text (cut at max_chars, and the "
+                "cut is reported in the run log).",
         plain="Downloads a web page and strips it down to plain readable text.",
         bucket="web",
-        params=(Param("url", desc="page URL; falls back to stdin"),),
+        params=(
+            Param("url", desc="page URL; falls back to stdin"),
+            Param("max_chars", type="int", default="20000",
+                  desc="length ceiling; a cut page reports its true length"),
+        ),
         consumes="one",
         consumes_optional=True,
         input_type="text",
@@ -562,7 +567,9 @@ _OPS: tuple[Op, ...] = (
     ),
     Op(
         name="stock.download",
-        summary="Download a stock photo into a store as an image ref.",
+        summary="Download a stock photo into a store as an image ref. Takes no "
+                "stdin: source and image_url are picked out of a stock.search "
+                "result by a field-pick step, not by this op.",
         plain="Downloads a chosen stock photo into your library so later steps can use it.",
         bucket="web",
         params=(
@@ -570,9 +577,13 @@ _OPS: tuple[Op, ...] = (
             Param("image_url", required=True, desc="full image URL"),
             Param("image_id", desc="stock API image id"),
         ),
-        consumes="one",
-        consumes_optional=True,
-        input_type="text",
+        # Declares no stdin because the handler reads none. It previously claimed
+        # one text input, which no wiring could satisfy: stock.search emits a
+        # RESULT LIST as JSON, and this op needs two single values out of it.
+        # Pulling one field out of a JSON is a general need (the scheduled-publish
+        # layer has the same one), so it belongs in its own field-pick op rather
+        # than hidden inside this one - where nobody would look for it.
+        consumes="none",
         output_type="image",
     ),
 
@@ -645,8 +656,9 @@ _OPS: tuple[Op, ...] = (
     # ----- Publishing (external channels) ----------------------------------
     Op(
         name="publish.linkedin",
-        summary="Publish an image or text post to LinkedIn (UGC API). Image ref on "
-                "stdin (optional — omit for a text-only post). Returns the post URL.",
+        summary="Publish an image or text post to LinkedIn (UGC API). Stdin takes "
+                "either an image ref or the post text (optional — omit both and "
+                "pass ?text=). Returns the post URL.",
         plain="Posts text (and optionally an image) to LinkedIn and returns the post link.",
         bucket="publish",
         params=(
@@ -657,7 +669,11 @@ _OPS: tuple[Op, ...] = (
         ),
         consumes="one",
         consumes_optional=True,
-        input_type="image",
+        # "any", not "image": an asset ref on stdin becomes an image share, any
+        # other value becomes the post text (the handler discriminates on the
+        # asset:// prefix, exactly as notify does). Declaring "image" made the
+        # builder refuse the commonest wiring of all - an llm step into a post.
+        input_type="any",
         output_type="text",  # the post URL
     ),
 

@@ -29,7 +29,7 @@ The step *ops* a mora02 pipeline is built from, grouped by kind. Each op has a p
 | [`image.edit`](#imageedit) | Changes a picture you already have — e.g. put a blue hat on the rabbit — instead of drawing a new one. | 🟢 |
 | [`image.cutout`](#imagecutout) | Frees the main subject from its background and hands on a picture with a see-through background. | 🟢 |
 | [`image.erase`](#imageerase) | Takes the main subject out of a picture and paints the background back in where it stood. | 🟢 |
-| [`image.facefix`](#imagefacefix) | Sharpens the faces in a picture — useful when people stand far enough away that their features came out mushy. | 🟡 |
+| [`image.facefix`](#imagefacefix) | Sharpens the faces in a picture — useful when people stand far enough away that their features came out mushy. | 🟢 |
 
 ### Video
 
@@ -235,7 +235,7 @@ Takes the main subject out of a picture and paints the background back in where 
 | `seed` | int | no |  | fix the noise to repeat the same fill |
 | `steps` | int | no |  | sampling steps; more is slower and slightly cleaner |
 
-#### `image.facefix` 🟡
+#### `image.facefix` 🟢
 
 Sharpens the faces in a picture — useful when people stand far enough away that their features came out mushy.
 
@@ -672,7 +672,7 @@ Searches the web (via your local SearXNG) and returns the hits.
 
 Downloads a web page and strips it down to plain readable text.
 
-*Technical:* Fetch a web page and return its text.
+*Technical:* Fetch a web page and return its text (cut at max_chars, and the cut is reported in the run log).
 
 - **Default step id:** `web`  
 - **Consumes (stdin):** one (optional) (text)  
@@ -681,6 +681,7 @@ Downloads a web page and strips it down to plain readable text.
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `url` | string | no |  | page URL; falls back to stdin |
+| `max_chars` | int | no | `20000` | length ceiling; a cut page reports its true length |
 
 #### `stock.search` 🟢
 
@@ -703,10 +704,10 @@ Searches stock-photo sites (Pexels/Pixabay) for pictures matching a query.
 
 Downloads a chosen stock photo into your library so later steps can use it.
 
-*Technical:* Download a stock photo into a store as an image ref.
+*Technical:* Download a stock photo into a store as an image ref. Takes no stdin: source and image_url are picked out of a stock.search result by a field-pick step, not by this op.
 
 - **Default step id:** `stock`  
-- **Consumes (stdin):** one (optional) (text)  
+- **Consumes (stdin):** none (any)  
 - **Emits (stdout):** image
 
 | Param | Type | Required | Default | Description |
@@ -721,10 +722,10 @@ Downloads a chosen stock photo into your library so later steps can use it.
 
 Posts text (and optionally an image) to LinkedIn and returns the post link.
 
-*Technical:* Publish an image or text post to LinkedIn (UGC API). Image ref on stdin (optional — omit for a text-only post). Returns the post URL.
+*Technical:* Publish an image or text post to LinkedIn (UGC API). Stdin takes either an image ref or the post text (optional — omit both and pass ?text=). Returns the post URL.
 
 - **Default step id:** `publish`  
-- **Consumes (stdin):** one (optional) (image)  
+- **Consumes (stdin):** one (optional) (any)  
 - **Emits (stdout):** text
 
 | Param | Type | Required | Default | Description |

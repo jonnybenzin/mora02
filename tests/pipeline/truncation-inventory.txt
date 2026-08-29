@@ -1,0 +1,35 @@
+# Every place in the pipeline code that shortens something.
+#
+# The rule this file enforces: a cut that a human could mistake for the whole
+# thing must ANNOUNCE itself. Six of the nine defects of 26 August 2026 were not
+# malfunctions but silences, so a cut without a word is treated as a defect.
+#
+# Format:  <path> | <distinctive text of the line> | <kind> | <reason>
+#
+# Kinds:
+#   announced     a text value IS shortened - the code must say so nearby
+#                 (a truncated flag, a length, a visible note). Verified.
+#   data-limit    a real technical ceiling on a value, adjustable and reported.
+#                 Verified like "announced".
+#   listing       a number of items, not the inside of a value. Nothing to hide.
+#   identifier    a hash or slug cut to a fixed width. Not content.
+#   formatting    a date or label sliced for shape, not for length.
+#   storage       a field limit imposed by the store, not by us.
+#
+# A cut found in the code but missing here fails the test. Classify it, give the
+# reason in one line, and the entry becomes the record of the decision.
+
+apps/script-runner/app/main.py | x[:_LOG_VALUE_MAX] | announced | run-log value budget; the record carries truncated=True and the true length
+apps/script-runner/app/main.py | text[:max_chars] | data-limit | web.fetch page ceiling; adjustable via ?max_chars=, cut reports source_chars
+apps/script-runner/app/main.py | reverse=True)[:40] | listing | number of run files listed, not the inside of one
+apps/pilot/app.py | caption_master | listing | Baserow list preview column, the full caption stays in the row
+apps/pilot/app.py | summary_data.get("goal" | storage | Baserow Name field limit of 255 characters
+apps/pilot/app.py | {now[:16]} | formatting | timestamp cut to minutes for a title, not a text value
+apps/pilot/app.py | for f in images[:12] | listing | number of images returned, not the inside of one
+lib/mora02_core/src/mora02_core/media/typer.py | "text": normalized[:500] | listing | sidecar metadata copy of the rendered text; the image carries the real thing
+lib/mora02_core/src/mora02_core/media/tts.py | "speed": speed, "text" | listing | sidecar metadata copy of the spoken text; the audio carries the real thing
+lib/mora02_core/src/mora02_core/pipeline/__init__.py | hexdigest()[:16] | identifier | run id width, not content
+lib/mora02_core/src/mora02_core/comfyui/client.py | short = msg.strip() | listing | first line of an upstream error for a short message
+apps/pilot/ui/js/runs.js | full.slice(0, 2000) | announced | RUNS display budget; prints "… hier gekürzt · N Zeichen insgesamt"
+apps/pilot/ui/js/flows.js | .slice(0, 64) | identifier | flow file-name slug width
+apps/pilot/ui/js/flowbuilder.js | String(s.cfg[litK]).slice(0, 26) | listing | one-line step label in the builder list; the field itself is untouched

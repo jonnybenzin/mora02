@@ -1,0 +1,8 @@
+Zeile eins mit Umlauten: äöüß und „typografischen Anführungszeichen".
+
+Ein zweiter Absatz nach einer Leerzeile — prüft, ob Absätze überleben.
+Emoji: 🐰 · Sonderzeichen: & < > % # ? = + / \ ' " ` $ * | ~ ^
+
+Eine sehr lange Zeile ohne Umbruch, weil der Zeilenumbruch selbst das Transportmittel ist und eine Zeile jenseits jeder Puffergrenze zeigen muss, dass niemand sie unterwegs still abschneidet, weder im Schritt-Eingang noch im Lauf-Protokoll noch in der Anzeige, denn genau das war der Fehler, der diesen Testlauf ausgelöst hat.
+
+TAILMARKER-7Q4X ist das letzte Wort. Wer nur die erste Zeile liest, sieht es nie.

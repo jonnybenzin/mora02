@@ -78,7 +78,7 @@ async def complete_claude_usage(
     model_key: str = "sonnet",
     image_data: Optional[dict] = None,
     temperature: float = 0.7,
-    max_tokens: int = 1024,
+    max_tokens: int = 16000,
     user_id: str = "default",
 ) -> tuple[str, dict]:
     """Non-streaming Claude completion that returns ``(content, usage)``.

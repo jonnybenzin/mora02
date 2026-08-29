@@ -1363,6 +1363,11 @@ async def pipeline_runs():
     return {"runs": runs}
 
 
+# Structural log fields, already mapped above or too bulky for the view: inputs
+# and params can carry whole prompts, and the view has its own place for them.
+_RUN_VIEW_SKIP = {"kind", "inputs", "params", "out_name"}
+
+
 @app.get("/pipeline/run/{run_id}")
 async def pipeline_run_detail(run_id: str):
     """Full step-by-step detail of one run (for the live Runs view)."""
@@ -1382,10 +1387,18 @@ async def pipeline_run_detail(run_id: str):
                 url = asset_refs.url_for_ref(out)
             except Exception:
                 url = None
-        steps.append({
+        entry = {
             "step_id": e.get("step_id"), "op": e.get("op"), "status": e.get("status"),
             "out": out, "out_type": e.get("out_type"), "url": url, "error": e.get("error"),
-        })
+        }
+        # Pass the handler's own "log" fields through - token counts, model name,
+        # the truncation flag and its hint. The view renders them (runs.js reads
+        # s.truncated, s.hint, s.tokens_out); without this they never left the
+        # log file, so a completion cut at max_tokens looked like a whole one.
+        # Generic on purpose: a new op attaching a new field needs no change here.
+        entry.update({k: v for k, v in e.items()
+                      if k not in entry and k not in _RUN_VIEW_SKIP})
+        steps.append(entry)
     return {
         "run_id": run_id,
         "pipeline": start.get("pipeline"),
@@ -1672,7 +1685,11 @@ async def _step_cloud_complete(inputs: List[str], params: dict) -> dict:
         params.get("system", "You are a helpful assistant."),
         model_key=params.get("model", "sonnet"),
         temperature=float(params["temperature"]) if params.get("temperature") else 0.7,
-        max_tokens=int(params["max_tokens"]) if params.get("max_tokens") else 1024,
+        # 16000, not 1024: the Anthropic guidance for non-streaming requests, and
+        # a ceiling rather than a spend - a shorter answer costs exactly what it
+        # generates. The old 1024 (~750 words) cut prose mid-sentence, the same
+        # trap the local path had at 512.
+        max_tokens=int(params["max_tokens"]) if params.get("max_tokens") else 16000,
     )
     if not text:
         raise ValueError("cloud.complete got an empty completion from Claude")
@@ -2344,9 +2361,18 @@ async def _step_web_fetch(inputs: List[str], params: dict) -> dict:
         resp.raise_for_status()
         body = resp.text
     text = _RE_WS.sub(" ", _RE_TAG.sub(" ", _RE_SCRIPT.sub(" ", body))).strip()
-    text = text[:20000]  # pipelines pass values, not whole documents
-    return {"ok": True, "op": "web.fetch", "type": "text", "out": text,
-            "log": {"chars": len(text), "url": url}}
+    # A ceiling here is real - a long page would blow past any context window -
+    # but it is announced and adjustable, never silent: ?max_chars= raises it,
+    # and a cut page reports how long it actually was, so a summary of half a
+    # document cannot look like a summary of the whole.
+    max_chars = int(params.get("max_chars") or 20000)
+    log = {"chars": len(text), "url": url}
+    if len(text) > max_chars:
+        log.update(truncated=True, source_chars=len(text), max_chars=max_chars,
+                   hint=f"Seite auf {max_chars} von {len(text)} Zeichen gekürzt "
+                        f"— ?max_chars= erhöhen, um mehr zu holen.")
+        text = text[:max_chars]
+    return {"ok": True, "op": "web.fetch", "type": "text", "out": text, "log": log}
 
 
 async def _stock_search(source: str, query: str, count: int, orientation: str) -> list:
@@ -2651,13 +2677,44 @@ def _ref_name(value):
     return None
 
 
+_LOG_VALUE_MAX = 200  # per-input value budget in the run log
+
+
 def _log_inputs(inputs: List[str]) -> list:
-    """Compact per-input record for the run log: ref+name, or truncated value."""
+    """Compact per-input record for the run log: ref+name, or a value.
+
+    A shortened value SAYS SO. The run log is what a human reads when hunting a
+    defect, and a line silently cut to 200 characters shows a different input
+    than the one that ran - with nothing to tell the reader that the rest
+    existed. The flag and the true length cost nothing and keep the record
+    honest; the cut itself stays, because a run log is not an archive.
+    """
     out = []
     for x in inputs:
         name = _ref_name(x)
-        out.append({"ref": x, "name": name} if name else {"value": x[:200]})
+        if name:
+            out.append({"ref": x, "name": name})
+        elif len(x) > _LOG_VALUE_MAX:
+            out.append({"value": x[:_LOG_VALUE_MAX], "truncated": True, "len": len(x)})
+        else:
+            out.append({"value": x})
     return out
+
+
+def _fail_wiring(run_id, step_id: str, op: str, params: dict, detail: str):
+    """Refuse a step whose wiring points at a step that produced nothing.
+
+    Logs before it raises. These two checks run BEFORE the handler, so they used
+    to skip the run log entirely: the server answered 400 with a good reason,
+    and the RUNS view showed nothing at all - the run simply stopped after its
+    last successful step. A mis-wired reference is the likeliest mistake anyone
+    makes in the flow builder, so it is the last failure that should be invisible.
+    """
+    pipeline_runlog.log_event(
+        run_id, "step", step_id=step_id, op=op, params=params,
+        status="failed", error=detail, duration_ms=0,
+    )
+    raise HTTPException(status_code=400, detail=detail)
 
 
 @app.post("/pipeline/step/{op}")
@@ -2692,10 +2749,10 @@ async def pipeline_step(op: str, request: Request):
         try:
             params[pname] = pipeline_runbucket.get(run_id, source_id)
         except KeyError:
-            raise HTTPException(
-                status_code=400,
-                detail=(f"step {op}: param {pname!r} references step {source_id!r}, "
-                        "which has no output in the run bucket (did it run first?)"),
+            _fail_wiring(
+                run_id, step_id, op, params,
+                f"step {op}: param {pname!r} references step {source_id!r}, "
+                "which has no output in the run bucket (did it run first?)",
             )
     # Input fan-in: __collect=a,b,c pulls several earlier step outputs from the run
     # bucket and hands them to a "many"-consuming op (e.g. clip.generate) as its inputs.
@@ -2704,9 +2761,9 @@ async def pipeline_step(op: str, request: Request):
         try:
             inputs = [pipeline_runbucket.get(run_id, cid) for cid in collect.split(",") if cid]
         except KeyError as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"step {op}: collect source {e} has no output in the run bucket",
+            _fail_wiring(
+                run_id, step_id, op, params,
+                f"step {op}: collect source {e} has no output in the run bucket",
             )
     started = time.monotonic()
 
