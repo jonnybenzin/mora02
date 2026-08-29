@@ -512,9 +512,73 @@ def plan_rerun(
     return plan
 
 
+def materialize_wiring(data: dict) -> dict:
+    """Write the implicit wiring into a spec, so what runs is what is written.
+
+    A step without ``in:`` silently takes the previous step's output. In a
+    straight chain that is convenient; the moment a flow has two independent
+    branches it is wrong, and invisibly so - the second branch starts by
+    swallowing the first one's result, and the authoring front-end draws no wire
+    because there is none to draw. The compiler is not the place to forbid the
+    default (it would break every spec written so far); the SAVE is the place to
+    write it down.
+
+    Called on save, this fills in each op step's ``id`` (needed for anything to
+    refer to it) and its ``in`` - the resolved source id, or ``"none"`` for a
+    step that genuinely reads nothing. Gates and reviews are left alone: they
+    carry no stdin wiring of their own.
+
+    Pure: takes and returns a spec dict, touches no disk.
+    """
+    parsed = load_spec(data)
+    wiring = {w.step_id: w for w in resolve_wiring(parsed)}
+    raw_steps = data.get("steps")
+    if not isinstance(raw_steps, list) or len(raw_steps) != len(parsed.steps):
+        return data  # shapes disagree - leave the author's file untouched
+
+    for raw, step in zip(raw_steps, parsed.steps):
+        if not isinstance(step, OpStep) or not isinstance(raw, dict) or len(raw) != 1:
+            continue
+        key = next(iter(raw))
+        cfg = raw[key]
+        if not isinstance(cfg, dict):
+            continue  # shorthand form; leave as written
+        cfg.setdefault("id", step.id)
+        if "in" not in cfg:
+            w = wiring.get(step.id)
+            source = getattr(w, "source", None) if w else None
+            if getattr(w, "collect", None):
+                continue  # a fan-in list is explicit already
+            cfg["in"] = source if source else "none"
+    return data
+
+
 # ============================================================================
 # Compiler — PipelineSpec -> Lobster workflow dict (PURE, no IO)
 # ============================================================================
+
+
+def _gate_schemas(spec: "PipelineSpec") -> dict[str, dict]:
+    """gate/review id -> the response schema it asks for."""
+    return {st.id: (getattr(st, "response_schema", None) or {})
+            for st in spec.steps if isinstance(st, (GateStep, ReviewStep))}
+
+
+def _gate_condition(gate_id: str, schemas: dict[str, dict]) -> str | None:
+    """What a step behind this gate must satisfy before it may run.
+
+    A yes/no gate is a veto: the step runs only when the answer is `approved`.
+    A gate that asks for something else - a word, a rating, the feedback a
+    dotted {"from": "<gate>.<field>"} reference is meant to read - has no "no"
+    to give. Pinning its condition to `.approved` anyway leaves a field that can
+    never be true, so everything behind such a gate was silently skipped while
+    the run still reported success. Answering that gate IS the go-ahead.
+    """
+    props = (schemas.get(gate_id) or {}).get("properties") or {}
+    approved = props.get("approved")
+    if isinstance(approved, dict) and approved.get("type") == "boolean":
+        return f"${gate_id}.response.approved"
+    return None
 
 
 def compile_to_lobster(
@@ -552,6 +616,7 @@ def compile_to_lobster(
         whole path exists to avoid. Only pass a gate whose decision was "approve".
     """
     spec = load_spec(spec)
+    schemas = _gate_schemas(spec)
     if overrides:
         # Applied before the wiring is read: an override may replace a literal
         # with a {"from": …} ref, which is an edge, not just a value.
@@ -597,7 +662,7 @@ def compile_to_lobster(
             sw = wiring[send_id]
             if send_id in reuse_ids:
                 cond = (
-                    f"${sw.gate}.response.approved"
+                    _gate_condition(sw.gate, schemas)
                     if sw.gate and sw.gate not in reuse_ids else None
                 )
                 out_steps.append(_replay_step(send_id, reuse_from, run_id, condition=cond))
@@ -606,7 +671,9 @@ def compile_to_lobster(
                 if sw.source is not None and sw.source not in reuse_ids:
                     send["stdin"] = f"${sw.source}.stdout"
                 if sw.gate is not None and sw.gate not in reuse_ids:
-                    send["condition"] = f"${sw.gate}.response.approved"
+                    cond = _gate_condition(sw.gate, schemas)
+                    if cond:
+                        send["condition"] = cond
                 send["run"] = _build_run(
                     "notify", step.notify_params, has_stdin=sw.source is not None,
                     run_id=run_id, step_id=send_id,
@@ -627,7 +694,7 @@ def compile_to_lobster(
         w = wiring[step.id]
         if step.id in reuse_ids:
             cond = (
-                f"${w.gate}.response.approved"
+                _gate_condition(w.gate, schemas)
                 if w.gate and w.gate not in reuse_ids else None
             )
             out_steps.append(_replay_step(step.id, reuse_from, run_id, condition=cond))
@@ -696,7 +763,9 @@ def compile_to_lobster(
             # A replayed step DOES emit its stdout, so the pipe still works.
             compiled["stdin"] = f"${source_id}.stdout"
         if w.gate is not None and w.gate not in reuse_ids:
-            compiled["condition"] = f"${w.gate}.response.approved"
+            cond = _gate_condition(w.gate, schemas)
+            if cond:
+                compiled["condition"] = cond
         compiled["run"] = _build_run(
             step.op, step.params, has_stdin=source_id is not None,
             run_id=run_id, step_id=step.id, collect=collect_ids,

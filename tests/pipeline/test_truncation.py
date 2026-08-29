@@ -99,7 +99,10 @@ def main() -> int:
         for i, line in enumerate(lines):
             if not pattern.search(line):
                 continue
-            if DIAGNOSTIC.search(line):
+            # Look at the statement, not the line: a raise or a log call often
+            # wraps onto the next line, and the cut sits on the continuation.
+            statement = "\n".join(lines[max(0, i - 2):i + 1])
+            if DIAGNOSTIC.search(statement):
                 diagnostic_cuts += 1
                 continue
 

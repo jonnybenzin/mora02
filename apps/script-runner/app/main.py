@@ -1074,7 +1074,13 @@ async def pipeline_run_spec(req: PipelineRunSpecRequest):
     written to the OpenClaw workspace and left for inspection.
     """
     if req.spec is not None:
-        target = req.spec
+        # Second door for the same rule as on save: write the implicit wiring
+        # down. The builder runs the editor's stack WITHOUT saving it first, so
+        # materialising only on save would leave the commonest path implicit -
+        # and the spec recorded in the run log (which a partial re-run later
+        # reads back) would not say what actually ran. Resolution is unchanged;
+        # only the silence goes.
+        target = pipeline_spec.materialize_wiring(req.spec)
     elif req.name:
         base = Path(_PIPELINE_SPECS_DIR) / req.name
         cands = [base] if base.suffix else [
@@ -1250,6 +1256,13 @@ async def pipeline_flow_save(name: str, request: Request, overwrite: bool = Fals
         raise HTTPException(
             status_code=422, detail=f"unknown ops: {', '.join(unknown)}"
         )
+
+    # Write the implicit wiring down before it reaches disk. A step without `in:`
+    # takes the previous step's output, which is invisible in the file and in the
+    # builder - fine in a straight chain, silently wrong the moment a flow has two
+    # branches. Saving is the right moment: the default keeps working, and what
+    # runs is what the file says.
+    data = pipeline_spec.materialize_wiring(data)
 
     data.setdefault("description", "")
     data.setdefault("tags", [])
@@ -1621,9 +1634,17 @@ async def _step_llm_classify(inputs: List[str], params: dict) -> dict:
     low = chosen.lower()
     snapped = next((l for l in label_list if l.lower() == low), None) \
         or next((l for l in label_list if l.lower() in low), None)
-    out = snapped or chosen
-    if not out:
+    if not chosen:
         raise ValueError("llm.classify got an empty completion from qwen")
+    if snapped is None:
+        # The op promises exactly one of the labels, and a later step branches on
+        # the answer. Passing an unrecognised value on would decide a branch by
+        # accident and say nothing; llm.complete is the op for free-form text.
+        raise ValueError(
+            f"llm.classify: the model answered {chosen[:80]!r}, which is none of "
+            f"the labels ({', '.join(label_list)})"
+        )
+    out = snapped
     _flag_truncation(usage, "llm.classify")
     return {"ok": True, "op": "llm.classify", "out": out, "type": "text", "log": usage}
 

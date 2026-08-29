@@ -218,6 +218,22 @@ def main() -> int:
     else:
         record("n/a", "planned op · COMPILE", "no planned op left in the vocabulary")
 
+    # --- 8c. an upstream that does not answer --------------------------------
+    # The real "ComfyUI is down" case needs a container stopped by hand. What can
+    # be provoked from here has the same shape: an op whose target lives in the
+    # request rather than in the container's environment. It answers the question
+    # that matters - does a dead upstream come back with a REASON, or with a bare
+    # status code, the way curl -fsS used to hand one over?
+    r = rid("refused")
+    check_case("upstream refuses connection", "web.fetch", "",
+               "url=http%3A%2F%2F127.0.0.1%3A9%2F",
+               ["connect", "refused", "connection"], run_id=r)
+
+    r = rid("nohost")
+    check_case("upstream host does not exist", "web.fetch", "",
+               "url=http%3A%2F%2Fno-such-host-7q4x.invalid%2F",
+               ["resolve", "name", "connect", "getaddrinfo"], run_id=r)
+
     # --- 9. a flow that does not exist ---------------------------------------
     status, resp = _request("GET", f"{RUNNER}/pipeline/flow/no-such-flow-7q4x")
     record("PASS" if status == 404 and "no-such-flow" in resp else "FAIL",
