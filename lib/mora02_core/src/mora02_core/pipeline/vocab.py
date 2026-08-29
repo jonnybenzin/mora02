@@ -415,7 +415,10 @@ _OPS: tuple[Op, ...] = (
             Param("prompt", desc="user prompt; falls back to stdin"),
             Param("system", desc="system prompt"),
             Param("model", type="enum", default="sonnet", choices=("haiku", "sonnet", "opus")),
-            Param("temperature", desc="sampling temperature (default 0.7)"),
+            # No temperature. Anthropic removed the sampling parameters on the
+            # current models, and the SDK this runs against no longer accepts the
+            # argument at all - offering a knob that can only fail is worse than
+            # not offering it. The model's own sampling applies.
             Param("max_tokens", type="int"),
         ),
         consumes="one",

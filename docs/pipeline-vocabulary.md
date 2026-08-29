@@ -538,7 +538,6 @@ Asks a cloud AI (Claude) to write or answer something, for the few tasks the loc
 | `prompt` | string | no |  | user prompt; falls back to stdin |
 | `system` | string | no |  | system prompt |
 | `model` | enum | no | `sonnet` |  (one of: haiku, sonnet, opus) |
-| `temperature` | string | no |  | sampling temperature (default 0.7) |
 | `max_tokens` | int | no |  |  |
 
 #### `cloud.vision` 🟢

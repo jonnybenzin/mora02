@@ -51,10 +51,19 @@ async def stream_claude(
     input_tokens = 0
     output_tokens = 0
 
+    # temperature only travels when it was actually asked for. Anthropic removed
+    # the sampling parameters on the current models, and a recent SDK no longer
+    # accepts the argument at all - passing it unconditionally killed every
+    # cloud.* pipeline step with a TypeError while the chat, running an older SDK
+    # in its own image, kept working. Leaving it out is also the forward-looking
+    # behaviour: on current models the server would refuse it.
+    kwargs: dict = {}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+
     async with client.messages.stream(
         model=model_config["name"], max_tokens=max_tokens,
-        system=system_prompt, messages=api_messages,
-        temperature=temperature,
+        system=system_prompt, messages=api_messages, **kwargs,
     ) as stream:
         async for event in stream:
             if event.type == "content_block_delta" and hasattr(event.delta, "text"):
@@ -77,7 +86,9 @@ async def complete_claude_usage(
     *,
     model_key: str = "sonnet",
     image_data: Optional[dict] = None,
-    temperature: float = 0.7,
+    # Unset by default: the pipeline ops that call this want the model's own
+    # sampling, and current models no longer accept the parameter at all.
+    temperature: Optional[float] = None,
     max_tokens: int = 16000,
     user_id: str = "default",
 ) -> tuple[str, dict]:
@@ -111,9 +122,14 @@ async def complete_claude_usage(
         else:
             api_messages.append(msg)
 
+    # See stream_claude: the sampling parameter is sent only when asked for.
+    kwargs: dict = {}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+
     resp = await client.messages.create(
         model=model_config["name"], max_tokens=max_tokens,
-        system=system_prompt, messages=api_messages, temperature=temperature,
+        system=system_prompt, messages=api_messages, **kwargs,
     )
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
     tokens_in = resp.usage.input_tokens

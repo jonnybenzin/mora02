@@ -63,7 +63,7 @@ from typing import Any, Union
 from urllib.parse import quote
 
 from mora02_core.pipeline._errors import PipelineError
-from mora02_core.pipeline.vocab import is_wired, validate_op
+from mora02_core.pipeline.vocab import get_op, is_wired, validate_op
 
 # Where a compiled step's curl call is sent. The step endpoint lives in
 # script-runner (the executor, ADR-020); override for tests / a moved service.
@@ -450,6 +450,47 @@ def resolve_wiring(spec: Union[PipelineSpec, dict, str, Path]) -> list[StepWirin
     return wiring
 
 
+def check_wire_types(spec: Union["PipelineSpec", dict, str, Path]) -> None:
+    """Refuse a wire that carries the wrong kind of value.
+
+    The vocabulary states what each op emits and what it consumes, and the flow
+    builder filters its palette by exactly that - but nothing checked it once a
+    spec existed. A picture wired into a text op therefore ran happily: the
+    reference is a perfectly good string, so the model summarised the filename
+    and the step reported ok. Nobody could tell from the outside that the work
+    had not happened.
+
+    Only concrete mismatches are refused. ``any`` on either side stays permeable
+    (notify and llm.switch pass whatever they are given), and a source that is
+    not an op - a gate answer read through a dotted reference - carries no
+    declared type to compare against.
+
+    Raises PipelineError naming both steps and both types. Pure.
+    """
+    parsed = load_spec(spec)
+    emits = {st.id: get_op(st.op).output_type
+             for st in parsed.steps
+             if isinstance(st, OpStep) and get_op(st.op) is not None}
+
+    for w in resolve_wiring(parsed):
+        step = next((s for s in parsed.steps if s.id == w.step_id), None)
+        if not isinstance(step, OpStep):
+            continue
+        op = get_op(step.op)
+        if op is None or op.input_type == "any":
+            continue
+        for source_id in ([w.source] if w.source else list(w.collect or ())):
+            produced = emits.get(source_id)
+            if produced is None or produced == "any":
+                continue
+            if produced != op.input_type:
+                raise PipelineError(
+                    f"step {w.step_id!r} ({step.op}) consumes {op.input_type} but "
+                    f"step {source_id!r} emits {produced} — that wire cannot carry "
+                    "what the op expects"
+                )
+
+
 @dataclass(slots=True)
 class RerunPlan:
     """What a partial re-run has to recompute, and what it may take from a past run.
@@ -510,6 +551,41 @@ def plan_rerun(
             seen.add(w.gate)
             plan.gates_needed.append(w.gate)
     return plan
+
+
+def check_references(spec: Union["PipelineSpec", dict, str, Path]) -> None:
+    """Refuse wiring that points at a step which does not exist yet.
+
+    The compiler already refuses this, but only when a run starts - the flow sits
+    in the library looking fine until someone spends time on it. A reference
+    forward or into nothing can never become valid, unlike an op with status
+    "planned", which is allowed on purpose so a flow may be authored ahead of its
+    handler. So this is the one structural check the library applies at save.
+
+    Raises PipelineError naming the step and the reference. Pure.
+    """
+    parsed = load_spec(spec)
+    defined: set[str] = set()
+    for step in parsed.steps:
+        if isinstance(step, OpStep):
+            wanted: list[tuple[str, str]] = []
+            if isinstance(step.in_, str) and step.in_ not in ("none", ""):
+                wanted.append(("in", step.in_))
+            elif isinstance(step.in_, list):
+                wanted += [("in-list", cid) for cid in step.in_]
+            for pname, value in step.params.items():
+                if _is_ref(value):
+                    # A dotted reference reads a field of an earlier step's answer.
+                    wanted.append((pname, str(value["from"]).split(".", 1)[0]))
+            for label, target in wanted:
+                if target not in defined:
+                    raise PipelineError(
+                        f"step {step.id!r}: {label} refers to {target!r}, which is "
+                        "not an earlier step in this flow"
+                    )
+        defined.add(step.id)
+        if isinstance(step, ReviewStep):
+            defined.add(f"{step.id}_send")
 
 
 def materialize_wiring(data: dict) -> dict:
@@ -616,6 +692,11 @@ def compile_to_lobster(
         whole path exists to avoid. Only pass a gate whose decision was "approve".
     """
     spec = load_spec(spec)
+    # Checked here rather than only on save, because a spec reaches a run through
+    # several doors - the library, the builder's unsaved stack, a re-run's
+    # recorded spec. A wire carrying the wrong kind of value is refused at every
+    # one of them.
+    check_wire_types(spec)
     schemas = _gate_schemas(spec)
     if overrides:
         # Applied before the wiring is read: an override may replace a literal

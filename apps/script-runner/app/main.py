@@ -1250,6 +1250,16 @@ async def pipeline_flow_save(name: str, request: Request, overwrite: bool = Fals
     except PipelineError as e:
         raise HTTPException(status_code=422, detail=f"invalid spec: {e}")
 
+    # A reference forward or into nothing can never become valid, so the library
+    # refuses it here rather than letting the flow sit there until someone runs
+    # it. Ops with status "planned" stay allowed - authoring ahead of a handler
+    # is intended; wiring to a step that does not exist is not.
+    try:
+        pipeline_spec.check_references(parsed)
+        pipeline_spec.check_wire_types(parsed)
+    except PipelineError as e:
+        raise HTTPException(status_code=422, detail=f"invalid wiring: {e}")
+
     known = pipeline_vocab.op_names()
     unknown = sorted({s.op for s in parsed.steps if isinstance(s, pipeline_spec.OpStep)} - known)
     if unknown:
@@ -1705,7 +1715,10 @@ async def _step_cloud_complete(inputs: List[str], params: dict) -> dict:
         [{"role": "user", "content": prompt}],
         params.get("system", "You are a helpful assistant."),
         model_key=params.get("model", "sonnet"),
-        temperature=float(params["temperature"]) if params.get("temperature") else 0.7,
+        # Unset unless the step asks for it: the current models no longer take a
+        # sampling parameter, and sending 0.7 by default made every cloud step
+        # fail outright.
+        temperature=float(params["temperature"]) if params.get("temperature") else None,
         # 16000, not 1024: the Anthropic guidance for non-streaming requests, and
         # a ceiling rather than a spend - a shorter answer costs exactly what it
         # generates. The old 1024 (~750 words) cut prose mid-sentence, the same
