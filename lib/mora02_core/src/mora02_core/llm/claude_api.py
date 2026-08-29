@@ -120,10 +120,15 @@ async def complete_claude_usage(
     tokens_out = resp.usage.output_tokens
     cost = (tokens_in / 1_000_000 * model_config.get("cost_input_per_1m", 0.0)
             + tokens_out / 1_000_000 * model_config.get("cost_output_per_1m", 0.0))
+    # Anthropic says "max_tokens" where llama.cpp says "length". Mapped onto the
+    # local vocabulary so a caller checks ONE field to learn whether the answer
+    # ended or was cut off.
+    stop = getattr(resp, "stop_reason", None)
     usage = {
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         "model": model_config["name"],
         "cost_usd": round(cost, 6),
+        "finish_reason": "length" if stop == "max_tokens" else stop,
     }
     return text, usage

@@ -98,6 +98,7 @@ async function navigate(page) {
         if (page === "xray") initXray();
         if (page === "inbox" && typeof initInbox === "function") initInbox();
         if (page === "runs" && typeof initRuns === "function") initRuns();
+        if (page === "flows" && typeof initFlows === "function") initFlows();
         // Auto-focus primary input field
         autoFocusPage(page);
       } else {

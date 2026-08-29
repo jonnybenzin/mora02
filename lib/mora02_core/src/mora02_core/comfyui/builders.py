@@ -6,7 +6,6 @@ This module reads that mapping and patches the workflow accordingly.
 """
 
 import copy
-import os
 import random
 from datetime import datetime
 from typing import Optional
@@ -30,6 +29,32 @@ FORMATS_TEST = {
     "square":    (704, 704),
 }
 
+
+
+
+# Every save node type ComfyUI writes through. A workflow only carries the ones
+# it needs, so stamping them all is the same as stamping the one it has.
+_SAVE_NODES = ("SaveImage", "SaveVideo", "SaveAudio", "SaveAudioMP3")
+
+
+def stamp_output_prefix(wf: dict) -> dict:
+    """Append YYMMDD-HHMM to every save node's filename_prefix, in place.
+
+    Without it ComfyUI numbers per prefix from one, so a second run of the same
+    flow collides with the first — "edit_00001_.png" is either overwritten or
+    silently counts on from whatever is left in the directory. The timestamp is
+    what makes an output belong to the run that made it.
+
+    Applies to the workflow as loaded, so it must run for every flow — the ones
+    built by :func:`build_workflow` as well as the transform flows that load
+    their workflow directly.
+    """
+    ts = datetime.now().strftime("%y%m%d-%H%M")
+    for _nid, node in wf.items():
+        if (node.get("class_type") in _SAVE_NODES
+                and "filename_prefix" in node.get("inputs", {})):
+            node["inputs"]["filename_prefix"] = f"{node['inputs']['filename_prefix']}_{ts}"
+    return wf
 
 def parse_format(fmt: str) -> Optional[tuple[int, int]]:
     """Parse format string: 'portrait', '768x1152', etc."""
@@ -102,7 +127,7 @@ def build_workflow(
         if bm["node"] in wf:
             wf[bm["node"]]["inputs"][bm["field"]] = effective
 
-    # Format → Aspect Ratio (for API flows like Nano Banana / Flux Ultra)
+    # Format → aspect ratio (for API flows: Nano Banana, Flux Ultra)
     if "aspect_ratio" in node_map:
         format_map = flow_config.get("format_to_aspect", {})
         fmt_key = (format or "square").lower().strip()
@@ -117,24 +142,6 @@ def build_workflow(
             siz = node_map["image_size"]
             if siz["node"] in wf:
                 wf[siz["node"]]["inputs"][siz["field"]] = "1K" if testrun else full_size
-    elif "size" in node_map:
-        # Format → "WIDTHxHEIGHT" string (for GPT Image API)
-        size_map = flow_config.get("format_to_size", {})
-        fmt_key = (format or "square").lower().strip()
-        size_val = size_map.get(fmt_key, "1024x1024")
-        sm = node_map["size"]
-        if sm["node"] in wf:
-            wf[sm["node"]]["inputs"][sm["field"]] = size_val
-        # Testrun → cheaper quality tier. The custom node's dropdown only
-        # allows auto/high/standard, but OpenAI gpt-image-1 only accepts
-        # low/medium/high/auto — the only safe cheap value through BOTH
-        # validations is "auto" (OpenAI then usually picks medium).
-        if "quality" in node_map:
-            full_q = flow_config.get("quality_full", "high")
-            test_q = flow_config.get("quality_test", "auto")
-            qm = node_map["quality"]
-            if qm["node"] in wf:
-                wf[qm["node"]]["inputs"][qm["field"]] = test_q if testrun else full_q
     else:
         # Format → Width/Height (for local SD/XL flows)
         fmt_key = (format or "square").lower().strip()
@@ -170,14 +177,6 @@ def build_workflow(
         if sm2["node"] in wf:
             wf[sm2["node"]]["inputs"][sm2["field"]] = int(steps)
 
-    # API key injection from env (for OpenAI/GPT-Image and similar API flows)
-    if "api_key" in node_map:
-        env_var = flow_config.get("api_key_env", "OPENAI_API_KEY")
-        api_key = os.environ.get(env_var, "")
-        ak = node_map["api_key"]
-        if ak["node"] in wf:
-            wf[ak["node"]]["inputs"][ak["field"]] = api_key
-
     # Upscale off → remove upscale nodes
     if not upscale:
         for nid in ["313", "314", "315", "326", "455"]:
@@ -190,12 +189,7 @@ def build_workflow(
             if nid in wf:
                 del wf[nid]
 
-    # Dynamic filename prefix: img_YYMMDD-HHMM
-    ts = datetime.now().strftime("%y%m%d-%H%M")
-    for _nid, node in wf.items():
-        if node.get("class_type") == "SaveImage" and "filename_prefix" in node.get("inputs", {}):
-            old = node["inputs"]["filename_prefix"]
-            node["inputs"]["filename_prefix"] = f"{old}_{ts}"
+    stamp_output_prefix(wf)
 
     # IP-Adapter style injection
     if style_images and flow in IPADAPTER_FLOWS:
@@ -279,12 +273,7 @@ def build_video_workflow(
         if ei["node"] in wf:
             wf[ei["node"]]["inputs"][ei["field"]] = end_image
 
-    # Dynamic filename prefix: vid_YYMMDD-HHMM
-    ts = datetime.now().strftime("%y%m%d-%H%M")
-    for _nid, node in wf.items():
-        if node.get("class_type") == "SaveVideo" and "filename_prefix" in node.get("inputs", {}):
-            old = node["inputs"]["filename_prefix"]
-            node["inputs"]["filename_prefix"] = f"{old}_{ts}"
+    stamp_output_prefix(wf)
 
     return wf
 
@@ -363,12 +352,6 @@ def build_music_workflow(
         if "8" in wf:
             wf["8"]["inputs"]["positive"] = ["13", 0]
 
-    # Dynamic filename prefix: music/mus_YYMMDD-HHMM
-    ts = datetime.now().strftime("%y%m%d-%H%M")
-    for _nid, node in wf.items():
-        if (node.get("class_type") in ("SaveAudioMP3", "SaveAudio")
-                and "filename_prefix" in node.get("inputs", {})):
-            old = node["inputs"]["filename_prefix"]
-            node["inputs"]["filename_prefix"] = f"{old}_{ts}"
+    stamp_output_prefix(wf)
 
     return wf

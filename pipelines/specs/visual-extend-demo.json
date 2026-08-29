@@ -1,1 +1,23 @@
-{"name":"visual-extend-demo","steps":[{"source.file":{}},{"image.upscale":{"factor":2}},{"gate":"Approve the upscaled image?"}]}
+{
+  "name": "visual-extend-demo",
+  "description": "Bild aus dem Quellordner nehmen, zweifach hochskalieren, Ergebnis freigeben.",
+  "tags": [
+    "bild",
+    "upscale",
+    "demo"
+  ],
+  "steps": [
+    {
+      "source.file": {}
+    },
+    {
+      "image.upscale": {
+        "factor": 2
+      }
+    },
+    {
+      "gate": "Approve the upscaled image?"
+    }
+  ],
+  "updated": "2026-08-26T13:57:05Z"
+}

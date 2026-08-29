@@ -116,7 +116,7 @@ async def call_comfyui(command: str) -> dict:
             from comfyui_client import resolve_flow
             resolved_flow = resolve_flow(parsed["flow"])
             if resolved_flow in IPADAPTER_FLOWS:
-                from mora02_core.baserow import get_style_pack_by_name
+                from mora02_core.db import get_style_pack_by_name
                 pack = await get_style_pack_by_name(style_name)
                 if pack and pack.get("source_path"):
                     style_images = await prepare_style_images_via_api(

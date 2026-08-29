@@ -1,20 +1,20 @@
-"""mora02_core.baserow — Baserow client + schema + high-level API.
+"""mora02_core.db — Baserow client + schema + high-level API.
 
 Phase 1.2a: low-level client extracted from apps/pilot/baserow_client.py.
 Phase 1.2b: schema export via installer.export_schema() + schema.py snapshot.
-Phase 1.2c: high-level CRUD API in mora02_core.baserow.api (insert/get/query/update/delete).
+Phase 1.2c: high-level CRUD API in mora02_core.db.api (insert/get/query/update/delete).
 
 Recommended for new code:
 
-    from mora02_core.baserow import api
+    from mora02_core.db import api
     rows = await api.query("bot_personas", filter={"active": True})
 
 The 28 functions below remain for backward compatibility with the original
 Pilot client until apps are migrated.
 """
 
-from mora02_core.baserow import api, schema
-from mora02_core.baserow.client import (
+from mora02_core.db import api, schema
+from mora02_core.db.client import (
     # low-level helpers — for callers that do direct httpx requests
     headers,
     url,

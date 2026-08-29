@@ -98,7 +98,7 @@ class Op:
 
 _IMAGE_FLOWS = (
     "sd15", "photo", "concept", "epic", "flux",       # local diffusion
-    "nanban", "nanban-pro", "gpt-image", "flux-ultra",  # external API
+    "nanban", "nanban-pro", "flux-ultra",  # external API
 )
 
 # Valid llama.cpp switch targets for llm.switch. Kept STATIC here on purpose: this
@@ -347,7 +347,10 @@ _OPS: tuple[Op, ...] = (
             Param("prompt", desc="user prompt; falls back to stdin"),
             Param("system", desc="system prompt"),
             Param("temperature", desc="sampling temperature (default 0.7)", advanced=True),
-            Param("max_tokens", type="int", desc="max output tokens (default 512)", advanced=True),
+            # Not "advanced": this is the length dial. Hidden behind a sub-collapse
+            # it looks like the model gave up, when the output was simply cut.
+            Param("max_tokens", type="int",
+                  desc="optional ceiling; empty = the model stops when the answer ends"),
         ),
         consumes="one",
         consumes_optional=True,
@@ -428,18 +431,20 @@ _OPS: tuple[Op, ...] = (
         params=(
             Param("query", desc="what to ask about the image"),
             Param("model", type="enum", default="haiku", choices=("haiku", "sonnet", "opus")),
+            Param("max_tokens", type="int",
+                  desc="optional ceiling; empty = 1024 (cloud answers cost money)"),
         ),
         consumes="one",
         input_type="image",
         output_type="text",
     ),
 
-    # ----- Data (Baserow generic CRUD) -------------------------------------
+    # ----- Data (generic table CRUD) ---------------------------------------
     Op(
-        name="baserow.query",
+        name="db.query",
         summary="Query rows from a table with filter/order/pagination.",
-        plain="Looks up rows in a Baserow table that match a filter.",
-        bucket="baserow",
+        plain="Looks up rows in a table that match a filter.",
+        bucket="db",
         params=(
             Param("table", required=True, desc="table name or numeric id"),
             Param("filter", desc="filter expression / JSON"),
@@ -450,10 +455,10 @@ _OPS: tuple[Op, ...] = (
         output_type="text",  # JSON rows
     ),
     Op(
-        name="baserow.get",
+        name="db.get",
         summary="Fetch a single row by id.",
-        plain="Fetches one specific row from a Baserow table by its id.",
-        bucket="baserow",
+        plain="Fetches one specific row from a table by its id.",
+        bucket="db",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -462,10 +467,10 @@ _OPS: tuple[Op, ...] = (
         output_type="text",
     ),
     Op(
-        name="baserow.insert",
+        name="db.insert",
         summary="Create a new row (field values from stdin JSON or 'data').",
-        plain="Adds a new row to a Baserow table.",
-        bucket="baserow",
+        plain="Adds a new row to a table.",
+        bucket="db",
         params=(
             Param("table", required=True),
             Param("data", desc="JSON field values; falls back to stdin"),
@@ -476,10 +481,10 @@ _OPS: tuple[Op, ...] = (
         output_type="text",
     ),
     Op(
-        name="baserow.update",
+        name="db.update",
         summary="Patch an existing row by id (partial update).",
-        plain="Changes fields on an existing Baserow row.",
-        bucket="baserow",
+        plain="Changes fields on an existing row.",
+        bucket="db",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -491,10 +496,10 @@ _OPS: tuple[Op, ...] = (
         output_type="text",
     ),
     Op(
-        name="baserow.delete",
+        name="db.delete",
         summary="Delete a row by id.",
-        plain="Removes a row from a Baserow table.",
-        bucket="baserow",
+        plain="Removes a row from a table.",
+        bucket="db",
         params=(
             Param("table", required=True),
             Param("row_id", type="int", required=True),
@@ -503,10 +508,10 @@ _OPS: tuple[Op, ...] = (
         output_type="text",
     ),
     Op(
-        name="baserow.list_fields",
+        name="db.list_fields",
         summary="Get the field schema for a table.",
-        plain="Lists the columns (fields) a Baserow table has.",
-        bucket="baserow",
+        plain="Lists the columns (fields) a table has.",
+        bucket="db",
         params=(Param("table", required=True),),
         consumes="none",
         output_type="text",
@@ -694,6 +699,77 @@ _OPS: tuple[Op, ...] = (
         output_type="video",
     ),
 
+    Op(
+        name="image.edit",
+        summary="Edit an existing image from a prompt (Gemini image models).",
+        plain="Changes a picture you already have — e.g. put a blue hat on the rabbit — instead of drawing a new one.",
+        bucket="image",
+        status="wired",
+        params=(
+            Param("prompt", required=True,
+                  desc="what to change about the incoming image, e.g. 'add a blue hat'"),
+            Param("flow", type="enum", default="nanban",
+                  choices=("nanban", "nanban-pro"), desc="editing model (external API)"),
+            Param("format", desc="portrait|landscape|square — omit to keep the source shape",
+                  advanced=True),
+            Param("temperature", desc="how freely the model reinterprets, 0.0-2.0",
+                  advanced=True),
+        ),
+        consumes="one",
+        input_type="image",
+        output_type="image",
+    ),
+    Op(
+        name="image.cutout",
+        summary="Cut the subject out of an image and return a PNG with an alpha channel.",
+        plain="Frees the main subject from its background and hands on a picture with a see-through background.",
+        bucket="image",
+        status="wired",
+        params=(
+            Param("model", type="enum", default="isnet", choices=("isnet", "u2net", "human", "anime", "silueta", "inspyrenet",), desc="matting model; 'human' for people, 'inspyrenet' is finer on hair and fur but slower"),
+            Param("device", type="enum", default="CUDA", choices=("CUDA", "CPU",), desc="where the matting model runs; ignored by inspyrenet", advanced=True),
+        ),
+        consumes="one",
+        input_type="image",
+        output_type="image",
+    ),
+    Op(
+        name="image.erase",
+        summary="Remove the subject from an image and fill the gap with the surrounding scene (Flux Fill).",
+        plain="Takes the main subject out of a picture and paints the background back in where it stood.",
+        bucket="image",
+        status="wired",
+        params=(
+            Param("prompt", desc="what the emptied area should show; omit for a plain continuation of the scene"),
+            Param("model", type="enum", default="isnet", choices=("isnet", "u2net", "human", "anime", "silueta",), desc="which model decides where the subject is"),
+            Param("grow", type="int", default="90",
+                  desc="how many pixels the hole is widened. Not cosmetic: at a small "
+                       "value the subject's silhouette stays readable, and a fill model "
+                       "reads a subject-shaped hole as an invitation to paint one",
+                  advanced=True),
+            Param("seed", type="int", desc="fix the noise to repeat the same fill", advanced=True),
+            Param("steps", type="int", desc="sampling steps; more is slower and slightly cleaner", advanced=True),
+        ),
+        consumes="one",
+        input_type="image",
+        output_type="image",
+    ),
+    Op(
+        name="image.facefix",
+        summary="Re-render the faces in an image at higher detail, leaving the rest untouched.",
+        plain="Sharpens the faces in a picture — useful when people stand far enough away that their features came out mushy.",
+        bucket="image",
+        status="wired",
+        params=(
+            Param("prompt", desc="what the refined face should look like; omit for a plain detail pass"),
+            Param("denoise", default="0.4", desc="how far the face may change, 0.1-0.6; past roughly 0.6 it stops being the same person", advanced=True),
+            Param("seed", type="int", desc="fix the noise to repeat the same pass", advanced=True),
+            Param("steps", type="int", desc="sampling steps for the face crop", advanced=True),
+        ),
+        consumes="one",
+        input_type="image",
+        output_type="image",
+    ),
     # <<< add-vocab: scripts/add-vocab.py inserts new Op() entries above this line >>>
 )
 

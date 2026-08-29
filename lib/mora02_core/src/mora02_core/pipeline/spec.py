@@ -41,7 +41,8 @@ step's value holds its query params, plus two reserved control keys:
     so ``image.generate`` -> ``image``). Needed only to disambiguate duplicates.
   - ``in``: wire the input ref explicitly to another step's id (default = the
     previous op step). ``"none"`` suppresses stdin for a pure producer that
-    happens to not be first. A list (fan-in) is not yet supported by the target.
+    happens to not be first. A list is fan-in: several earlier steps collected
+    into one "many"-consuming op, in the order written.
 
 A param value may also be a step-output REFERENCE ``{"from": "<step id>"}`` instead
 of a literal: it pulls that earlier step's output into this specific field at run
@@ -57,6 +58,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any, Union
 from urllib.parse import quote
 
@@ -114,7 +116,7 @@ class OpStep:
     op: str
     params: dict[str, Any] = field(default_factory=dict)
     # Input wiring: None = default to previous op step; "none" = no stdin;
-    # a str = that step's id; a list = fan-in (not yet supported by target).
+    # a str = that step's id; a list = fan-in, collected in the order written.
     in_: Union[str, list[str], None] = None
 
 
@@ -310,6 +312,206 @@ def _check_unique_ids(steps: list[Union[OpStep, GateStep, ReviewStep]]) -> None:
         seen.add(s.id)
 
 
+def spec_to_dict(spec: Union[PipelineSpec, dict, str, Path]) -> dict[str, Any]:
+    """Serialise a parsed spec back to the mapping form a spec file holds.
+
+    Round-trips through :func:`load_spec`. Needed because a run has to be able to
+    say what it actually ran: the run log keeps the spec itself, not just its
+    name, so a later partial re-run plans against the version that ran rather
+    than against a library file somebody has edited since.
+    """
+    loaded = load_spec(spec)
+    steps: list[dict[str, Any]] = []
+    for st in loaded.steps:
+        if isinstance(st, GateStep):
+            steps.append({"gate": {"id": st.id, "prompt": st.prompt,
+                                   "schema": st.response_schema}})
+        elif isinstance(st, ReviewStep):
+            steps.append({"review": {"id": st.id, "prompt": st.prompt,
+                                     "schema": st.response_schema,
+                                     **st.notify_params}})
+        else:
+            body: dict[str, Any] = {"id": st.id}
+            if st.in_ is not None:
+                body["in"] = st.in_
+            body.update(st.params)
+            steps.append({st.op: body})
+    return {"name": loaded.name, "steps": steps}
+
+
+# ============================================================================
+# Wiring — which step feeds which (the spec's edges, made explicit)
+# ============================================================================
+
+
+@dataclass(slots=True)
+class StepWiring:
+    """Where one COMPILED step gets its inputs from.
+
+    A spec leaves most edges implicit: an op step without ``in:`` reads whatever
+    op ran before it. That rule used to exist only as bookkeeping inside the
+    compiler loop, so nothing but the compiler could see the graph. It lives
+    here now and the compiler is merely its first consumer — selective re-runs
+    and a canvas view need the same answer.
+
+    ``step_id`` matches a compiled step 1:1, including the ``<review>_send``
+    sub-step a review expands into: that is a real node in the compiled output.
+    """
+
+    step_id: str
+    # stdin producer — whose stdout is piped in (None = this step reads nothing).
+    source: str | None = None
+    # Fan-in: several earlier steps collected into a "many"-consuming op.
+    collect: list[str] | None = None
+    # Param name -> step id, from ``{"from": "<id>"}`` references.
+    refs: dict[str, str] = field(default_factory=dict)
+    # The gate whose approval this step waits on (the most recent one).
+    gate: str | None = None
+    # GATES ONLY: the step whose result this gate is judging. Not an input — a
+    # gate has no stdin — but it IS a dependency: re-make the image and the
+    # approval given for the old one is worthless.
+    reviews: str | None = None
+
+    @property
+    def depends_on(self) -> set[str]:
+        """The steps whose OUTPUT this one is made of — "what goes stale if X changes?".
+
+        ``gate`` is deliberately NOT in here. A gate is control flow: it decides
+        WHETHER a step runs, not what the step produces. Re-asking an approval
+        because the image changed must not invalidate the song, which never
+        looked at the image.
+        """
+        deps = set(self.refs.values())
+        if self.source:
+            deps.add(self.source)
+        if self.reviews:
+            deps.add(self.reviews)
+        if self.collect:
+            deps.update(self.collect)
+        return deps
+
+
+def resolve_wiring(spec: Union[PipelineSpec, dict, str, Path]) -> list[StepWiring]:
+    """Resolve every implicit edge in a spec into named step ids.
+
+    Pure resolution, deliberately WITHOUT validation: it reports the wiring a
+    spec asks for even when an id does not exist. :func:`compile_to_lobster`
+    keeps its own checks in their original order — this removes the duplicated
+    bookkeeping, not the diagnostics.
+
+    Two rules are easy to get wrong, which is why this is not a one-liner:
+      - a gate is TRANSPARENT for chaining — the step after it reads from the op
+        BEFORE the gate, not from the gate;
+      - a review expands into ``<id>_send`` + a gate, and that send sub-step (a
+        passthrough notify) becomes the source for everything downstream.
+    """
+    spec = load_spec(spec)
+    wiring: list[StepWiring] = []
+    last_op_id: str | None = None
+    last_gate_id: str | None = None
+
+    for step in spec.steps:
+        if isinstance(step, GateStep):
+            wiring.append(StepWiring(step_id=step.id, reviews=last_op_id))
+            last_gate_id = step.id
+            continue
+
+        if isinstance(step, ReviewStep):
+            send_id = f"{step.id}_send"
+            wiring.append(
+                StepWiring(step_id=send_id, source=last_op_id, gate=last_gate_id)
+            )
+            last_op_id = send_id  # passthrough: downstream chains from the sent ref
+            wiring.append(StepWiring(step_id=step.id, reviews=send_id))
+            last_gate_id = step.id
+            continue
+
+        # Split a dotted field ref back to its step: the graph is about steps.
+        refs = {
+            k: str(v["from"]).split(".", 1)[0]
+            for k, v in step.params.items() if _is_ref(v)
+        }
+        if isinstance(step.in_, list):
+            source, collect = None, list(step.in_)
+        elif step.in_ == "none":
+            source, collect = None, None
+        elif isinstance(step.in_, str):
+            source, collect = step.in_, None
+        else:
+            source, collect = last_op_id, None  # the implicit default
+        wiring.append(
+            StepWiring(
+                step_id=step.id, source=source, collect=collect,
+                refs=refs, gate=last_gate_id,
+            )
+        )
+        last_op_id = step.id
+
+    return wiring
+
+
+@dataclass(slots=True)
+class RerunPlan:
+    """What a partial re-run has to recompute, and what it may take from a past run.
+
+    Re-running a whole flow because one late step was wrong is the expensive
+    default: in a media pipeline the wasted steps are minutes of GPU and real
+    money. Given the steps that changed, this answers the only question that
+    matters — what actually goes stale?
+    """
+
+    # Compiled step ids that must run again, in spec order.
+    redo: list[str] = field(default_factory=list)
+    # Step ids whose stored output from the earlier run still holds.
+    reuse: list[str] = field(default_factory=list)
+    # Gates that redone steps wait on but that are NOT themselves redone. Their
+    # earlier decision has to come from somewhere, or a human is asked twice.
+    gates_needed: list[str] = field(default_factory=list)
+
+
+def plan_rerun(
+    spec: Union[PipelineSpec, dict, str, Path],
+    changed: Iterable[str],
+) -> RerunPlan:
+    """Work out which steps a change makes stale.
+
+    ``changed`` names COMPILED step ids (what :func:`resolve_wiring` reports,
+    so ``<review>_send`` counts as its own step). Naming a review's id also
+    marks its send sub-step: the two are one thing to a human.
+
+    A step is stale when it changed itself, or when anything it depends on is
+    stale — dependency meaning any of stdin source, fan-in list, ``{"from": …}``
+    params, or the gate it waits on. One forward pass suffices because a
+    reference must always point at an earlier step.
+
+    Pure: no run is read and nothing is executed. Feeding the plan with a past
+    run's stored outputs is the executor's job.
+    """
+    wiring = resolve_wiring(spec)
+    wanted = set(changed)
+    # A review is one thing to a human but two steps to the compiler.
+    for w in wiring:
+        if w.step_id.endswith("_send") and w.step_id[: -len("_send")] in wanted:
+            wanted.add(w.step_id)
+
+    plan = RerunPlan()
+    stale: set[str] = set()
+    for w in wiring:
+        if w.step_id in wanted or (w.depends_on & stale):
+            stale.add(w.step_id)
+            plan.redo.append(w.step_id)
+        else:
+            plan.reuse.append(w.step_id)
+
+    reused = set(plan.reuse)
+    seen: set[str] = set()
+    for w in wiring:
+        if w.step_id in stale and w.gate and w.gate in reused and w.gate not in seen:
+            seen.add(w.gate)
+            plan.gates_needed.append(w.gate)
+    return plan
+
+
 # ============================================================================
 # Compiler — PipelineSpec -> Lobster workflow dict (PURE, no IO)
 # ============================================================================
@@ -319,6 +521,9 @@ def compile_to_lobster(
     spec: Union[PipelineSpec, dict, str, Path],
     *,
     run_id: str | None = None,
+    overrides: dict[str, dict[str, Any]] | None = None,
+    reuse: Iterable[str] | None = None,
+    reuse_from: str | None = None,
 ) -> dict[str, Any]:
     """Compile a spec to a Lobster workflow dict. Pure — no filesystem, no runner.
 
@@ -327,23 +532,49 @@ def compile_to_lobster(
         overrides the source, ``in: "none"`` suppresses it (a producer).
       - condition: every step after a gate carries ``$<lastGate>.response.approved``
         (the most recent gate only — matching the spike behaviour).
-      - run: a fully-formed ``curl -fsS`` POST to the step endpoint with params
+      - run: a fully-formed ``curl --fail-with-body`` POST to the step endpoint with params
         URL-encoded and ``fmt=out`` appended; ``--data-binary @-`` when it has stdin.
 
     When ``run_id`` is given, ``run_id`` and the step's ``step_id`` are baked into
     every step's curl query so the step endpoint can correlate its per-step log
     lines to the run (see runlog). Omitting ``run_id`` (tests / inspection) leaves
     the output byte-identical to a plain compile.
+
+    PARTIAL RE-RUN (all three optional, omitted = a plain full compile):
+      - ``overrides`` replaces params per step id before anything else is read, so
+        a changed value is visible to the wiring too — ``{"img2": {"prompt": "…"}}``.
+      - ``reuse`` names steps to take from an earlier run instead of running them;
+        each becomes a replay step that copies that output into this run. The spec
+        handed in may DIFFER from the one that produced ``reuse_from`` (an extra
+        edit step, a rewired input) — only the reused ids have to still match.
+      - a reused GATE is dropped entirely and the conditions pointing at it are
+        stripped: the human already decided, and asking twice is the bug this
+        whole path exists to avoid. Only pass a gate whose decision was "approve".
     """
     spec = load_spec(spec)
+    if overrides:
+        # Applied before the wiring is read: an override may replace a literal
+        # with a {"from": …} ref, which is an edge, not just a value.
+        for step in spec.steps:
+            patch = overrides.get(step.id)
+            if patch and isinstance(step, OpStep):
+                step.params = {**step.params, **patch}
+    # One walk resolves every edge; the loop below only renders and validates.
+    wiring = {w.step_id: w for w in resolve_wiring(spec)}
+    reuse_ids = set(reuse or ())
+    if reuse_ids and not reuse_from:
+        raise PipelineError("reuse needs reuse_from — the run to take the outputs from")
 
     out_steps: list[dict[str, Any]] = []
     defined_ids: set[str] = set()
-    last_op_id: str | None = None
-    last_gate_id: str | None = None
 
     for step in spec.steps:
         if isinstance(step, GateStep):
+            if step.id in reuse_ids:
+                # Decided in the earlier run; its id stays "defined" so a later
+                # {"from": …} still resolves, but nobody is asked again.
+                defined_ids.add(step.id)
+                continue
             out_steps.append(
                 {
                     "id": step.id,
@@ -351,7 +582,6 @@ def compile_to_lobster(
                 }
             )
             defined_ids.add(step.id)
-            last_gate_id = step.id
             continue
 
         if isinstance(step, ReviewStep):
@@ -364,29 +594,45 @@ def compile_to_lobster(
                 raise PipelineError(
                     f"review {step.id!r}: generated id {send_id!r} collides with an existing step"
                 )
-            send: dict[str, Any] = {"id": send_id}
-            if last_op_id is not None:
-                send["stdin"] = f"${last_op_id}.stdout"
-            if last_gate_id is not None:
-                send["condition"] = f"${last_gate_id}.response.approved"
-            send["run"] = _build_run(
-                "notify", step.notify_params, has_stdin=last_op_id is not None,
-                run_id=run_id, step_id=send_id,
-            )
-            out_steps.append(send)
+            sw = wiring[send_id]
+            if send_id in reuse_ids:
+                cond = (
+                    f"${sw.gate}.response.approved"
+                    if sw.gate and sw.gate not in reuse_ids else None
+                )
+                out_steps.append(_replay_step(send_id, reuse_from, run_id, condition=cond))
+            else:
+                send: dict[str, Any] = {"id": send_id}
+                if sw.source is not None and sw.source not in reuse_ids:
+                    send["stdin"] = f"${sw.source}.stdout"
+                if sw.gate is not None and sw.gate not in reuse_ids:
+                    send["condition"] = f"${sw.gate}.response.approved"
+                send["run"] = _build_run(
+                    "notify", step.notify_params, has_stdin=sw.source is not None,
+                    run_id=run_id, step_id=send_id,
+                )
+                out_steps.append(send)
             defined_ids.add(send_id)
-            last_op_id = send_id  # passthrough: downstream chains from the sent ref
 
-            out_steps.append(
-                {
-                    "id": step.id,
-                    "input": {"prompt": step.prompt, "responseSchema": step.response_schema},
-                }
-            )
+            if step.id not in reuse_ids:
+                out_steps.append(
+                    {
+                        "id": step.id,
+                        "input": {"prompt": step.prompt, "responseSchema": step.response_schema},
+                    }
+                )
             defined_ids.add(step.id)
-            last_gate_id = step.id
             continue
 
+        w = wiring[step.id]
+        if step.id in reuse_ids:
+            cond = (
+                f"${w.gate}.response.approved"
+                if w.gate and w.gate not in reuse_ids else None
+            )
+            out_steps.append(_replay_step(step.id, reuse_from, run_id, condition=cond))
+            defined_ids.add(step.id)
+            continue
         ref_params = {k: v["from"] for k, v in step.params.items() if _is_ref(v)}
         arg_params = {k: v["arg"] for k, v in step.params.items() if _is_arg(v)}
         literal_params = {
@@ -406,7 +652,13 @@ def compile_to_lobster(
                 raise PipelineError(
                     f"step {step.id!r}: param {pname!r} 'from' must be a step id string"
                 )
-            if src not in defined_ids:
+            # A dotted ref picks ONE field out of a structured output — the case
+            # that matters is a gate answer: "<gate>.feedback" pulls the text a
+            # human wrote, while "<gate>" alone yields the whole answer. Only the
+            # part before the first dot has to name a step; the field is resolved
+            # from the bucket at run time, the same way an args.<name> ref is.
+            head = src.split(".", 1)[0]
+            if head not in defined_ids:
                 raise PipelineError(
                     f"step {step.id!r}: param {pname!r} refers to unknown or later "
                     f"step id {src!r}"
@@ -423,21 +675,28 @@ def compile_to_lobster(
         # multiple stdouts into one stdin, so the collect is resolved from the run
         # bucket in the executor — the compiled step carries `__collect=a,b,c`.
         collect_ids = None
-        if isinstance(step.in_, list):
-            for cid in step.in_:
+        if w.collect is not None:
+            for cid in w.collect:
                 if cid not in defined_ids:
                     raise PipelineError(
                         f"step {step.id!r}: in-list refers to unknown or later step {cid!r}"
                     )
-            collect_ids = list(step.in_)
+            collect_ids = list(w.collect)
             source_id = None
         else:
-            source_id = _resolve_source(step, last_op_id, defined_ids)
+            source_id = w.source
+            # Only an explicitly named source can be wrong; the implicit default
+            # is an earlier step by construction.
+            if isinstance(step.in_, str) and step.in_ != "none" and source_id not in defined_ids:
+                raise PipelineError(
+                    f"step {step.id!r}: in:{step.in_!r} refers to an unknown or later step"
+                )
         compiled: dict[str, Any] = {"id": step.id}
         if source_id is not None:
+            # A replayed step DOES emit its stdout, so the pipe still works.
             compiled["stdin"] = f"${source_id}.stdout"
-        if last_gate_id is not None:
-            compiled["condition"] = f"${last_gate_id}.response.approved"
+        if w.gate is not None and w.gate not in reuse_ids:
+            compiled["condition"] = f"${w.gate}.response.approved"
         compiled["run"] = _build_run(
             step.op, step.params, has_stdin=source_id is not None,
             run_id=run_id, step_id=step.id, collect=collect_ids,
@@ -445,29 +704,35 @@ def compile_to_lobster(
 
         out_steps.append(compiled)
         defined_ids.add(step.id)
-        last_op_id = step.id
 
     return {"name": spec.name, "steps": out_steps}
 
 
-def _resolve_source(step: OpStep, last_op_id: str | None, defined_ids: set[str]) -> str | None:
-    """Resolve an op step's input source id (or None for no stdin)."""
-    in_ = step.in_
-    if isinstance(in_, list):
-        raise PipelineError(
-            f"step {step.id!r}: fan-in (in: [..]) is not yet supported by the Lobster "
-            "target — wire a single source for now"
-        )
-    if in_ == "none":
-        return None
-    if isinstance(in_, str):
-        if in_ not in defined_ids:
-            raise PipelineError(
-                f"step {step.id!r}: in:{in_!r} refers to an unknown or later step"
-            )
-        return in_
-    # Default: chain from the previous op step (None if this is the first one).
-    return last_op_id
+def _replay_step(
+    step_id: str,
+    from_run: str | None,
+    run_id: str | None,
+    *,
+    condition: str | None = None,
+) -> dict[str, Any]:
+    """A step that re-emits an earlier run's stored output instead of doing the work.
+
+    Deliberately a real step rather than a hole in the workflow: the pipe
+    ``$id.stdout`` keeps resolving, and the run log shows the whole flow with the
+    reused parts visible instead of a torso that looks like a broken run.
+    """
+    pairs = [f"from_run={quote(str(from_run), safe='')}", f"step={quote(step_id, safe='')}", "fmt=out"]
+    if run_id:
+        pairs.append(f"run_id={quote(run_id, safe='')}")
+        pairs.append(f"step_id={quote(step_id, safe='')}")
+    url = f"{STEP_BASE_URL}/pipeline/replay?" + "&".join(pairs)
+    out: dict[str, Any] = {"id": step_id}
+    if condition:
+        # A gate that is being asked AGAIN still governs this step: on a "no" the
+        # replay must stay silent like every other step behind that gate.
+        out["condition"] = condition
+    out["run"] = f"curl -sS --fail-with-body -X POST '{url}'"
+    return out
 
 
 def _build_run(
@@ -501,7 +766,11 @@ def _build_run(
         pairs.append(f"run_id={quote(run_id, safe='')}")
         pairs.append(f"step_id={quote(str(step_id), safe='')}")
     url = f"{STEP_BASE_URL}/pipeline/step/{op}?" + "&".join(pairs)
-    run = f"curl -fsS -X POST '{url}'"
+    # --fail-with-body instead of -f: both make curl exit non-zero on an HTTP
+    # error (so the workflow stops), but -f also DISCARDS the response body —
+    # which is where the step endpoint puts the reason. Without it a failing
+    # step reports only "curl: (22) ... error 400" and the actual cause is lost.
+    run = f"curl -sS --fail-with-body -X POST '{url}'"
     if has_stdin:
         run += " --data-binary @-"
     return run

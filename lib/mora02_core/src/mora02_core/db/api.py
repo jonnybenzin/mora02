@@ -5,7 +5,7 @@ function-per-table helpers in ``client.py``. Table names are looked up
 in ``schema.TABLE_IDS`` (re-generate via the installer when schema drifts).
 
 Example:
-    from mora02_core.baserow import api
+    from mora02_core.db import api
 
     rows = await api.query("bot_personas", filter={"active": True})
     new = await api.insert("bot_feedback", {"Type": "bug", "Description": "..."})
@@ -17,10 +17,10 @@ from typing import Any
 import httpx
 
 from mora02_core._common import get_logger
-from mora02_core.baserow import schema
-from mora02_core.baserow.client import _headers, _url
+from mora02_core.db import schema
+from mora02_core.db.client import _headers, _url
 
-log = get_logger("mora02_core.baserow.api")
+log = get_logger("mora02_core.db.api")
 
 
 def _table_id(name) -> int:
@@ -38,7 +38,7 @@ def _table_id(name) -> int:
     except KeyError:
         raise KeyError(
             f"Unknown table {name!r}. Known: {sorted(schema.TABLE_IDS)}. "
-            "Re-run `python -m mora02_core.baserow.installer` if the schema drifted."
+            "Re-run `python -m mora02_core.db.installer` if the schema drifted."
         ) from None
 
 

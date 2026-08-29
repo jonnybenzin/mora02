@@ -29,7 +29,7 @@ pytest
 | `mora02_core.auth` | ✅ | `.env` loader, `require()` / `get()` for secrets |
 | `mora02_core.assets` | ✅ | Unified `Asset` dataclass with `user_id` |
 | `mora02_core._common` | ✅ | Structured logger, HTTP retry |
-| `mora02_core.baserow` | 🚧 | CRUD with table-names instead of IDs |
+| `mora02_core.db` | 🚧 | CRUD with table-names instead of IDs (Baserow backend) |
 | `mora02_core.llm` | 📋 | Multi-backend LLM router |
 | `mora02_core.comfyui` | 📋 | Workflow runner |
 

@@ -41,6 +41,11 @@ class PipelineResult:
     resume_token: str | None = None
     error: dict[str, Any] | None = None
     raw: dict[str, Any] | None = None
+    # The run this result belongs to. The runner does not know it (it only sees a
+    # workflow file and a resume token) — the layer that MINTED the id fills it in,
+    # so a paused result can be carried to the inbox and back without losing which
+    # run a human decision belongs to.
+    run_id: str | None = None
 
     @property
     def is_paused(self) -> bool:

@@ -1,0 +1,24 @@
+{
+  "name": "builder-smoke-test",
+  "description": "Testflow vom Builder — darf geloescht werden.",
+  "tags": [
+    "test",
+    "builder"
+  ],
+  "steps": [
+    {
+      "source.file": {
+        "id": "quelle"
+      }
+    },
+    {
+      "image.upscale": {
+        "id": "image"
+      }
+    },
+    {
+      "gate": "Freigeben?"
+    }
+  ],
+  "updated": "2026-08-26T14:19:24Z"
+}

@@ -54,7 +54,7 @@ async def complete_qwen_usage(
     system_prompt: str,
     *,
     temperature: float = 0.7,
-    max_tokens: int = 512,
+    max_tokens: int | None = None,
     user_id: str = "default",
     think: bool = False,
 ) -> tuple[str, dict]:
@@ -71,7 +71,7 @@ async def complete_qwen_usage(
     soft switch (``think=False``, the default). The ``reasoning_content`` fallback
     keeps us non-empty even if a server build ignores the switch.
     """
-    _log.debug("complete_qwen user=%s msgs=%d max_tokens=%d think=%s",
+    _log.debug("complete_qwen user=%s msgs=%d max_tokens=%s think=%s",
                user_id, len(messages), max_tokens, think)
     system = system_prompt if think else f"{system_prompt}\n/no_think"
     payload = {
@@ -79,8 +79,13 @@ async def complete_qwen_usage(
         "messages": [{"role": "system", "content": system}] + messages,
         "stream": False,
         "temperature": temperature,
-        "max_tokens": max_tokens,
     }
+    # No ceiling unless the caller asks for one. A fixed default turns "write a
+    # 500 word story" into a sentence that breaks off mid-word: llama.cpp simply
+    # stops counting. Without it the model ends where the answer ends, and
+    # finish_reason says which of the two happened.
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
             MODELS["qwen"]["endpoint"],
@@ -88,7 +93,8 @@ async def complete_qwen_usage(
         )
         resp.raise_for_status()
         data = resp.json()
-    message = data["choices"][0]["message"]
+    choice = data["choices"][0]
+    message = choice["message"]
     content = (message.get("content") or "").strip()
     if not content:
         content = (message.get("reasoning_content") or "").strip()
@@ -97,6 +103,8 @@ async def complete_qwen_usage(
         "tokens_in": usage_raw.get("prompt_tokens"),
         "tokens_out": usage_raw.get("completion_tokens"),
         "model": data.get("model"),  # llama.cpp echoes the served model name
+        # "stop" = the model finished; "length" = it hit a ceiling and was cut.
+        "finish_reason": choice.get("finish_reason"),
     }
     return content, usage
 
@@ -106,7 +114,7 @@ async def complete_qwen(
     system_prompt: str,
     *,
     temperature: float = 0.7,
-    max_tokens: int = 512,
+    max_tokens: int | None = None,
     user_id: str = "default",
     think: bool = False,
 ) -> str:

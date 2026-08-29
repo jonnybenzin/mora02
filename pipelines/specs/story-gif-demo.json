@@ -1,0 +1,79 @@
+{
+  "name": "story-gif-demo",
+  "steps": [
+    {
+      "llm.complete": {
+        "id": "story",
+        "in": "none",
+        "prompt": "Schreibe eine lustige Geschichte, 500 Woerter."
+      }
+    },
+    {
+      "llm.image_prompt": {
+        "id": "p1",
+        "in": "story",
+        "subject": {
+          "from": "story"
+        }
+      }
+    },
+    {
+      "llm.image_prompt": {
+        "id": "p2",
+        "in": "story",
+        "subject": {
+          "from": "story"
+        }
+      }
+    },
+    {
+      "llm.image_prompt": {
+        "id": "p3",
+        "in": "story",
+        "subject": {
+          "from": "story"
+        }
+      }
+    },
+    {
+      "image.generate": {
+        "id": "img1",
+        "in": "p1",
+        "flow": "photo"
+      }
+    },
+    {
+      "image.generate": {
+        "id": "img2",
+        "in": "p2",
+        "flow": "photo"
+      }
+    },
+    {
+      "image.generate": {
+        "id": "img3",
+        "in": "p3",
+        "flow": "photo"
+      }
+    },
+    {
+      "gif.create": {
+        "id": "gif",
+        "in": [
+          "img1",
+          "img2",
+          "img3"
+        ],
+        "durations": "1,1,1"
+      }
+    }
+  ],
+  "description": "Geschichte -> 3 Bildprompts -> 3 Bilder -> GIF (Demo fuer Fan-out von Hand + Fan-in mit Reihenfolge)",
+  "tags": [
+    "demo",
+    "image",
+    "gif",
+    "fanin"
+  ],
+  "updated": "2026-08-28T09:31:45Z"
+}

@@ -55,6 +55,10 @@ from mora02_core.comfyui.style_injection import (
 from mora02_core.comfyui.transforms import (
     expand_image,
     upload_image_url_to_comfyui,
+    edit_image,
+    cutout_image,
+    erase_image,
+    facefix_image,
     upscale_image,
 )
 
@@ -72,6 +76,10 @@ __all__ = [
     "expand_image",
     "upscale_image",
     "upload_image_url_to_comfyui",
+    "edit_image",
+    "cutout_image",
+    "erase_image",
+    "facefix_image",
     # registry
     "load_registry",
     "load_workflow",

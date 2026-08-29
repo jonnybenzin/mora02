@@ -34,7 +34,7 @@ BUCKET_TITLES: list[tuple[str, str]] = [
     ("audio", "Audio"),
     ("llm", "Local LLM"),
     ("cloud", "Cloud LLM"),
-    ("baserow", "Baserow (data)"),
+    ("db", "Data (tables)"),
     ("web", "Web & stock"),
     ("publish", "Publishing"),
     ("delivery", "Delivery / notify"),

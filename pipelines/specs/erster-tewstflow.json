@@ -1,0 +1,20 @@
+{
+  "name": "erster-tewstflow",
+  "description": "erster testflo der malö so testet",
+  "tags": [],
+  "steps": [
+    {
+      "llm.complete": {
+        "id": "llm2",
+        "in": "none",
+        "prompt": "write funny story abpout a dog 500 words"
+      }
+    },
+    {
+      "review": {
+        "prompt": "Ergebnis prüfen (aufs Handy schauen)?"
+      }
+    }
+  ],
+  "updated": "2026-08-26T16:08:59Z"
+}

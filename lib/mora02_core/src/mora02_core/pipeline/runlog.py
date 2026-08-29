@@ -78,3 +78,27 @@ def log_event(run_id: str | None, kind: str, **fields: Any) -> None:
         # Logging must never break a run — a disk/mount problem degrades to
         # "no logs", not to a failed pipeline.
         pass
+
+
+def read_events(run_id: str) -> list[dict[str, Any]]:
+    """All events of a run, in the order they were written.
+
+    Order carries meaning: gates are reached in spec order, so the Nth
+    ``gate_decision`` belongs to the Nth gate. The resume token names no gate, so
+    this sequence is the only link between a human decision and the gate it
+    answered.
+    """
+    out: list[dict[str, Any]] = []
+    try:
+        with open(os.path.join(log_dir(), f"{run_id}.jsonl"), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue  # a torn last line must not hide the rest
+    except OSError:
+        return []
+    return out

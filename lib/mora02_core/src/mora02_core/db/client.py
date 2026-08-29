@@ -20,7 +20,7 @@ from mora02_core import auth
 from mora02_core._common import get_logger
 
 
-log = get_logger("mora02_core.baserow.client")
+log = get_logger("mora02_core.db.client")
 
 
 # ----------------------------------------------------------------------------

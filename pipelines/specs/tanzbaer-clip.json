@@ -1,18 +1,115 @@
 {
   "name": "tanzbaer-clip",
   "description": "Stichwort → Bild → [Freigabe] → 3 verkettete i2v-Videos + Song → Clip",
+  "tags": [
+    "video",
+    "musik",
+    "hitl",
+    "i2v"
+  ],
   "steps": [
-    {"llm.image_prompt": {"id": "imgprompt", "subject": {"arg": "subject", "default": "tanzender Bär"}}},
-    {"image.generate": {"id": "image", "flow": "photo", "format": "square"}},
-    {"review": "Passt das erste Bild? Erst nach Freigabe werden die 3 Videos + der Song generiert."},
-    {"video.generate": {"id": "vid1", "mode": "i2v", "start_image": {"from": "image"}, "prompt": "der Bär tanzt fröhlich"}},
-    {"video.last_frame": {"id": "frame1", "in": "vid1"}},
-    {"video.generate": {"id": "vid2", "mode": "i2v", "start_image": {"from": "frame1"}, "prompt": "der Bär dreht sich weiter"}},
-    {"video.last_frame": {"id": "frame2", "in": "vid2"}},
-    {"video.generate": {"id": "vid3", "mode": "i2v", "start_image": {"from": "frame2"}, "prompt": "der Bär springt und jubelt"}},
-    {"llm.complete": {"id": "songprompt", "in": "none", "prompt": "Kurze Musik-Stil-Tags für einen fröhlichen Bären-Tanz-Song. Nur Tags."}},
-    {"llm.complete": {"id": "lyrics", "in": "none", "prompt": "Kurzer Songtext mit [verse]/[chorus] über einen tanzenden Bären."}},
-    {"music.generate": {"id": "song", "in": "none", "prompt": {"from": "songprompt"}, "lyrics": {"from": "lyrics"}, "duration": 20}},
-    {"clip.generate": {"id": "clip", "in": ["vid1", "vid2", "vid3"], "soundtrack": {"from": "song"}, "resolution": "1080p"}}
-  ]
+    {
+      "llm.image_prompt": {
+        "id": "imgprompt",
+        "subject": {
+          "arg": "subject",
+          "default": "tanzender Bär"
+        }
+      }
+    },
+    {
+      "image.generate": {
+        "id": "image",
+        "flow": "photo",
+        "format": "square"
+      }
+    },
+    {
+      "review": "Passt das erste Bild? Erst nach Freigabe werden die 3 Videos + der Song generiert."
+    },
+    {
+      "video.generate": {
+        "id": "vid1",
+        "mode": "i2v",
+        "start_image": {
+          "from": "image"
+        },
+        "prompt": "der Bär tanzt fröhlich"
+      }
+    },
+    {
+      "video.last_frame": {
+        "id": "frame1",
+        "in": "vid1"
+      }
+    },
+    {
+      "video.generate": {
+        "id": "vid2",
+        "mode": "i2v",
+        "start_image": {
+          "from": "frame1"
+        },
+        "prompt": "der Bär dreht sich weiter"
+      }
+    },
+    {
+      "video.last_frame": {
+        "id": "frame2",
+        "in": "vid2"
+      }
+    },
+    {
+      "video.generate": {
+        "id": "vid3",
+        "mode": "i2v",
+        "start_image": {
+          "from": "frame2"
+        },
+        "prompt": "der Bär springt und jubelt"
+      }
+    },
+    {
+      "llm.complete": {
+        "id": "songprompt",
+        "in": "none",
+        "prompt": "Kurze Musik-Stil-Tags für einen fröhlichen Bären-Tanz-Song. Nur Tags."
+      }
+    },
+    {
+      "llm.complete": {
+        "id": "lyrics",
+        "in": "none",
+        "prompt": "Kurzer Songtext mit [verse]/[chorus] über einen tanzenden Bären."
+      }
+    },
+    {
+      "music.generate": {
+        "id": "song",
+        "in": "none",
+        "prompt": {
+          "from": "songprompt"
+        },
+        "lyrics": {
+          "from": "lyrics"
+        },
+        "duration": 20
+      }
+    },
+    {
+      "clip.generate": {
+        "id": "clip",
+        "in": [
+          "vid1",
+          "vid2",
+          "vid3"
+        ],
+        "soundtrack": {
+          "from": "song"
+        },
+        "resolution": "1080p"
+      }
+    }
+  ],
+  "updated": "2026-08-26T13:57:05Z"
 }

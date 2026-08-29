@@ -7,13 +7,14 @@ FastAPI service for gifer, clipper, typer scripts
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 import shutil
 import subprocess
 import httpx
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
@@ -24,7 +25,7 @@ from pydantic import BaseModel
 from mora02_core import auth
 from mora02_core import assets as asset_refs
 from mora02_core._common import get_logger
-from mora02_core.baserow import api as baserow_api
+from mora02_core.db import api as db_api
 from mora02_core.comfyui import (
     generate_images,
     generate_music,
@@ -32,12 +33,16 @@ from mora02_core.comfyui import (
     upscale_image,
     expand_image,
     upload_image_url_to_comfyui,
+    edit_image,
+    cutout_image,
+    erase_image,
+    facefix_image,
 )
 from mora02_core.llm import complete_qwen, complete_qwen_usage, complete_claude_usage
 from mora02_core.media import tts as tts_lib
 from mora02_core.media import MediaError, create_clip, create_gif, create_text_frame, extract_frame, mux_audio
 from mora02_core.notify import notify, NotifyError
-from mora02_core.pipeline import run_pipeline, run_pipeline_spec, resume_pipeline, PipelineError, vocab as pipeline_vocab, runlog as pipeline_runlog, runbucket as pipeline_runbucket
+from mora02_core.pipeline import run_pipeline, run_pipeline_spec, rerun_pipeline_spec, resume_pipeline, PipelineError, spec as pipeline_spec, vocab as pipeline_vocab, runlog as pipeline_runlog, runbucket as pipeline_runbucket
 from mora02_core.publish import post_to_linkedin, LinkedInError
 
 # ============================================================================
@@ -185,7 +190,7 @@ def get_nginx_url(script_type: str, folder: str, filename: str) -> str:
     return f"{NGINX_BASE_URL}/{script_type}/{folder}/{filename}"
 
 async def create_baserow_entry(script_type: str, folder: str, files: List[str], host_path: str):
-    """Create entry in Baserow sb_assets table via mora02_core.baserow.api."""
+    """Create entry in Baserow sb_assets table via mora02_core.db.api."""
     try:
         first_file = files[0] if files else ""
         data = {
@@ -196,7 +201,7 @@ async def create_baserow_entry(script_type: str, folder: str, files: List[str], 
             "preview_url": get_nginx_url(script_type, folder, first_file),
             "created": datetime.now().isoformat(),
         }
-        return await baserow_api.insert("sb_assets", data)
+        return await db_api.insert("sb_assets", data)
     except Exception as e:
         _log.warning("baserow insert failed: %s", e)
         return None
@@ -995,6 +1000,16 @@ class PipelineRunRequest(BaseModel):
     runner: Optional[str] = None  # override MORA02_PIPELINE_RUNNER (default lobster)
 
 
+class PipelineRerunRequest(BaseModel):
+    """Re-run only what a change made stale, replaying the rest of an earlier run."""
+    source_run_id: str              # the run whose stored outputs get replayed
+    changed: list[str]              # compiled step ids the user touched
+    overrides: Optional[dict] = None  # {step_id: {param: value}} applied before compiling
+    spec: Optional[dict] = None     # a spec that may DIFFER from the one that ran
+    args: Optional[dict] = None
+    runner: Optional[str] = None
+
+
 class PipelineResumeRequest(BaseModel):
     token: str                      # resumeToken handed back by a paused run
     response: Optional[dict] = None # structured answer for an input: gate
@@ -1003,6 +1018,8 @@ class PipelineResumeRequest(BaseModel):
     runner: Optional[str] = None
     background: bool = False        # fire-and-forget: resume runs the (possibly long)
                                     # remaining tail without blocking the HTTP call
+    run_id: Optional[str] = None    # the run this decision belongs to, so it lands in
+                                    # the run log (the resume token does not carry it)
 
 
 def _pipeline_result_to_dict(res) -> dict:
@@ -1017,6 +1034,9 @@ def _pipeline_result_to_dict(res) -> dict:
         "requires_approval": res.requires_approval,
         "error": res.error,
         "runner": res.runner,
+        # Pilot files this into the inbox item and hands it back on resume, so a
+        # human decision can be logged against the run it belongs to.
+        "run_id": getattr(res, "run_id", None),
     }
 
 
@@ -1078,6 +1098,75 @@ async def pipeline_run_spec(req: PipelineRunSpecRequest):
     return _pipeline_result_to_dict(res)
 
 
+@app.post("/pipeline/rerun")
+async def pipeline_rerun(req: PipelineRerunRequest):
+    """Re-run a flow partially: recompute what changed, replay the rest.
+
+    Without ``spec`` the one the source run RECORDED is used — not the library
+    file, which may have been edited since, and which never existed for a flow
+    sent straight from the builder. Passing ``spec`` explicitly is what makes a
+    revision possible: hand in a spec with an extra edit step and the unchanged
+    parts still come from the earlier run.
+    """
+    spec = req.spec
+    if spec is None:
+        start = next(
+            (e for e in pipeline_runlog.read_events(req.source_run_id)
+             if e.get("kind") == "run_start"),
+            None,
+        )
+        if start is None:
+            raise HTTPException(
+                status_code=404, detail=f"no run log for {req.source_run_id!r}")
+        spec = start.get("spec")
+        if spec is None:
+            # Runs recorded before the spec was logged: nothing to plan against.
+            raise HTTPException(
+                status_code=409,
+                detail=f"run {req.source_run_id!r} predates spec recording — "
+                       "pass 'spec' explicitly to re-run it",
+            )
+    try:
+        res = await rerun_pipeline_spec(
+            spec, source_run_id=req.source_run_id, changed=req.changed,
+            overrides=req.overrides, args=req.args, runner=req.runner,
+        )
+    except PipelineError as e:
+        raise HTTPException(status_code=400, detail=f"pipeline rerun error: {e}")
+    return _pipeline_result_to_dict(res)
+
+
+@app.post("/pipeline/rerun-plan")
+async def pipeline_rerun_plan(req: PipelineRerunRequest):
+    """What a re-run WOULD do — same inputs, nothing executed.
+
+    The honest thing to show before spending GPU minutes: which steps come back
+    from the earlier run, which are recomputed, and which approvals stand.
+    """
+    spec = req.spec
+    if spec is None:
+        start = next(
+            (e for e in pipeline_runlog.read_events(req.source_run_id)
+             if e.get("kind") == "run_start"),
+            None,
+        )
+        spec = (start or {}).get("spec")
+        if spec is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"run {req.source_run_id!r} has no recorded spec — pass 'spec'")
+    try:
+        plan = pipeline_spec.plan_rerun(spec, req.changed)
+    except PipelineError as e:
+        raise HTTPException(status_code=400, detail=f"invalid spec: {e}")
+    return {
+        "redo": plan.redo,
+        "reuse": plan.reuse,
+        "gates_needed": plan.gates_needed,
+        "saved_steps": len(plan.reuse),
+    }
+
+
 @app.get("/pipeline/flows")
 async def pipeline_flows():
     """The flow LIBRARY — the named flows under pipelines/specs/.
@@ -1097,6 +1186,8 @@ async def pipeline_flows():
                 "name": spec.get("name") or p.stem,
                 "file": p.stem,
                 "description": spec.get("description", ""),
+                "tags": spec.get("tags", []),
+                "updated": spec.get("updated", ""),
                 "steps": len(spec.get("steps", [])),
             })
     return {"flows": flows}
@@ -1115,6 +1206,111 @@ async def pipeline_flow(name: str):
             if spec.get("name") == name or p.stem == name:
                 return spec
     raise HTTPException(status_code=404, detail=f"flow {name!r} not found")
+
+
+# A flow name doubles as its file name, so it has to survive both a file system
+# and a URL. The authoring UI slugifies before it posts; this is the guard for
+# every other caller.
+_FLOW_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
+
+
+@app.post("/pipeline/flow/{name}")
+async def pipeline_flow_save(name: str, request: Request, overwrite: bool = False):
+    """Save an authored flow to pipelines/specs/<name>.json.
+
+    Body = the whole spec: metadata (description, tags) plus steps. It is parsed
+    and checked against the vocabulary BEFORE anything touches disk, so the
+    library can never hold a flow that fails to load back.
+
+    Ops with status "planned" are allowed here on purpose — a flow may be
+    authored ahead of its handler; compiling it is what refuses to run.
+    """
+    if not _FLOW_NAME_RE.fullmatch(name):
+        raise HTTPException(
+            status_code=400,
+            detail="flow name must be 2-64 chars of lowercase letters, digits and dashes",
+        )
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="spec must be a JSON object")
+
+    # The URL is the authority — it keeps file name and spec name from drifting.
+    data["name"] = name
+    try:
+        parsed = pipeline_spec.load_spec(data)
+    except PipelineError as e:
+        raise HTTPException(status_code=422, detail=f"invalid spec: {e}")
+
+    known = pipeline_vocab.op_names()
+    unknown = sorted({s.op for s in parsed.steps if isinstance(s, pipeline_spec.OpStep)} - known)
+    if unknown:
+        raise HTTPException(
+            status_code=422, detail=f"unknown ops: {', '.join(unknown)}"
+        )
+
+    data.setdefault("description", "")
+    data.setdefault("tags", [])
+    data["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    specs = Path(_PIPELINE_SPECS_DIR)
+    specs.mkdir(parents=True, exist_ok=True)
+    target = specs / f"{name}.json"
+    existed = target.exists()
+    if existed and not overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail=f"flow {name!r} already exists — pass ?overwrite=true to replace it",
+        )
+    # Write through a temp file so a crash mid-write cannot leave a half spec
+    # that the library endpoint would then skip as unparsable.
+    tmp = target.with_name(f".{name}.json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
+    # This runs as root inside the container, so a fresh file would land as
+    # root:root in the repo checkout and break `git checkout` on the host.
+    # Hand it to whoever owns the directory — portable, no uid in config.
+    try:
+        st = specs.stat()
+        os.chown(target, st.st_uid, st.st_gid)
+        os.chmod(target, 0o664)
+    except OSError:
+        pass
+    _log.info("flow saved: %s (%d steps, overwrite=%s)", name, len(parsed.steps), existed)
+    return {
+        "ok": True,
+        "name": name,
+        "file": target.name,
+        "steps": len(parsed.steps),
+        "replaced": existed,
+        "updated": data["updated"],
+    }
+
+
+@app.delete("/pipeline/flow/{name}")
+async def pipeline_flow_delete(name: str):
+    """Delete a saved flow.
+
+    The same name rule as the save endpoint guards this one: it allows no dots
+    and no slashes, so a traversal like ``../../etc/x`` is rejected before any
+    path is built. The authoring UI asks the human first; this endpoint does not.
+    """
+    if not _FLOW_NAME_RE.fullmatch(name):
+        raise HTTPException(
+            status_code=400,
+            detail="flow name must be 2-64 chars of lowercase letters, digits and dashes",
+        )
+    target = Path(_PIPELINE_SPECS_DIR) / f"{name}.json"
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail=f"flow {name!r} not found")
+    try:
+        target.unlink()
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"could not delete: {e}")
+    _log.info("flow deleted: %s", name)
+    return {"ok": True, "name": name, "deleted": True}
 
 
 def _read_run_events(run_id: str):
@@ -1210,7 +1406,7 @@ async def _bg_resume_and_refile(req: "PipelineResumeRequest") -> None:
     try:
         res = await resume_pipeline(
             req.token, response=req.response, approve=req.approve,
-            cancel=req.cancel, runner=req.runner,
+            cancel=req.cancel, runner=req.runner, run_id=req.run_id,
         )
     except Exception:
         _log.exception("background resume failed")
@@ -1245,6 +1441,7 @@ async def pipeline_resume(req: PipelineResumeRequest):
             approve=req.approve,
             cancel=req.cancel,
             runner=req.runner,
+            run_id=req.run_id,
         )
     except PipelineError as e:
         raise HTTPException(status_code=502, detail=f"pipeline runner error: {e}")
@@ -1333,6 +1530,23 @@ async def _step_llm_image_prompt(inputs: List[str], params: dict) -> dict:
     return {"ok": True, "op": "llm.image_prompt", "out": prompt, "type": "text"}
 
 
+def _flag_truncation(usage: dict, op: str) -> None:
+    """Mark a completion the model did NOT finish on its own.
+
+    The server reports finish_reason="length" when it stopped counting rather
+    than stopping at the end of the answer — the text then breaks off
+    mid-sentence and nothing else says so. Only happens when a ceiling was set
+    explicitly or the context filled up; either way the reader must be told.
+    """
+    if usage.get("finish_reason") == "length":
+        usage["truncated"] = True
+        usage["hint"] = (
+            f"Ausgabe abgeschnitten nach {usage.get('tokens_out')} Tokens — "
+            f"max_tokens erhöhen oder ganz weglassen."
+        )
+        _log.warning("%s: output truncated (finish_reason=length)", op)
+
+
 # Text-LLM ops (Welle 2). All local qwen via complete_qwen_usage; each returns
 # the produced text as the stdout value (so it chains like any other value) plus
 # a "log" dict with token usage for the run log. Control-plane stays local — none
@@ -1344,13 +1558,15 @@ async def _step_llm_complete(inputs: List[str], params: dict) -> dict:
         raise ValueError("llm.complete needs a prompt (?prompt= or on stdin)")
     system = params.get("system", "You are a helpful assistant.")
     temperature = float(params["temperature"]) if params.get("temperature") else 0.7
-    max_tokens = int(params["max_tokens"]) if params.get("max_tokens") else 512
+    # No default ceiling: "500 words" must produce 500 words, not 512 tokens.
+    max_tokens = int(params["max_tokens"]) if params.get("max_tokens") else None
     text, usage = await complete_qwen_usage(
         [{"role": "user", "content": prompt}], system,
         temperature=temperature, max_tokens=max_tokens,
     )
     if not text:
         raise ValueError("llm.complete got an empty completion from qwen")
+    _flag_truncation(usage, "llm.complete")
     return {"ok": True, "op": "llm.complete", "out": text, "type": "text", "log": usage}
 
 
@@ -1359,7 +1575,7 @@ async def _step_llm_summarize(inputs: List[str], params: dict) -> dict:
     text_in = "\n".join(inputs).strip()
     if not text_in:
         raise ValueError("llm.summarize needs text on stdin")
-    max_tokens = int(params["max_tokens"]) if params.get("max_tokens") else 256
+    max_tokens = int(params["max_tokens"]) if params.get("max_tokens") else None
     system = ("Summarize the user's text concisely and faithfully. "
               "Output only the summary — no preamble, no commentary.")
     text, usage = await complete_qwen_usage(
@@ -1367,6 +1583,7 @@ async def _step_llm_summarize(inputs: List[str], params: dict) -> dict:
     )
     if not text:
         raise ValueError("llm.summarize got an empty completion from qwen")
+    _flag_truncation(usage, "llm.summarize")
     return {"ok": True, "op": "llm.summarize", "out": text, "type": "text", "log": usage}
 
 
@@ -1394,6 +1611,7 @@ async def _step_llm_classify(inputs: List[str], params: dict) -> dict:
     out = snapped or chosen
     if not out:
         raise ValueError("llm.classify got an empty completion from qwen")
+    _flag_truncation(usage, "llm.classify")
     return {"ok": True, "op": "llm.classify", "out": out, "type": "text", "log": usage}
 
 
@@ -1412,10 +1630,11 @@ async def _step_llm_extract(inputs: List[str], params: dict) -> dict:
               f"with exactly these keys: {', '.join(field_list)}. Use null for any "
               "field not present. No markdown fences, no commentary.")
     text, usage = await complete_qwen_usage(
-        [{"role": "user", "content": text_in}], system, max_tokens=512,
+        [{"role": "user", "content": text_in}], system,
     )
     if not text:
         raise ValueError("llm.extract got an empty completion from qwen")
+    _flag_truncation(usage, "llm.extract")
     return {"ok": True, "op": "llm.extract", "out": text, "type": "text", "log": usage}
 
 
@@ -1432,10 +1651,11 @@ async def _step_llm_translate(inputs: List[str], params: dict) -> dict:
     system = (f"Translate the user's text{frm} into {to}. "
               "Output only the translation — no preamble, no quotes, no commentary.")
     text, usage = await complete_qwen_usage(
-        [{"role": "user", "content": text_in}], system, max_tokens=1024,
+        [{"role": "user", "content": text_in}], system,
     )
     if not text:
         raise ValueError("llm.translate got an empty completion from qwen")
+    _flag_truncation(usage, "llm.translate")
     return {"ok": True, "op": "llm.translate", "out": text, "type": "text", "log": usage}
 
 
@@ -1456,6 +1676,7 @@ async def _step_cloud_complete(inputs: List[str], params: dict) -> dict:
     )
     if not text:
         raise ValueError("cloud.complete got an empty completion from Claude")
+    _flag_truncation(usage, "cloud.complete")
     return {"ok": True, "op": "cloud.complete", "out": text, "type": "text", "log": usage}
 
 
@@ -1480,6 +1701,7 @@ async def _step_cloud_vision(inputs: List[str], params: dict) -> dict:
     )
     if not text:
         raise ValueError("cloud.vision got an empty answer from Claude")
+    _flag_truncation(usage, "cloud.vision")
     return {"ok": True, "op": "cloud.vision", "out": text, "type": "text", "log": usage}
 
 
@@ -1508,6 +1730,120 @@ async def _step_image_generate(inputs: List[str], params: dict) -> dict:
             "log": {"flow": result.get("flow"), "model": result.get("flow_name"),
                     "seed": result.get("seed"), "count": len(assets),
                     "cost_usd": result.get("cost_usd")}}
+
+
+async def _step_image_edit(inputs: List[str], params: dict) -> dict:
+    """image.edit — an image ref + an instruction -> an edited image ref (ComfyUI).
+
+    The revision primitive: keep the picture, change one thing about it. Distinct
+    from re-running image.generate with a richer prompt, which re-rolls the whole
+    image — a related rabbit, not the same rabbit in a hat.
+    """
+    if not inputs:
+        raise ValueError("image.edit needs an image ref on stdin")
+    src = asset_refs.path_for_ref(inputs[0])
+    if not src:
+        raise ValueError(f"image.edit: no nginx path for ref {inputs[0]!r}")
+    prompt = params.get("prompt")
+    if not prompt:
+        raise ValueError("image.edit needs a prompt (?prompt=) saying what to change")
+    result = await edit_image(
+        src,
+        prompt,
+        flow=params.get("flow", "nanban"),
+        image_format=params.get("format"),
+        temperature=float(params["temperature"]) if params.get("temperature") else None,
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "image.edit produced no image")
+    ref = asset_refs.ref_for_path(assets[0].path, "comfyui")
+    return {"ok": True, "op": "image.edit", "out": ref, "type": "image",
+            "prompt": prompt, "source": inputs[0],
+            "log": {"flow": result.get("flow"), "model": result.get("flow_name"),
+                    "source_ref": inputs[0], "cost_usd": result.get("cost_usd")}}
+
+
+async def _step_image_cutout(inputs: List[str], params: dict) -> dict:
+    """image.cutout — an image ref -> the subject on a transparent background.
+
+    The mechanical counterpart to image.edit: no model reinterprets the picture,
+    a matting model decides per pixel how much of it belongs to the subject. The
+    result is a layer, not a new image — usable as an overlay, in a composite, or
+    as the foreground plane of a parallax animation.
+    """
+    if not inputs:
+        raise ValueError("image.cutout needs an image ref on stdin")
+    src = asset_refs.path_for_ref(inputs[0])
+    if not src:
+        raise ValueError(f"image.cutout: no nginx path for ref {inputs[0]!r}")
+    result = await cutout_image(
+        src,
+        model=params.get("model", "isnet"),
+        device=params.get("device", "CUDA"),
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "image.cutout produced no image")
+    ref = asset_refs.ref_for_path(assets[0].path, "comfyui")
+    return {"ok": True, "op": "image.cutout", "out": ref, "type": "image",
+            "source": inputs[0],
+            "log": {"flow": result.get("flow"), "model": result.get("model"),
+                    "source_ref": inputs[0]}}
+
+
+async def _step_image_erase(inputs: List[str], params: dict) -> dict:
+    """image.erase — an image ref -> the same scene with the subject painted out.
+
+    The counterpart to image.cutout. Run both on one picture and it falls apart
+    into two layers: the subject with alpha, and a complete background — the pair
+    a parallax animation is built from.
+    """
+    if not inputs:
+        raise ValueError("image.erase needs an image ref on stdin")
+    src = asset_refs.path_for_ref(inputs[0])
+    if not src:
+        raise ValueError(f"image.erase: no nginx path for ref {inputs[0]!r}")
+    result = await erase_image(
+        src,
+        prompt=params.get("prompt", ""),
+        model=params.get("model", "isnet"),
+        grow=int(params.get("grow", 90)),
+        seed=int(params["seed"]) if params.get("seed") else None,
+        steps=int(params["steps"]) if params.get("steps") else None,
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "image.erase produced no image")
+    ref = asset_refs.ref_for_path(assets[0].path, "comfyui")
+    return {"ok": True, "op": "image.erase", "out": ref, "type": "image",
+            "source": inputs[0],
+            "log": {"flow": result.get("flow"), "seed": result.get("seed"),
+                    "grow": result.get("grow"), "source_ref": inputs[0]}}
+
+
+async def _step_image_facefix(inputs: List[str], params: dict) -> dict:
+    """image.facefix — an image ref -> the same image with the faces refined."""
+    if not inputs:
+        raise ValueError("image.facefix needs an image ref on stdin")
+    src = asset_refs.path_for_ref(inputs[0])
+    if not src:
+        raise ValueError(f"image.facefix: no nginx path for ref {inputs[0]!r}")
+    result = await facefix_image(
+        src,
+        prompt=params.get("prompt", ""),
+        denoise=float(params["denoise"]) if params.get("denoise") else None,
+        seed=int(params["seed"]) if params.get("seed") else None,
+        steps=int(params["steps"]) if params.get("steps") else None,
+    )
+    assets = result.get("assets") or []
+    if not assets:
+        raise ValueError(result.get("error") or "image.facefix produced no image")
+    ref = asset_refs.ref_for_path(assets[0].path, "comfyui")
+    return {"ok": True, "op": "image.facefix", "out": ref, "type": "image",
+            "source": inputs[0],
+            "log": {"flow": result.get("flow"), "seed": result.get("seed"),
+                    "source_ref": inputs[0]}}
 
 
 # Visual-extend ops (Welle 4) — ComfyUI-backed. An input image ref is fed back
@@ -1735,6 +2071,9 @@ async def _step_notify(inputs: List[str], params: dict) -> dict:
     if not target:
         raise ValueError("notify needs a target (?target= or MORA02_SIGNAL_TARGET)")
 
+    # stdin reaches a step split into LINES (see the step endpoint). An asset ref
+    # is a single line, so inputs[0] identifies it — but a text value must be
+    # rejoined, or only its first paragraph would travel on.
     incoming = inputs[0] if inputs else ""
     media = None
     wire = "text"
@@ -1745,10 +2084,12 @@ async def _step_notify(inputs: List[str], params: dict) -> dict:
         media = str(path)
         wire = _NOTIFY_EXT_TYPE.get(path.suffix.lower(), "any")
         message = params.get("message", "")
+        passthrough = incoming
     else:
         # A text value (or nothing) on stdin: send as the message body, optionally
         # prefixed by ?message=.
-        message = "\n".join(p for p in (params.get("message"), incoming) if p)
+        passthrough = "\n".join(inputs).strip()
+        message = "\n".join(p for p in (params.get("message"), passthrough) if p)
         if not message:
             raise ValueError("notify needs media on stdin or a message")
 
@@ -1764,7 +2105,7 @@ async def _step_notify(inputs: List[str], params: dict) -> dict:
     except NotifyError as e:
         raise ValueError(f"notify send failed: {e}")
     # Passthrough: emit exactly what came in so the chain continues.
-    return {"ok": True, "op": "notify", "out": incoming, "type": wire}
+    return {"ok": True, "op": "notify", "out": passthrough, "type": wire}
 
 
 async def _step_clip_generate(inputs: List[str], params: dict) -> dict:
@@ -1776,7 +2117,7 @@ async def _step_clip_generate(inputs: List[str], params: dict) -> dict:
     """
     if not inputs:
         raise ValueError("clip.generate needs at least one input ref on stdin")
-    input_paths = [asset_refs.resolve_ref(r) for r in inputs]
+    input_paths = [asset_refs.resolve_ref(r) for r in inputs if r.strip()]
     out_store = "clipper"
     out_name = params.get("name") or f"pipe_{uuid.uuid4().hex[:8]}.mp4"
     out_path = asset_refs.store_root(out_store) / out_name
@@ -1839,7 +2180,7 @@ async def _step_gif_create(inputs: List[str], params: dict) -> dict:
     """
     if not inputs:
         raise ValueError("gif.create needs at least one image ref on stdin")
-    input_paths = [asset_refs.resolve_ref(r) for r in inputs]
+    input_paths = [asset_refs.resolve_ref(r) for r in inputs if r.strip()]
     out_store = "gifer"
     out_name = params.get("name") or f"gif_{uuid.uuid4().hex[:8]}.gif"
     out_path = asset_refs.store_root(out_store) / out_name
@@ -1876,7 +2217,7 @@ async def _step_tts_speak(inputs: List[str], params: dict) -> dict:
             "out": out_ref, "type": "audio", "url": asset_refs.url_for_ref(out_ref)}
 
 
-# Baserow CRUD ops (Welle 5) — thin pipeline wrappers over mora02_core.baserow.
+# Generic table CRUD ops (Welle 5) — thin pipeline wrappers over mora02_core.db.
 # Each returns a JSON string on stdout so results chain as values; reads take
 # params, writes take their row data from ?data= or stdin (a prior step's JSON).
 def _json_from(params: dict, inputs: List[str], key: str = "data"):
@@ -1889,78 +2230,78 @@ def _json_from(params: dict, inputs: List[str], key: str = "data"):
         raise ValueError(f"invalid JSON for {key!r}: {e}")
 
 
-async def _step_baserow_query(inputs: List[str], params: dict) -> dict:
-    """baserow.query — list rows of a table (optional filter/order/size) as JSON."""
+async def _step_db_query(inputs: List[str], params: dict) -> dict:
+    """db.query — list rows of a table (optional filter/order/size) as JSON."""
     table = params.get("table")
     if not table:
-        raise ValueError("baserow.query needs ?table=")
+        raise ValueError("db.query needs ?table=")
     filt = None
     if params.get("filter"):
         try:
             filt = json.loads(params["filter"])
         except json.JSONDecodeError as e:
             raise ValueError(f"invalid filter JSON: {e}")
-    rows = await baserow_api.query(
+    rows = await db_api.query(
         table, filter=filt, order_by=params.get("order_by"),
         size=int(params.get("size", 50)),
     )
-    return {"ok": True, "op": "baserow.query", "type": "text",
+    return {"ok": True, "op": "db.query", "type": "text",
             "out": json.dumps(rows, ensure_ascii=False), "log": {"rows": len(rows)}}
 
 
-async def _step_baserow_get(inputs: List[str], params: dict) -> dict:
-    """baserow.get — fetch one row by id as JSON."""
+async def _step_db_get(inputs: List[str], params: dict) -> dict:
+    """db.get — fetch one row by id as JSON."""
     table, rid = params.get("table"), params.get("row_id")
     if not table or not rid:
-        raise ValueError("baserow.get needs ?table= and ?row_id=")
-    row = await baserow_api.get(table, int(rid))
-    return {"ok": True, "op": "baserow.get", "type": "text",
+        raise ValueError("db.get needs ?table= and ?row_id=")
+    row = await db_api.get(table, int(rid))
+    return {"ok": True, "op": "db.get", "type": "text",
             "out": json.dumps(row, ensure_ascii=False)}
 
 
-async def _step_baserow_insert(inputs: List[str], params: dict) -> dict:
-    """baserow.insert — create a row from ?data= or stdin JSON; returns the row."""
+async def _step_db_insert(inputs: List[str], params: dict) -> dict:
+    """db.insert — create a row from ?data= or stdin JSON; returns the row."""
     table = params.get("table")
     if not table:
-        raise ValueError("baserow.insert needs ?table=")
+        raise ValueError("db.insert needs ?table=")
     data = _json_from(params, inputs)
     if not isinstance(data, dict):
-        raise ValueError("baserow.insert needs JSON field values (?data= or on stdin)")
-    row = await baserow_api.insert(table, data)
-    return {"ok": True, "op": "baserow.insert", "type": "text",
+        raise ValueError("db.insert needs JSON field values (?data= or on stdin)")
+    row = await db_api.insert(table, data)
+    return {"ok": True, "op": "db.insert", "type": "text",
             "out": json.dumps(row, ensure_ascii=False)}
 
 
-async def _step_baserow_update(inputs: List[str], params: dict) -> dict:
-    """baserow.update — patch a row by id from ?data= or stdin JSON."""
+async def _step_db_update(inputs: List[str], params: dict) -> dict:
+    """db.update — patch a row by id from ?data= or stdin JSON."""
     table, rid = params.get("table"), params.get("row_id")
     if not table or not rid:
-        raise ValueError("baserow.update needs ?table= and ?row_id=")
+        raise ValueError("db.update needs ?table= and ?row_id=")
     data = _json_from(params, inputs)
     if not isinstance(data, dict):
-        raise ValueError("baserow.update needs JSON field values (?data= or on stdin)")
-    row = await baserow_api.update(table, int(rid), data)
-    return {"ok": True, "op": "baserow.update", "type": "text",
+        raise ValueError("db.update needs JSON field values (?data= or on stdin)")
+    row = await db_api.update(table, int(rid), data)
+    return {"ok": True, "op": "db.update", "type": "text",
             "out": json.dumps(row, ensure_ascii=False)}
 
 
-async def _step_baserow_delete(inputs: List[str], params: dict) -> dict:
-    """baserow.delete — delete a row by id."""
+async def _step_db_delete(inputs: List[str], params: dict) -> dict:
+    """db.delete — delete a row by id."""
     table, rid = params.get("table"), params.get("row_id")
     if not table or not rid:
-        raise ValueError("baserow.delete needs ?table= and ?row_id=")
-    ok = await baserow_api.delete(table, int(rid))
-    return {"ok": True, "op": "baserow.delete", "type": "text",
+        raise ValueError("db.delete needs ?table= and ?row_id=")
+    ok = await db_api.delete(table, int(rid))
+    return {"ok": True, "op": "db.delete", "type": "text",
             "out": json.dumps({"deleted": ok})}
 
 
-async def _step_baserow_list_fields(inputs: List[str], params: dict) -> dict:
-    """baserow.list_fields — the table's field schema as JSON."""
+async def _step_db_list_fields(inputs: List[str], params: dict) -> dict:
+    """db.list_fields — the table's field schema as JSON."""
     table = params.get("table")
     if not table:
-        raise ValueError("baserow.list_fields needs ?table=")
-    fields = await baserow_api.list_fields(table)
-    return {"ok": True, "op": "baserow.list_fields", "type": "text",
+        raise ValueError("db.list_fields needs ?table=")
+    fields = await db_api.list_fields(table)
+    return {"ok": True, "op": "db.list_fields", "type": "text",
             "out": json.dumps(fields, ensure_ascii=False)}
 
 
@@ -2111,8 +2452,10 @@ async def _step_llm_switch(inputs: List[str], params: dict) -> dict:
         await asyncio.to_thread(llm_switch_blocking, profile, 120.0)
     except LLMSwitchError as e:
         raise ValueError(f"llm.switch failed: {e}")
-    # Passthrough: emit exactly what came in so the chain continues.
-    incoming = inputs[0] if inputs else ""
+    # Passthrough: emit exactly what came in so the chain continues. stdin
+    # arrives split into lines, so rejoin — a ref survives either way, a text
+    # value would otherwise lose everything after its first paragraph.
+    incoming = "\n".join(inputs).strip()
     return {"ok": True, "op": "llm.switch", "out": incoming, "type": "any"}
 
 
@@ -2128,9 +2471,12 @@ async def _step_publish_linkedin(inputs: List[str], params: dict) -> dict:
     {"from": <llm step>} ref). Token + default author come from the environment
     (MORA02_LINKEDIN_TOKEN / MORA02_LINKEDIN_AUTHOR). Returns the post URL. This has
     a REAL side effect: it publishes publicly. The AP-flow's gate/Baserow-writeback
-    are composed in the pipeline (review + baserow.update), not baked into this op.
+    are composed in the pipeline (review + db.update), not baked into this op.
     """
+    # An asset ref is one line; post text is not. Keep the first line for the
+    # ref check, but use the whole input as the text body.
     incoming = inputs[0] if inputs else ""
+    body_text = "\n".join(inputs).strip()
     image_bytes = None
     image_mime = "image/png"
     if incoming.startswith("asset://"):
@@ -2140,7 +2486,7 @@ async def _step_publish_linkedin(inputs: List[str], params: dict) -> dict:
         image_bytes = path.read_bytes()
         image_mime = _LINKEDIN_MIME.get(path.suffix.lower(), "image/png")
 
-    text = params.get("text") or ("" if incoming.startswith("asset://") else incoming)
+    text = params.get("text") or ("" if incoming.startswith("asset://") else body_text)
     author = params.get("author") or os.environ.get("MORA02_LINKEDIN_AUTHOR")
     token = os.environ.get("MORA02_LINKEDIN_TOKEN")
     if not token:
@@ -2230,6 +2576,10 @@ async def _step_pixeltext_render(inputs: List[str], params: dict) -> dict:
 
 
 _PIPELINE_STEPS = {
+    "image.edit": _step_image_edit,
+    "image.cutout": _step_image_cutout,
+    "image.erase": _step_image_erase,
+    "image.facefix": _step_image_facefix,
     "source.file": _step_source_file,
     "llm.image_prompt": _step_llm_image_prompt,
     "llm.complete": _step_llm_complete,
@@ -2252,12 +2602,12 @@ _PIPELINE_STEPS = {
     "tts.speak": _step_tts_speak,
     "music.generate": _step_music_generate,
     "pixeltext.render": _step_pixeltext_render,
-    "baserow.query": _step_baserow_query,
-    "baserow.get": _step_baserow_get,
-    "baserow.insert": _step_baserow_insert,
-    "baserow.update": _step_baserow_update,
-    "baserow.delete": _step_baserow_delete,
-    "baserow.list_fields": _step_baserow_list_fields,
+    "db.query": _step_db_query,
+    "db.get": _step_db_get,
+    "db.insert": _step_db_insert,
+    "db.update": _step_db_update,
+    "db.delete": _step_db_delete,
+    "db.list_fields": _step_db_list_fields,
     "web.search": _step_web_search,
     "web.fetch": _step_web_fetch,
     "stock.search": _step_stock_search,
@@ -2318,7 +2668,14 @@ async def pipeline_step(op: str, request: Request):
         raise HTTPException(status_code=404, detail=f"unknown step op {op!r}")
 
     body = (await request.body()).decode("utf-8", "replace")
-    inputs = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    # Keep BLANK lines: a ref is still the first line, but a text value carries
+    # its paragraphs in them, and a handler that rejoins with "\n" would
+    # otherwise hand on one dense block. Only the outer padding is dropped.
+    inputs = [ln.rstrip() for ln in body.splitlines()]
+    while inputs and not inputs[0]:
+        inputs.pop(0)
+    while inputs and not inputs[-1]:
+        inputs.pop()
     params = dict(request.query_params)
     fmt = params.pop("fmt", None)
     # run_id/step_id are baked by the compiler for run-log correlation, not by
@@ -2396,6 +2753,36 @@ async def pipeline_step(op: str, request: Request):
     if fmt in ("ref", "out", "text"):
         return PlainTextResponse(result["out"])
     return result
+
+
+@app.post("/pipeline/replay")
+async def pipeline_replay(from_run: str, step: str, run_id: str = None,
+                          step_id: str = None, fmt: str = "out"):
+    """Re-emit a stored output of an earlier run instead of doing the work again.
+
+    The cheap half of a partial re-run: a step whose inputs did not change keeps
+    its result. The value is copied into THIS run's bucket under the same id, so
+    everything downstream resolves exactly as if the step had really run — the
+    difference is invisible to the rest of the pipeline, and visible in the run
+    log, where the step is marked ``replayed``.
+    """
+    try:
+        out = pipeline_runbucket.get(from_run, step)
+    except KeyError:
+        # Not a crash-worthy bug: the earlier run may have been pruned, or never
+        # got that far. Say which run and which step -- curl surfaces the body.
+        raise HTTPException(
+            status_code=400,
+            detail=f"replay: run {from_run!r} has no stored output for step {step!r}",
+        )
+    pipeline_runbucket.put(run_id, step_id or step, out)
+    pipeline_runlog.log_event(
+        run_id, "step", step_id=step_id or step, op="replay", params={"from_run": from_run},
+        out=out, out_name=_ref_name(out), status="replayed", duration_ms=0,
+    )
+    if fmt in ("ref", "out", "text"):
+        return PlainTextResponse(out if isinstance(out, str) else json.dumps(out))
+    return {"ok": True, "out": out, "replayed_from": from_run}
 
 
 # ============================================================================

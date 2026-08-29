@@ -8,7 +8,9 @@ builder) can sit ON TOP of this script later — but the script never needs any 
 them, and never calls Claude/cloud.
 
 What it does:
-  - appends an Op(...) entry to mora02_core.pipeline.vocab as status="planned"
+  - appends a COMPLETE Op(...) entry to mora02_core.pipeline.vocab as
+    status="planned" — every field the Op/Param schema knows, so the easy path
+    is also the complete one and nobody has to hand-finish a scaffolded op,
     (inserted at the add-vocab marker in vocab.py),
   - regenerates docs/pipeline-vocabulary.md,
   - prints a ready-to-paste handler stub + the 3 promotion steps.
@@ -26,12 +28,14 @@ JSON spec shape:
   {
     "name": "subtitle.burn",
     "summary": "Burn subtitles into a video.",
+    "plain": "Writes the spoken words into the picture so they can be read.",
     "bucket": "media",
     "consumes": "one", "consumes_optional": false,
     "input_type": "video", "output_type": "video",
     "params": [
       {"name": "srt", "type": "string", "required": true, "desc": "subtitle file ref"},
-      {"name": "style", "type": "enum", "default": "plain", "choices": ["plain", "box"]}
+      {"name": "style", "type": "enum", "default": "plain", "choices": ["plain", "box"]},
+      {"name": "margin", "type": "int", "advanced": true, "desc": "px from the bottom"}
     ]
   }
 """
@@ -40,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -77,6 +82,10 @@ def interview() -> dict:
     spec: dict = {}
     spec["name"] = _ask("op name")
     spec["summary"] = _ask("one-line summary")
+    # Not optional: this is the line the flow-builder palette shows under the op
+    # and the one the generated doc leads with. Without it a new op is mute in
+    # the very places a human meets it.
+    spec["plain"] = _ask("plain-language line (what it does, for a non-programmer)")
     spec["bucket"] = _ask("bucket (service family)", default=spec["name"].split(".")[0])
     spec["consumes"] = _ask("consumes (stdin cardinality)", default="none", choices=_CONSUMES)
     if spec["consumes"] != "none":
@@ -103,6 +112,11 @@ def interview() -> dict:
         desc = input("    desc: ").strip()
         if desc:
             p["desc"] = desc
+        # "advanced" params sit behind the builder's "detailed settings" collapse.
+        # A dial that is not part of the everyday job belongs there.
+        if _ask("    advanced (hide behind detailed settings)?",
+                default="no", choices=("yes", "no")) == "yes":
+            p["advanced"] = True
         params.append(p)
     spec["params"] = params
     return spec
@@ -130,6 +144,8 @@ def render_param(p: dict) -> str:
         args.append(f"choices=({inner},)")
     if p.get("desc"):
         args.append(f"desc={_s(p['desc'])}")
+    if p.get("advanced"):
+        args.append("advanced=True")
     return f"            Param({', '.join(args)}),"
 
 
@@ -137,6 +153,7 @@ def render_op(spec: dict) -> str:
     lines = ["    Op("]
     lines.append(f"        name={_s(spec['name'])},")
     lines.append(f"        summary={_s(spec['summary'])},")
+    lines.append(f"        plain={_s(spec['plain'])},")
     lines.append(f"        bucket={_s(spec.get('bucket', ''))},")
     lines.append('        status="planned",')
     params = spec.get("params") or []
@@ -178,6 +195,11 @@ def validate(spec: dict) -> None:
         raise SystemExit(f"error: op {spec['name']!r} already exists in the vocabulary")
     if not spec.get("summary"):
         raise SystemExit("error: summary is required")
+    if not spec.get("plain"):
+        raise SystemExit(
+            "error: plain is required — the flow-builder palette and the generated "
+            "doc both lead with it; an op without one is mute where humans meet it"
+        )
     if spec.get("consumes", "none") not in _CONSUMES:
         raise SystemExit(f"error: consumes must be one of {_CONSUMES}")
     # Prove the rendered Op source is valid Python that builds an Op.
@@ -186,6 +208,25 @@ def validate(spec: dict) -> None:
         eval(render_op(spec).strip().rstrip(","), ns)  # noqa: S307 - trusted, self-rendered
     except Exception as e:  # pragma: no cover
         raise SystemExit(f"error: rendered Op is invalid: {e}")
+
+
+def preflight() -> None:
+    """Refuse before writing anything unless BOTH targets are writable.
+
+    The op goes into vocab.py first and the doc is regenerated after, so a doc
+    that cannot be written leaves the vocabulary already changed and the doc
+    stale — a half-done state that is easy to miss and annoying to unpick.
+    Checked up front instead, where the fix is still one chmod away.
+    """
+    doc = REPO / "docs" / "pipeline-vocabulary.md"
+    blocked = [f for f in (VOCAB, doc) if f.exists() and not os.access(f, os.W_OK)]
+    if blocked:
+        raise SystemExit(
+            "error: no write permission for "
+            + ", ".join(str(f) for f in blocked)
+            + "\n       nothing was written. Fix the permission (or run as the owner)"
+            "\n       and try again; --dry-run works regardless."
+        )
 
 
 def insert_op(op_src: str) -> None:
@@ -230,6 +271,7 @@ def main() -> int:
         print("\n[dry-run] valid; nothing written.")
         return 0
 
+    preflight()
     insert_op(op_src)
     regenerate_doc()
     print(f"\n✓ added {spec['name']!r} to the vocabulary (status: planned) + regenerated docs.")

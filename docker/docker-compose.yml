@@ -188,6 +188,8 @@ services:
   # ============================================================================
 
   comfyui:
+    build: 
+      context: ./ComfyUI
     image: local-comfyui
     container_name: comfyui
     restart: unless-stopped
@@ -199,6 +201,7 @@ services:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - FAL_KEY=${FAL_KEY}
+      - U2NET_HOME=/data/rembg
     volumes:
       - /opt/mora02/volumes:/data
       - /opt/mora02/docker/ComfyUI/workflows:/app/ComfyUI/user/default/workflows
@@ -714,6 +717,7 @@ services:
       - /opt/mora02/state/xray:/usr/share/nginx/html/x-ray:ro
       - /opt/mora02/output/_default/tts:/usr/share/nginx/html/tool-assets/tts:ro
       - /opt/mora02/output/_default/music:/usr/share/nginx/html/tool-assets/music:ro
+      - /opt/mora02/output/_default/uploads:/usr/share/nginx/html/tool-assets/uploads:ro
     networks:
       - mora02-net
 
@@ -768,6 +772,8 @@ services:
       - /opt/mora02/pipelines:/data/pipelines
       # blender
       - /opt/mora02/output/_default/pixeltext:/pixeltext-out:ro
+      # image upload
+      - /opt/mora02/output/_default/uploads:/uploads:ro
 
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}
@@ -947,7 +953,6 @@ services:
       # LLM switcher state (read-only): pilot reads current profile from here
       - /opt/mora02/llm-switch:/llm-switch:ro
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - PILOT_BASEROW_TOKEN=${BASEROW_TOKEN}
       - PILOT_DIFY_API_KEY=${DIFY_APP_KEY_DAILY}
       - PILOT_DIFY_API_URL=http://dify-api-new:5001

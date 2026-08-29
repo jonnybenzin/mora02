@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import List
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sse_starlette.sse import EventSourceResponse
 from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT, get_local_profile_label
 from router import classify_input
@@ -13,8 +13,8 @@ from session_manager import store
 import inbox_store
 from mora02_core.llm import LOCAL_PROFILE_LABELS, stream_llm
 from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search, call_pixeltext
-from mora02_core.baserow import api as baserow_api
-from mora02_core.baserow import (
+from mora02_core.db import api as db_api
+from mora02_core.db import (
     write_session, read_last_sessions, read_all_sessions,
     read_context, read_known_issues, headers as _baserow_headers,
     format_sessions_context, format_known_issues, format_context_table,
@@ -40,7 +40,7 @@ async def _check_schema_drift() -> None:
     columns that have since been added are auto-resolved.
     """
     try:
-        live_fields = await baserow_api.list_fields("bot_costs")
+        live_fields = await db_api.list_fields("bot_costs")
     except Exception as e:
         print(f"[schema-drift] skipped (Baserow unreachable): {e}")
         return
@@ -50,7 +50,7 @@ async def _check_schema_drift() -> None:
     missing = {col: k for col, k in expected.items() if col not in live_names}
 
     try:
-        existing = await baserow_api.query(
+        existing = await db_api.query(
             "bot_feedback",
             filter={"Type": "missing-schema-column", "Status": "new"},
             all_pages=True,
@@ -86,7 +86,7 @@ async def _check_schema_drift() -> None:
             f"Sobald die Spalte existiert, verschwindet diese Meldung beim\n"
             f"nächsten Pilot-Boot automatisch."
         )
-        await baserow_api.insert("bot_feedback", {
+        await db_api.insert("bot_feedback", {
             "Name": f"[schema] {col} missing — {ts}",
             "Type": "missing-schema-column",
             "Severity": "medium",
@@ -98,7 +98,7 @@ async def _check_schema_drift() -> None:
 
     for col, row_id in existing_by_col.items():
         if col not in missing:
-            await baserow_api.update("bot_feedback", row_id, {"Status": "resolved"})
+            await db_api.update("bot_feedback", row_id, {"Status": "resolved"})
             print(f"[schema-drift] auto-resolved: {col}")
 
 
@@ -130,7 +130,7 @@ async def _check_profile_label_drift() -> None:
     }
 
     try:
-        existing = await baserow_api.query(
+        existing = await db_api.query(
             "bot_feedback",
             filter={"Type": "profile-label-drift", "Status": "new"},
             all_pages=True,
@@ -169,7 +169,7 @@ async def _check_profile_label_drift() -> None:
         seen.add(name)
         if name in existing_by_profile:
             continue
-        await baserow_api.insert("bot_feedback", {
+        await db_api.insert("bot_feedback", {
             "Name": f"[profile] {name} missing label — {ts}",
             "Type": "profile-label-drift",
             "Severity": "low",
@@ -187,7 +187,7 @@ async def _check_profile_label_drift() -> None:
         seen.add(name)
         if name in existing_by_profile:
             continue
-        await baserow_api.insert("bot_feedback", {
+        await db_api.insert("bot_feedback", {
             "Name": f"[profile] {name} stale — {ts}",
             "Type": "profile-label-drift",
             "Severity": "low",
@@ -205,7 +205,7 @@ async def _check_profile_label_drift() -> None:
         seen.add(name)
         if name in existing_by_profile:
             continue
-        await baserow_api.insert("bot_feedback", {
+        await db_api.insert("bot_feedback", {
             "Name": f"[profile] {name} label mismatch — {ts}",
             "Type": "profile-label-drift",
             "Severity": "low",
@@ -221,7 +221,7 @@ async def _check_profile_label_drift() -> None:
 
     for name, row_id in existing_by_profile.items():
         if name not in seen:
-            await baserow_api.update("bot_feedback", row_id, {"Status": "resolved"})
+            await db_api.update("bot_feedback", row_id, {"Status": "resolved"})
             print(f"[profile-drift] auto-resolved: {name}")
 
 
@@ -1786,6 +1786,9 @@ def _inbox_item_from_result(result: dict, *, title: str, pipeline_path: str) -> 
         "prompt": gate.get("prompt"),
         "response_schema": gate.get("responseSchema"),
         "subject": gate.get("subject"),
+        # Carried so the decision can be logged against the right run when the
+        # human finally clicks — the resume token alone does not identify it.
+        "run_id": result.get("run_id"),
     }
 
 
@@ -1795,17 +1798,28 @@ async def pipeline_run(request: Request):
     body = await request.json()
     pipeline_path = body.get("pipeline_path")
     name = body.get("name")
-    # Two entry shapes: a pre-compiled .lobster path, or a named library flow (which
-    # script-runner compiles from pipelines/specs/ via run-spec). Either way, a pause
-    # at a gate is filed into the inbox here so the UI can surface + resolve it.
+    spec = body.get("spec")
+    # Three entry shapes: a pre-compiled .lobster path, a named library flow, or an
+    # inline spec (what the FLOWS builder sends, so a run can use the state in the
+    # editor without saving first). Either way, a pause at a gate is filed into the
+    # inbox HERE — that is the reason every caller routes through Pilot instead of
+    # calling script-runner's run-spec directly.
     if pipeline_path:
         endpoint, payload = "/pipeline/run", {"pipeline_path": pipeline_path}
         title_default = Path(pipeline_path).stem
+        origin = pipeline_path
     elif name:
         endpoint, payload = "/pipeline/run-spec", {"name": name}
         title_default = name
+        origin = name
+    elif spec:
+        endpoint, payload = "/pipeline/run-spec", {"spec": spec}
+        title_default = (spec.get("name") if isinstance(spec, dict) else None) or "Flow"
+        origin = title_default
     else:
-        return JSONResponse(status_code=400, content={"error": "pipeline_path or name required"})
+        return JSONResponse(
+            status_code=400, content={"error": "pipeline_path, name or spec required"}
+        )
     if body.get("args") is not None:
         payload["args"] = body["args"]
     try:
@@ -1818,7 +1832,7 @@ async def pipeline_run(request: Request):
         inbox_item = inbox_store.add(_inbox_item_from_result(
             result,
             title=body.get("title") or title_default,
-            pipeline_path=pipeline_path or name,
+            pipeline_path=origin,
         ))
     return {"result": result, "inbox_item": inbox_item}
 
@@ -1837,6 +1851,8 @@ async def inbox_resolve(item_id: str, request: Request):
         return JSONResponse(status_code=404, content={"error": "inbox item not found"})
     body = await request.json()
     payload: dict = {"token": item["resume_token"]}
+    if item.get("run_id"):
+        payload["run_id"] = item["run_id"]
     if body.get("cancel"):
         payload["cancel"] = True
     elif body.get("response") is not None:
@@ -1878,6 +1894,55 @@ async def inbox_refile(request: Request):
             result, title=result.get("pipeline") or "Pipeline", pipeline_path="",
         ))
     return {"inbox_item": item}
+
+
+# ---------------------------------------------------------------------------
+# script-runner passthrough
+#
+# script-runner publishes its port on 127.0.0.1 only, while the UI runs in a
+# browser somewhere on the LAN — so the browser cannot call it directly. Pilot
+# is the one service exposed to the network, so it forwards. Catch-all by
+# design: a path allowlist would silently break every endpoint added later.
+#
+# This carries no authentication, because neither service has any today. It
+# buys one front door instead of two, and gives auth a single place to land
+# when it gets built. It is not itself a security boundary.
+# ---------------------------------------------------------------------------
+SCRIPT_RUNNER_URL = os.environ.get("SCRIPT_RUNNER_URL", "http://script-runner:8096")
+
+
+@app.api_route("/sr/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def script_runner_proxy(path: str, request: Request):
+    """Forward /sr/<path> to script-runner verbatim (method, query, body)."""
+    import httpx as _httpx
+
+    body = await request.body()
+    # Only content negotiation is relayed. Host and hop-by-hop headers would
+    # confuse the upstream; auth headers do not exist on either side.
+    headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() in ("content-type", "accept", "accept-language")
+    }
+    # Media steps run for minutes — only the connect phase should fail fast.
+    timeout = _httpx.Timeout(connect=5.0, read=900.0, write=120.0, pool=5.0)
+    try:
+        async with _httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.request(
+                request.method,
+                f"{SCRIPT_RUNNER_URL}/{path}",
+                params=request.url.query or None,
+                content=body or None,
+                headers=headers,
+            )
+    except _httpx.RequestError as e:
+        return JSONResponse(
+            {"detail": f"script-runner unreachable: {e!r}"}, status_code=502
+        )
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type"),
+    )
 
 
 if __name__ == "__main__":

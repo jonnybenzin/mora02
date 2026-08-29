@@ -9,7 +9,7 @@
  * each op a collapsible block (basics + a "detailed settings" sub-collapse for the
  * advanced params), fan-in shown as "← step" dropdowns. Reuses Pilot design tokens. */
 
-var FLOW_API = (typeof LLM_API_BASE !== 'undefined') ? LLM_API_BASE : 'http://mora02.local:8096';
+var FLOW_API = (typeof LLM_API_BASE !== 'undefined') ? LLM_API_BASE : 'http://mora02.local:8098/sr';
 var _fbOpsCache = null;
 
 function _fbEsc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }

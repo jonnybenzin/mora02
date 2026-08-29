@@ -26,6 +26,10 @@ The step *ops* a mora02 pipeline is built from, grouped by kind. Each op has a p
 | [`image.generate`](#imagegenerate) | Makes a brand-new picture from a text description. | 🟢 |
 | [`image.upscale`](#imageupscale) | Enlarges a picture and sharpens it, without making it blurry. | 🟢 |
 | [`image.expand`](#imageexpand) | Extends a picture beyond its edges, inventing more scenery around it (outpainting). | 🟢 |
+| [`image.edit`](#imageedit) | Changes a picture you already have — e.g. put a blue hat on the rabbit — instead of drawing a new one. | 🟢 |
+| [`image.cutout`](#imagecutout) | Frees the main subject from its background and hands on a picture with a see-through background. | 🟢 |
+| [`image.erase`](#imageerase) | Takes the main subject out of a picture and paints the background back in where it stood. | 🟢 |
+| [`image.facefix`](#imagefacefix) | Sharpens the faces in a picture — useful when people stand far enough away that their features came out mushy. | 🟡 |
 
 ### Video
 
@@ -74,16 +78,16 @@ The step *ops* a mora02 pipeline is built from, grouped by kind. Each op has a p
 | [`cloud.complete`](#cloudcomplete) | Asks a cloud AI (Claude) to write or answer something, for the few tasks the local model can't handle. | 🟢 |
 | [`cloud.vision`](#cloudvision) | Shows a cloud AI (Claude) an image and asks it to describe or analyze it. | 🟢 |
 
-### Baserow (data)
+### Data (tables)
 
 | Op | What it does | Status |
 |----|--------------|--------|
-| [`baserow.query`](#baserowquery) | Looks up rows in a Baserow table that match a filter. | 🟢 |
-| [`baserow.get`](#baserowget) | Fetches one specific row from a Baserow table by its id. | 🟢 |
-| [`baserow.insert`](#baserowinsert) | Adds a new row to a Baserow table. | 🟢 |
-| [`baserow.update`](#baserowupdate) | Changes fields on an existing Baserow row. | 🟢 |
-| [`baserow.delete`](#baserowdelete) | Removes a row from a Baserow table. | 🟢 |
-| [`baserow.list_fields`](#baserowlist_fields) | Lists the columns (fields) a Baserow table has. | 🟢 |
+| [`db.query`](#dbquery) | Looks up rows in a table that match a filter. | 🟢 |
+| [`db.get`](#dbget) | Fetches one specific row from a table by its id. | 🟢 |
+| [`db.insert`](#dbinsert) | Adds a new row to a table. | 🟢 |
+| [`db.update`](#dbupdate) | Changes fields on an existing row. | 🟢 |
+| [`db.delete`](#dbdelete) | Removes a row from a table. | 🟢 |
+| [`db.list_fields`](#dblist_fields) | Lists the columns (fields) a table has. | 🟢 |
 
 ### Web & stock
 
@@ -142,7 +146,7 @@ Makes a brand-new picture from a text description.
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `prompt` | string | no |  | prompt text; falls back to the stdin value if omitted |
-| `flow` | enum | no | `photo` | model/flow preset (local diffusion or external API) (one of: sd15, photo, concept, epic, flux, nanban, nanban-pro, gpt-image, flux-ultra) |
+| `flow` | enum | no | `photo` | model/flow preset (local diffusion or external API) (one of: sd15, photo, concept, epic, flux, nanban, nanban-pro, flux-ultra) |
 | `format` | string | no |  | portrait|landscape|square or WIDTHxHEIGHT |
 | `batch_size` | int | no |  | number of images to generate |
 | `testrun` | bool | no |  | set '1' for a fast low-quality test run |
@@ -180,6 +184,73 @@ Extends a picture beyond its edges, inventing more scenery around it (outpaintin
 | `target_size` | int | no | `1920` | target long edge in px |
 | `feathering` | string | no |  | edge blend amount |
 | `seed` | int | no |  |  |
+
+#### `image.edit` 🟢
+
+Changes a picture you already have — e.g. put a blue hat on the rabbit — instead of drawing a new one.
+
+*Technical:* Edit an existing image from a prompt (Gemini image models).
+
+- **Default step id:** `image`  
+- **Consumes (stdin):** one (image)  
+- **Emits (stdout):** image
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | string | yes |  | what to change about the incoming image, e.g. 'add a blue hat' |
+| `flow` | enum | no | `nanban` | editing model (external API) (one of: nanban, nanban-pro) |
+| `format` | string | no |  | portrait|landscape|square — omit to keep the source shape |
+| `temperature` | string | no |  | how freely the model reinterprets, 0.0-2.0 |
+
+#### `image.cutout` 🟢
+
+Frees the main subject from its background and hands on a picture with a see-through background.
+
+*Technical:* Cut the subject out of an image and return a PNG with an alpha channel.
+
+- **Default step id:** `image`  
+- **Consumes (stdin):** one (image)  
+- **Emits (stdout):** image
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `model` | enum | no | `isnet` | matting model; 'human' for people, 'inspyrenet' is finer on hair and fur but slower (one of: isnet, u2net, human, anime, silueta, inspyrenet) |
+| `device` | enum | no | `CUDA` | where the matting model runs; ignored by inspyrenet (one of: CUDA, CPU) |
+
+#### `image.erase` 🟢
+
+Takes the main subject out of a picture and paints the background back in where it stood.
+
+*Technical:* Remove the subject from an image and fill the gap with the surrounding scene (Flux Fill).
+
+- **Default step id:** `image`  
+- **Consumes (stdin):** one (image)  
+- **Emits (stdout):** image
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | string | no |  | what the emptied area should show; omit for a plain continuation of the scene |
+| `model` | enum | no | `isnet` | which model decides where the subject is (one of: isnet, u2net, human, anime, silueta) |
+| `grow` | int | no | `90` | how many pixels the hole is widened. Not cosmetic: at a small value the subject's silhouette stays readable, and a fill model reads a subject-shaped hole as an invitation to paint one |
+| `seed` | int | no |  | fix the noise to repeat the same fill |
+| `steps` | int | no |  | sampling steps; more is slower and slightly cleaner |
+
+#### `image.facefix` 🟡
+
+Sharpens the faces in a picture — useful when people stand far enough away that their features came out mushy.
+
+*Technical:* Re-render the faces in an image at higher detail, leaving the rest untouched.
+
+- **Default step id:** `image`  
+- **Consumes (stdin):** one (image)  
+- **Emits (stdout):** image
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | string | no |  | what the refined face should look like; omit for a plain detail pass |
+| `denoise` | string | no | `0.4` | how far the face may change, 0.1-0.6; past roughly 0.6 it stops being the same person |
+| `seed` | int | no |  | fix the noise to repeat the same pass |
+| `steps` | int | no |  | sampling steps for the face crop |
 
 ### Video
 
@@ -377,7 +448,7 @@ Asks the local AI to write or answer something freely.
 | `prompt` | string | no |  | user prompt; falls back to stdin |
 | `system` | string | no |  | system prompt |
 | `temperature` | string | no |  | sampling temperature (default 0.7) |
-| `max_tokens` | int | no |  | max output tokens (default 512) |
+| `max_tokens` | int | no |  | optional ceiling; empty = the model stops when the answer ends |
 
 #### `llm.summarize` 🟢
 
@@ -484,16 +555,17 @@ Shows a cloud AI (Claude) an image and asks it to describe or analyze it.
 |-------|------|----------|---------|-------------|
 | `query` | string | no |  | what to ask about the image |
 | `model` | enum | no | `haiku` |  (one of: haiku, sonnet, opus) |
+| `max_tokens` | int | no |  | optional ceiling; empty = 1024 (cloud answers cost money) |
 
-### Baserow (data)
+### Data (tables)
 
-#### `baserow.query` 🟢
+#### `db.query` 🟢
 
-Looks up rows in a Baserow table that match a filter.
+Looks up rows in a table that match a filter.
 
 *Technical:* Query rows from a table with filter/order/pagination.
 
-- **Default step id:** `baserow`  
+- **Default step id:** `db`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** text
 
@@ -504,13 +576,13 @@ Looks up rows in a Baserow table that match a filter.
 | `order_by` | string | no |  | e.g. -created_at |
 | `size` | int | no | `50` | rows per page (max 200) |
 
-#### `baserow.get` 🟢
+#### `db.get` 🟢
 
-Fetches one specific row from a Baserow table by its id.
+Fetches one specific row from a table by its id.
 
 *Technical:* Fetch a single row by id.
 
-- **Default step id:** `baserow`  
+- **Default step id:** `db`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** text
 
@@ -519,13 +591,13 @@ Fetches one specific row from a Baserow table by its id.
 | `table` | string | yes |  |  |
 | `row_id` | int | yes |  |  |
 
-#### `baserow.insert` 🟢
+#### `db.insert` 🟢
 
-Adds a new row to a Baserow table.
+Adds a new row to a table.
 
 *Technical:* Create a new row (field values from stdin JSON or 'data').
 
-- **Default step id:** `baserow`  
+- **Default step id:** `db`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
 
@@ -534,13 +606,13 @@ Adds a new row to a Baserow table.
 | `table` | string | yes |  |  |
 | `data` | string | no |  | JSON field values; falls back to stdin |
 
-#### `baserow.update` 🟢
+#### `db.update` 🟢
 
-Changes fields on an existing Baserow row.
+Changes fields on an existing row.
 
 *Technical:* Patch an existing row by id (partial update).
 
-- **Default step id:** `baserow`  
+- **Default step id:** `db`  
 - **Consumes (stdin):** one (optional) (text)  
 - **Emits (stdout):** text
 
@@ -550,13 +622,13 @@ Changes fields on an existing Baserow row.
 | `row_id` | int | yes |  |  |
 | `data` | string | no |  | JSON field values; falls back to stdin |
 
-#### `baserow.delete` 🟢
+#### `db.delete` 🟢
 
-Removes a row from a Baserow table.
+Removes a row from a table.
 
 *Technical:* Delete a row by id.
 
-- **Default step id:** `baserow`  
+- **Default step id:** `db`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** text
 
@@ -565,13 +637,13 @@ Removes a row from a Baserow table.
 | `table` | string | yes |  |  |
 | `row_id` | int | yes |  |  |
 
-#### `baserow.list_fields` 🟢
+#### `db.list_fields` 🟢
 
-Lists the columns (fields) a Baserow table has.
+Lists the columns (fields) a table has.
 
 *Technical:* Get the field schema for a table.
 
-- **Default step id:** `baserow`  
+- **Default step id:** `db`  
 - **Consumes (stdin):** none (any)  
 - **Emits (stdout):** text
 

@@ -1,10 +1,37 @@
 {
-    "name": "image-review",
-    "steps": [
-      { "llm.image_prompt": { "subject": "a red fox in deep snow at dawn" } },
-      { "gate": "Approve this image prompt before generating?" },
-      { "image.generate": { "flow": "photo" } },
-      { "review": { "prompt": "Approve the generated image (check your phone)?" } },
-      { "clip.generate": { "in": "image", "resolution": "720p", "durations": "3" } }
-    ]
-  }
+  "name": "image-review",
+  "description": "Bild-Prompt aus einem Stichwort, zwei Mensch-Freigaben, am Ende ein 3-Sekunden-Clip aus dem Bild.",
+  "tags": [
+    "bild",
+    "video",
+    "hitl"
+  ],
+  "steps": [
+    {
+      "llm.image_prompt": {
+        "subject": "a red fox in deep snow at dawn"
+      }
+    },
+    {
+      "gate": "Approve this image prompt before generating?"
+    },
+    {
+      "image.generate": {
+        "flow": "photo"
+      }
+    },
+    {
+      "review": {
+        "prompt": "Approve the generated image (check your phone)?"
+      }
+    },
+    {
+      "clip.generate": {
+        "in": "image",
+        "resolution": "720p",
+        "durations": "3"
+      }
+    }
+  ],
+  "updated": "2026-08-26T13:57:05Z"
+}

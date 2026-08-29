@@ -75,6 +75,10 @@ _DEFAULT_STORE_ROOTS = {
     "tts": "/opt/mora02/output/_default/tts",  # synthesized speech (write)
     "stock": "/data/final/stock",      # downloaded stock photos (write)
     "scriptbot": "/data",              # script-runner session workspace
+    # The one store nothing in the system writes: material a HUMAN brings in.
+    # Drop a file in the host directory (file manager, scp, share) and a flow
+    # reaches it with source.file — no session id, no upload dance.
+    "uploads": "/uploads",             # human-supplied source material (read)
     # Blender PixelText 3D renders (read). Files live under <job_id>/<file>; the
     # store root only matters when a later step reads the file (e.g. -> clip),
     # which needs the output tree mounted into script-runner (see compose).
@@ -102,6 +106,10 @@ _DEFAULT_STORE_URL_PATHS = {
     # nginx serves /opt/mora02/output/_default/pixeltext under /pixeltext (the
     # same tree the PixelText UI page reads); refs carry the <job_id>/<file> tail.
     "pixeltext": "/pixeltext",
+    # Needed as much as the read path: feeding an uploaded image back INTO
+    # ComfyUI (image.edit, image.expand) goes through the internal nginx, so a
+    # store without a serving path cannot be edited — only read.
+    "uploads": "/tool-assets/uploads",
 }
 
 

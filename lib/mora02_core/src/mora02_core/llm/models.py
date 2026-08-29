@@ -6,7 +6,13 @@ Pricing is per 1M tokens, USD. Update when Anthropic publishes new rates.
 
 from mora02_core import auth
 
-_QWEN_URL = auth.get("QWEN_URL", "http://mora02.local:8080")
+# The llama.cpp container is named llama-server for every profile, so this
+# address is stable inside mora02-net and survives a profile switch. It is also
+# the portable default: a host name like mora02.local only resolves on this one
+# machine, and its port is bound to localhost, so a container reaching for it
+# fails with a bare ConnectError. Override with QWEN_URL when calling from
+# outside the compose network.
+_QWEN_URL = auth.get("QWEN_URL", "http://llama-server:8080")
 
 # Human labels for local llama.cpp profiles.
 # Derived from mora02_core.llm.profiles.PROFILES (single source of truth).

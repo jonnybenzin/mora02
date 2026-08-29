@@ -199,7 +199,12 @@
       "type": "api",
       "max_batch": 1,
       "needs_vram": false,
-      "aliases": ["nb", "banana", "gemini", "nanban2"],
+      "aliases": [
+        "nb",
+        "banana",
+        "gemini",
+        "nanban2"
+      ],
       "prompt_suffix": "",
       "negative": "",
       "cost_per_image": 0.04,
@@ -214,11 +219,26 @@
         "768x1152": "2:3"
       },
       "node_map": {
-        "prompt": { "node": "1", "field": "prompt" },
-        "batch": { "node": "1", "field": "image_count" },
-        "aspect_ratio": { "node": "1", "field": "aspect_ratio" },
-        "image_size": { "node": "1", "field": "image_size" },
-        "cfg": { "node": "1", "field": "temperature" }
+        "prompt": {
+          "node": "1",
+          "field": "prompt"
+        },
+        "batch": {
+          "node": "1",
+          "field": "image_count"
+        },
+        "aspect_ratio": {
+          "node": "1",
+          "field": "aspect_ratio"
+        },
+        "image_size": {
+          "node": "1",
+          "field": "image_size"
+        },
+        "cfg": {
+          "node": "1",
+          "field": "temperature"
+        }
       }
     },
     "flux-ultra": {
@@ -227,60 +247,41 @@
       "type": "api",
       "max_batch": 1,
       "needs_vram": false,
-      "aliases": ["fu", "flux-pro", "ultra", "fal", "wimmelbild-pro"],
+      "aliases": [
+        "fu",
+        "flux-pro",
+        "ultra",
+        "fal",
+        "wimmelbild-pro"
+      ],
       "prompt_suffix": "",
       "negative": "",
       "cost_per_image": 0.06,
       "format_to_aspect": {
-        "square":     "1:1",
-        "1024x1024":  "1:1",
-        "landscape":  "4:3",
-        "1152x768":   "4:3",
-        "1536x1024":  "4:3",
-        "portrait":   "3:4",
-        "768x1152":   "3:4",
-        "1024x1536":  "3:4",
-        "wide":       "16:9",
-        "ultrawide":  "21:9"
+        "square": "1:1",
+        "1024x1024": "1:1",
+        "landscape": "4:3",
+        "1152x768": "4:3",
+        "1536x1024": "4:3",
+        "portrait": "3:4",
+        "768x1152": "3:4",
+        "1024x1536": "3:4",
+        "wide": "16:9",
+        "ultrawide": "21:9"
       },
       "node_map": {
-        "prompt":       { "node": "1", "field": "prompt" },
-        "aspect_ratio": { "node": "1", "field": "aspect_ratio" },
-        "seed":         { "node": "1", "field": "seed" }
-      }
-    },
-    "gpt-image": {
-      "name": "GPT Image 1 (OpenAI, high quality)",
-      "file": "gpt_image.json",
-      "type": "api",
-      "max_batch": 1,
-      "needs_vram": false,
-      "aliases": ["gpt", "openai", "gpt-image-1", "gptimage"],
-      "prompt_suffix": "",
-      "negative": "",
-      "cost_per_image": 0.17,
-      "quality_full": "high",
-      "format_to_size": {
-        "square": "1024x1024",
-        "1024x1024": "1024x1024",
-        "landscape": "1536x1024",
-        "1152x768": "1536x1024",
-        "1536x1024": "1536x1024",
-        "portrait": "1024x1536",
-        "768x1152": "1024x1536",
-        "1024x1536": "1024x1536",
-        "tall": "1024x1792",
-        "1024x1792": "1024x1792",
-        "wide": "1792x1024",
-        "1792x1024": "1792x1024"
-      },
-      "node_map": {
-        "prompt":  { "node": "1", "field": "prompt" },
-        "batch":   { "node": "1", "field": "num_images" },
-        "size":    { "node": "1", "field": "size" },
-        "quality": { "node": "1", "field": "quality" },
-        "seed":    { "node": "1", "field": "seed" },
-        "api_key": { "node": "1", "field": "api_key" }
+        "prompt": {
+          "node": "1",
+          "field": "prompt"
+        },
+        "aspect_ratio": {
+          "node": "1",
+          "field": "aspect_ratio"
+        },
+        "seed": {
+          "node": "1",
+          "field": "seed"
+        }
       }
     },
     "nanban-pro": {
@@ -289,7 +290,13 @@
       "type": "api",
       "max_batch": 1,
       "needs_vram": false,
-      "aliases": ["nbp", "pro", "gemini3", "nanban-pro", "wimmelbild"],
+      "aliases": [
+        "nbp",
+        "pro",
+        "gemini3",
+        "nanban-pro",
+        "wimmelbild"
+      ],
       "prompt_suffix": "",
       "negative": "",
       "cost_per_image": 0.24,
@@ -306,11 +313,26 @@
         "ultrawide": "21:9"
       },
       "node_map": {
-        "prompt": { "node": "1", "field": "prompt" },
-        "batch": { "node": "1", "field": "image_count" },
-        "aspect_ratio": { "node": "1", "field": "aspect_ratio" },
-        "image_size": { "node": "1", "field": "image_size" },
-        "cfg": { "node": "1", "field": "temperature" }
+        "prompt": {
+          "node": "1",
+          "field": "prompt"
+        },
+        "batch": {
+          "node": "1",
+          "field": "image_count"
+        },
+        "aspect_ratio": {
+          "node": "1",
+          "field": "aspect_ratio"
+        },
+        "image_size": {
+          "node": "1",
+          "field": "image_size"
+        },
+        "cfg": {
+          "node": "1",
+          "field": "temperature"
+        }
       }
     },
     "flux": {
@@ -361,19 +383,50 @@
       "type": "video",
       "max_batch": 1,
       "needs_vram": true,
-      "aliases": ["wan", "t2v", "texttovideo"],
+      "aliases": [
+        "wan",
+        "t2v",
+        "texttovideo"
+      ],
       "prompt_suffix": "",
       "negative": "",
       "node_map": {
-        "prompt":  { "node": "135", "field": "text" },
-        "negative": { "node": "134", "field": "text" },
-        "seed":    { "node": "127", "field": "noise_seed" },
-        "steps":   { "node": "127", "field": "steps" },
-        "steps2":  { "node": "129", "field": "steps" },
-        "width":   { "node": "128", "field": "width" },
-        "height":  { "node": "128", "field": "height" },
-        "length":  { "node": "128", "field": "length" },
-        "fps":     { "node": "130", "field": "fps" }
+        "prompt": {
+          "node": "135",
+          "field": "text"
+        },
+        "negative": {
+          "node": "134",
+          "field": "text"
+        },
+        "seed": {
+          "node": "127",
+          "field": "noise_seed"
+        },
+        "steps": {
+          "node": "127",
+          "field": "steps"
+        },
+        "steps2": {
+          "node": "129",
+          "field": "steps"
+        },
+        "width": {
+          "node": "128",
+          "field": "width"
+        },
+        "height": {
+          "node": "128",
+          "field": "height"
+        },
+        "length": {
+          "node": "128",
+          "field": "length"
+        },
+        "fps": {
+          "node": "130",
+          "field": "fps"
+        }
       }
     },
     "wan-i2v": {
@@ -382,20 +435,53 @@
       "type": "video",
       "max_batch": 1,
       "needs_vram": true,
-      "aliases": ["i2v", "imgtovideo"],
+      "aliases": [
+        "i2v",
+        "imgtovideo"
+      ],
       "prompt_suffix": "",
       "negative": "",
       "node_map": {
-        "prompt":      { "node": "131", "field": "text" },
-        "negative":    { "node": "132", "field": "text" },
-        "seed":        { "node": "137", "field": "noise_seed" },
-        "steps":       { "node": "137", "field": "steps" },
-        "steps2":      { "node": "138", "field": "steps" },
-        "width":       { "node": "136", "field": "width" },
-        "height":      { "node": "136", "field": "height" },
-        "length":      { "node": "136", "field": "length" },
-        "fps":         { "node": "143", "field": "fps" },
-        "start_image": { "node": "121", "field": "image" }
+        "prompt": {
+          "node": "131",
+          "field": "text"
+        },
+        "negative": {
+          "node": "132",
+          "field": "text"
+        },
+        "seed": {
+          "node": "137",
+          "field": "noise_seed"
+        },
+        "steps": {
+          "node": "137",
+          "field": "steps"
+        },
+        "steps2": {
+          "node": "138",
+          "field": "steps"
+        },
+        "width": {
+          "node": "136",
+          "field": "width"
+        },
+        "height": {
+          "node": "136",
+          "field": "height"
+        },
+        "length": {
+          "node": "136",
+          "field": "length"
+        },
+        "fps": {
+          "node": "143",
+          "field": "fps"
+        },
+        "start_image": {
+          "node": "121",
+          "field": "image"
+        }
       }
     },
     "wan-i2i2v": {
@@ -404,21 +490,57 @@
       "type": "video",
       "max_batch": 1,
       "needs_vram": true,
-      "aliases": ["i2i2v", "startend"],
+      "aliases": [
+        "i2i2v",
+        "startend"
+      ],
       "prompt_suffix": "",
       "negative": "",
       "node_map": {
-        "prompt":      { "node": "131", "field": "text" },
-        "negative":    { "node": "132", "field": "text" },
-        "seed":        { "node": "137", "field": "noise_seed" },
-        "steps":       { "node": "137", "field": "steps" },
-        "steps2":      { "node": "138", "field": "steps" },
-        "width":       { "node": "145", "field": "width" },
-        "height":      { "node": "145", "field": "height" },
-        "length":      { "node": "145", "field": "length" },
-        "fps":         { "node": "143", "field": "fps" },
-        "start_image": { "node": "121", "field": "image" },
-        "end_image":   { "node": "146", "field": "image" }
+        "prompt": {
+          "node": "131",
+          "field": "text"
+        },
+        "negative": {
+          "node": "132",
+          "field": "text"
+        },
+        "seed": {
+          "node": "137",
+          "field": "noise_seed"
+        },
+        "steps": {
+          "node": "137",
+          "field": "steps"
+        },
+        "steps2": {
+          "node": "138",
+          "field": "steps"
+        },
+        "width": {
+          "node": "145",
+          "field": "width"
+        },
+        "height": {
+          "node": "145",
+          "field": "height"
+        },
+        "length": {
+          "node": "145",
+          "field": "length"
+        },
+        "fps": {
+          "node": "143",
+          "field": "fps"
+        },
+        "start_image": {
+          "node": "121",
+          "field": "image"
+        },
+        "end_image": {
+          "node": "146",
+          "field": "image"
+        }
       }
     },
     "expand": {
@@ -427,19 +549,49 @@
       "type": "expand",
       "max_batch": 1,
       "needs_vram": true,
-      "aliases": ["expander", "outpaint"],
+      "aliases": [
+        "expander",
+        "outpaint"
+      ],
       "prompt_suffix": "",
       "negative": "",
       "node_map": {
-        "image":   { "node": "10", "field": "image" },
-        "prompt":  { "node": "3",  "field": "text" },
-        "seed":    { "node": "5",  "field": "seed" },
-        "steps":      { "node": "5",  "field": "steps" },
-        "feathering": { "node": "11", "field": "feathering" },
-        "pad_left":   { "node": "11", "field": "left" },
-        "pad_top":    { "node": "11", "field": "top" },
-        "pad_right":  { "node": "11", "field": "right" },
-        "pad_bottom": { "node": "11", "field": "bottom" }
+        "image": {
+          "node": "10",
+          "field": "image"
+        },
+        "prompt": {
+          "node": "3",
+          "field": "text"
+        },
+        "seed": {
+          "node": "5",
+          "field": "seed"
+        },
+        "steps": {
+          "node": "5",
+          "field": "steps"
+        },
+        "feathering": {
+          "node": "11",
+          "field": "feathering"
+        },
+        "pad_left": {
+          "node": "11",
+          "field": "left"
+        },
+        "pad_top": {
+          "node": "11",
+          "field": "top"
+        },
+        "pad_right": {
+          "node": "11",
+          "field": "right"
+        },
+        "pad_bottom": {
+          "node": "11",
+          "field": "bottom"
+        }
       }
     },
     "upscale": {
@@ -448,18 +600,45 @@
       "type": "upscale",
       "max_batch": 1,
       "needs_vram": true,
-      "aliases": ["up", "upscaler"],
+      "aliases": [
+        "up",
+        "upscaler"
+      ],
       "prompt_suffix": ", highly detailed, sharp focus, photographic, 8k, no blur, no artifacts",
       "negative": "blurry, artifacts, low quality, jpeg compression, banding, oversharpened",
       "node_map": {
-        "image":    { "node": "1", "field": "image" },
-        "prompt":   { "node": "4", "field": "text" },
-        "negative": { "node": "5", "field": "text" },
-        "seed":     { "node": "6", "field": "seed" },
-        "factor":   { "node": "6", "field": "upscale_by" },
-        "denoise":  { "node": "6", "field": "denoise" },
-        "steps":    { "node": "6", "field": "steps" },
-        "cfg":      { "node": "6", "field": "cfg" }
+        "image": {
+          "node": "1",
+          "field": "image"
+        },
+        "prompt": {
+          "node": "4",
+          "field": "text"
+        },
+        "negative": {
+          "node": "5",
+          "field": "text"
+        },
+        "seed": {
+          "node": "6",
+          "field": "seed"
+        },
+        "factor": {
+          "node": "6",
+          "field": "upscale_by"
+        },
+        "denoise": {
+          "node": "6",
+          "field": "denoise"
+        },
+        "steps": {
+          "node": "6",
+          "field": "steps"
+        },
+        "cfg": {
+          "node": "6",
+          "field": "cfg"
+        }
       }
     },
     "ace-music": {
@@ -468,26 +647,282 @@
       "type": "audio",
       "max_batch": 1,
       "needs_vram": true,
-      "aliases": ["music", "ace", "acestep"],
+      "aliases": [
+        "music",
+        "ace",
+        "acestep"
+      ],
       "prompt_suffix": "",
       "negative": "",
       "node_map": {
-        "tags":            { "node": "6", "field": "tags" },
-        "lyrics":          { "node": "6", "field": "lyrics" },
-        "bpm":             { "node": "6", "field": "bpm" },
-        "key":             { "node": "6", "field": "keyscale" },
-        "time_signature":  { "node": "6", "field": "timesignature" },
-        "language":        { "node": "6", "field": "language" },
-        "cfg_scale":       { "node": "6", "field": "cfg_scale" },
-        "temperature":     { "node": "6", "field": "temperature" },
-        "top_p":           { "node": "6", "field": "top_p" },
-        "top_k":           { "node": "6", "field": "top_k" },
-        "min_p":           { "node": "6", "field": "min_p" },
-        "steps":           { "node": "8", "field": "steps" },
-        "duration_latent": { "node": "5", "field": "seconds" },
-        "duration_text":   { "node": "6", "field": "duration" },
-        "seed_text":       { "node": "6", "field": "seed" },
-        "seed_sampler":    { "node": "8", "field": "seed" }
+        "tags": {
+          "node": "6",
+          "field": "tags"
+        },
+        "lyrics": {
+          "node": "6",
+          "field": "lyrics"
+        },
+        "bpm": {
+          "node": "6",
+          "field": "bpm"
+        },
+        "key": {
+          "node": "6",
+          "field": "keyscale"
+        },
+        "time_signature": {
+          "node": "6",
+          "field": "timesignature"
+        },
+        "language": {
+          "node": "6",
+          "field": "language"
+        },
+        "cfg_scale": {
+          "node": "6",
+          "field": "cfg_scale"
+        },
+        "temperature": {
+          "node": "6",
+          "field": "temperature"
+        },
+        "top_p": {
+          "node": "6",
+          "field": "top_p"
+        },
+        "top_k": {
+          "node": "6",
+          "field": "top_k"
+        },
+        "min_p": {
+          "node": "6",
+          "field": "min_p"
+        },
+        "steps": {
+          "node": "8",
+          "field": "steps"
+        },
+        "duration_latent": {
+          "node": "5",
+          "field": "seconds"
+        },
+        "duration_text": {
+          "node": "6",
+          "field": "duration"
+        },
+        "seed_text": {
+          "node": "6",
+          "field": "seed"
+        },
+        "seed_sampler": {
+          "node": "8",
+          "field": "seed"
+        }
+      }
+    },
+    "nanban-edit": {
+      "name": "Nano Banana 2 \u2014 edit (Gemini)",
+      "file": "nanban_edit.json",
+      "type": "api",
+      "max_batch": 1,
+      "needs_vram": false,
+      "aliases": [],
+      "prompt_suffix": "",
+      "negative": "",
+      "cost_per_image": 0.04,
+      "cfg_max": 2.0,
+      "image_size_full": "2K",
+      "format_to_aspect": {
+        "square": "1:1",
+        "1024x1024": "1:1",
+        "landscape": "3:2",
+        "1152x768": "3:2",
+        "portrait": "2:3",
+        "768x1152": "2:3"
+      },
+      "node_map": {
+        "prompt": {
+          "node": "1",
+          "field": "prompt"
+        },
+        "batch": {
+          "node": "1",
+          "field": "image_count"
+        },
+        "aspect_ratio": {
+          "node": "1",
+          "field": "aspect_ratio"
+        },
+        "image_size": {
+          "node": "1",
+          "field": "image_size"
+        },
+        "cfg": {
+          "node": "1",
+          "field": "temperature"
+        },
+        "image": {
+          "node": "3",
+          "field": "image"
+        }
+      }
+    },
+    "nanban-pro-edit": {
+      "name": "Nano Banana Pro \u2014 edit (Gemini 3 Pro)",
+      "file": "nanban_pro_edit.json",
+      "type": "api",
+      "max_batch": 1,
+      "needs_vram": false,
+      "aliases": [],
+      "prompt_suffix": "",
+      "negative": "",
+      "cost_per_image": 0.24,
+      "cfg_max": 2.0,
+      "image_size_full": "4K",
+      "format_to_aspect": {
+        "square": "1:1",
+        "1024x1024": "1:1",
+        "landscape": "3:2",
+        "1152x768": "3:2",
+        "portrait": "2:3",
+        "768x1152": "2:3",
+        "wide": "16:9",
+        "ultrawide": "21:9"
+      },
+      "node_map": {
+        "prompt": {
+          "node": "1",
+          "field": "prompt"
+        },
+        "batch": {
+          "node": "1",
+          "field": "image_count"
+        },
+        "aspect_ratio": {
+          "node": "1",
+          "field": "aspect_ratio"
+        },
+        "image_size": {
+          "node": "1",
+          "field": "image_size"
+        },
+        "cfg": {
+          "node": "1",
+          "field": "temperature"
+        },
+        "image": {
+          "node": "3",
+          "field": "image"
+        }
+      }
+    },
+    "cutout": {
+      "name": "Cutout (rembg matting)",
+      "file": "cutout.json",
+      "type": "local",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": [],
+      "cost_per_image": 0.0,
+      "node_map": {
+        "image": {
+          "node": "1",
+          "field": "image"
+        },
+        "model": {
+          "node": "2",
+          "field": "model"
+        },
+        "device": {
+          "node": "2",
+          "field": "providers"
+        }
+      }
+    },
+    "cutout-pro": {
+      "name": "Cutout (InSPyReNet, finer on hair/fur)",
+      "file": "cutout_inspyrenet.json",
+      "type": "local",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": [],
+      "cost_per_image": 0.0,
+      "node_map": {
+        "image": {
+          "node": "1",
+          "field": "image"
+        },
+        "mode": {
+          "node": "2",
+          "field": "mode"
+        }
+      }
+    },
+    "erase": {
+      "name": "Erase subject + fill (Flux Fill)",
+      "file": "erase_flux.json",
+      "type": "local",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": [],
+      "cost_per_image": 0.0,
+      "node_map": {
+        "image": {
+          "node": "10",
+          "field": "image"
+        },
+        "prompt": {
+          "node": "3",
+          "field": "text"
+        },
+        "model": {
+          "node": "20",
+          "field": "model"
+        },
+        "grow": {
+          "node": "22",
+          "field": "expand"
+        },
+        "seed": {
+          "node": "5",
+          "field": "seed"
+        },
+        "steps": {
+          "node": "5",
+          "field": "steps"
+        }
+      }
+    },
+    "facefix": {
+      "name": "Face refinement (FaceDetailer + YOLO)",
+      "file": "facefix.json",
+      "type": "local",
+      "max_batch": 1,
+      "needs_vram": true,
+      "aliases": [],
+      "cost_per_image": 0.0,
+      "node_map": {
+        "image": {
+          "node": "1",
+          "field": "image"
+        },
+        "prompt": {
+          "node": "2",
+          "field": "positive"
+        },
+        "denoise": {
+          "node": "4",
+          "field": "denoise"
+        },
+        "seed": {
+          "node": "4",
+          "field": "seed"
+        },
+        "steps": {
+          "node": "4",
+          "field": "steps"
+        }
       }
     }
   }

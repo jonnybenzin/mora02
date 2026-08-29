@@ -27,6 +27,11 @@ from mora02_core.comfyui.registry import get_flow_info, load_registry, resolve_f
 
 _log = get_logger("mora02_core.comfyui.api")
 
+# The same host directory (ComfyUI's output) is mounted under a different name in
+# each service — /images/wip and /output/comfyui-wip in pilot, /comfyui-wip in
+# script-runner and nginx-images. Every name this library might run under.
+_WIP_BASES = ("/output/comfyui-wip", "/images/wip", "/comfyui-wip")
+
 
 def _image_asset(filename: str, variant: int) -> Asset:
     return Asset(
@@ -108,15 +113,30 @@ async def generate_images(
 
     flow_config = load_registry()["flows"][flow]
     if flow_config.get("type") == "api" and filenames:
-        # Filter out placeholder thumbnails from failed API calls
+        # A failed API call still leaves a file behind: the custom node writes a
+        # tiny placeholder thumbnail. Size is the only way to tell it from a real
+        # result, so anything under 5 KB counts as a failure.
         valid = []
         for fname in filenames:
-            for base in ("/output/comfyui-wip", "/images/wip"):
-                p = Path(base) / fname
-                if p.exists():
-                    if p.stat().st_size >= 5000:
+            for base in _WIP_BASES:
+                candidate = Path(base) / fname
+                if candidate.exists():
+                    if candidate.stat().st_size >= 5000:
                         valid.append(fname)
                     break
+            else:
+                # Not visible from THIS container. ComfyUI wrote the file, we just
+                # cannot look at it — the same host directory is mounted under a
+                # different name in every service. Not seeing a file is not the
+                # same as the API failing, so accept it instead of inventing an
+                # outage: reporting a Google 503 that never happened sends the
+                # search in exactly the wrong direction.
+                _log.warning(
+                    "comfyui output %s not readable from this container "
+                    "(checked %s) — skipping the placeholder check",
+                    fname, ", ".join(_WIP_BASES),
+                )
+                valid.append(fname)
         if not valid:
             return {
                 "subtype": "image_variants",

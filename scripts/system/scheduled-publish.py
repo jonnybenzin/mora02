@@ -17,7 +17,7 @@ looked published but were not. Here a failed row stays `ready` for the next tick
 Run by a systemd timer (mora02-scheduled-publish.timer). Environment:
   BASEROW_TOKEN     required (from /opt/mora02/docker/.env)
   BASEROW_URL       default http://mora02.local:8085
-  STEP_RUNNER_URL   default http://mora02.local:8096
+  STEP_RUNNER_URL   default http://127.0.0.1:8096
   SM_TABLE_ID       default 557
 Flags: --dry-run (list what would publish; no publish, no write-back), --verbose.
 """
@@ -34,7 +34,11 @@ import urllib.request
 from datetime import datetime, timezone
 
 BASEROW_URL = os.environ.get("BASEROW_URL", "http://mora02.local:8085").rstrip("/")
-STEP_RUNNER_URL = os.environ.get("STEP_RUNNER_URL", "http://mora02.local:8096").rstrip("/")
+# script-runner listens on 127.0.0.1 only since the stack ports were bound to
+# localhost (4ac1a22), so the LAN name mora02.local no longer reaches it. This
+# script runs on the host itself, so loopback is the correct address. Baserow
+# below keeps the LAN name: 8085 stays open on purpose for phone and laptop.
+STEP_RUNNER_URL = os.environ.get("STEP_RUNNER_URL", "http://127.0.0.1:8096").rstrip("/")
 TABLE = os.environ.get("SM_TABLE_ID", "557")
 TOKEN = os.environ.get("BASEROW_TOKEN")
 
@@ -110,7 +114,15 @@ def main() -> int:
         return 1
 
     now = datetime.now(timezone.utc)
-    rows = _baserow("GET", f"rows/table/{TABLE}/?user_field_names=true&size=200")["results"]
+    try:
+        rows = _baserow("GET", f"rows/table/{TABLE}/?user_field_names=true&size=200")["results"]
+    except urllib.error.URLError as e:
+        # Baserow unreachable — typically it is not up yet shortly after a boot. From
+        # here nothing is knowable, so leave the work to the next tick instead of dying
+        # with a traceback: an unhandled exception pops an Apport crash dialog on the
+        # desktop, and a refused connection is an expected condition, not a bug.
+        print(f"ERROR: Baserow unreachable at {BASEROW_URL}: {e.reason}", file=sys.stderr)
+        return 1
     due = [r for r in rows if _is_due(r, now)]
     print(f"[{now.isoformat(timespec='seconds')}] table {TABLE}: {len(rows)} rows, "
           f"{len(due)} due{' (dry-run)' if args.dry_run else ''}")

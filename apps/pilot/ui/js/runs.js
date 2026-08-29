@@ -3,7 +3,7 @@
  * renders each run as a step block-stack with per-step status + media previews.
  * Polls while a run is still active so progress updates live. */
 
-var RUNS_API = (typeof LLM_API_BASE !== 'undefined') ? LLM_API_BASE : 'http://mora02.local:8096';
+var RUNS_API = (typeof LLM_API_BASE !== 'undefined') ? LLM_API_BASE : 'http://mora02.local:8098/sr';
 var _runsPoll = null;
 var _runsLastCount = -1, _runsStable = 0;
 
@@ -31,7 +31,8 @@ async function _runsList(){
     var subj = (r.args && r.args.subject) ? ' · „' + _runEsc(r.args.subject) + '"' : '';
     return '<div class="run-card" data-run="' + _runEsc(r.run_id) + '"><div class="run-card-h">' +
            '<span class="run-name">' + _runEsc(r.pipeline) + '</span>' + badge + '</div>' +
-           '<div class="run-card-meta">' + r.steps_done + ' Schritte · zuletzt ' + _runEsc(r.last_op || '—') + subj + '</div></div>';
+           '<div class="run-card-meta">' + r.steps_done + ' Schritte · zuletzt ' + _runEsc(r.last_op || '—') + subj + '</div>' +
+           '<div class="run-card-meta" style="opacity:.65">' + _runEsc(r.run_id) + '</div></div>';
   }).join('');
 }
 
@@ -57,6 +58,8 @@ async function _runsShow(runId, isPoll){
   var subj = (d.args && d.args.subject) ? ' · „' + _runEsc(d.args.subject) + '"' : '';
   var h = '<div class="run-back" data-run-back>← alle Läufe</div>';
   h += '<div class="run-detail-title">' + _runEsc(d.pipeline || runId) + subj + '</div>';
+  // The pipeline name repeats across runs — only the id says WHICH run this is.
+  h += '<div class="run-card-meta" style="margin:-8px 0 14px;opacity:.7">Lauf-ID ' + _runEsc(runId) + '</div>';
   steps.forEach(function(s, i){
     var icon = s.status === 'ok' ? '✅' : (s.status === 'failed' ? '❌' : '<span class="run-spin">⏳</span>');
     if (i > 0) h += '<div class="run-conn"></div>';
@@ -69,7 +72,26 @@ async function _runsShow(runId, isPoll){
     else if (s.url && s.out_type === 'image') body = '<img class="run-media" src="' + _runEsc(s.url) + '">';
     else if (s.url && s.out_type === 'video') body = '<video class="run-media" src="' + _runEsc(s.url) + '" controls preload="metadata"></video>';
     else if (s.url && s.out_type === 'audio') body = '<audio src="' + _runEsc(s.url) + '" controls style="width:100%;margin-top:8px"></audio>';
-    else if (typeof s.out === 'string' && s.out && s.out.indexOf('asset://') !== 0) body = '<div class="run-out-text">' + _runEsc(s.out.slice(0, 2000)) + '</div>';
+    else if (typeof s.out === 'string' && s.out && s.out.indexOf('asset://') !== 0) {
+      // Long values are shortened for display — say so, with the real length,
+      // otherwise a cut here looks like the step produced less than it did.
+      var full = s.out, cut = full.length > 2000;
+      body = '<div class="run-out-text">' + _runEsc(full.slice(0, 2000)) +
+             (cut ? '</div><div class="run-card-meta" style="opacity:.7">… hier gekürzt · ' +
+                    full.length + ' Zeichen insgesamt</div>' : '</div>');
+    }
+    // The handler merges its "log" dict into the step record, so token counts and
+    // the truncation flag sit flat on `s`. A cut-off completion must SAY so —
+    // otherwise a story ending mid-sentence looks like the model gave up.
+    if (s.truncated) {
+      body += '<div class="run-err-line" style="color:#eb4">⚠ ' +
+              _runEsc(s.hint || 'Ausgabe an max_tokens abgeschnitten.') + '</div>';
+    }
+    if (s.tokens_out) {
+      body += '<div class="run-card-meta" style="opacity:.7">' +
+              (s.tokens_in ? s.tokens_in + ' → ' : '') + s.tokens_out + ' Tokens' +
+              (s.model ? ' · ' + _runEsc(s.model) : '') + '</div>';
+    }
     if (body) h += '<div class="run-body">' + body + '</div>';
     h += '</div>';
   });

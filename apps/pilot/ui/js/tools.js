@@ -3,10 +3,11 @@
    ═══════════════════════════════════════════════════════════════
    Gifer · (Clipper, Typer, ImageGen planned)
    ───────────────────────────────────────────────────────────────
-   Depends on: app.js (API_BASE), Script-Runner at :8096
+   Depends on: app.js (API_BASE), Script-Runner via Pilot's /sr passthrough
    ═══════════════════════════════════════════════════════════════ */
 
-var SCRIPT_API = 'http://mora02.local:8096';
+// script-runner has no port on the LAN (it binds to localhost); Pilot forwards under /sr.
+var SCRIPT_API = 'http://mora02.local:8098/sr';
 
 /* ═══════════════════════════════════════════════════════════════
    GIFER

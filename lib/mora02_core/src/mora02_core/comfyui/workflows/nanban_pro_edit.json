@@ -1,0 +1,44 @@
+{
+  "1": {
+    "inputs": {
+      "model_name": "gemini-3-pro-image-preview",
+      "prompt": "",
+      "image_count": 1,
+      "use_search": false,
+      "aspect_ratio": "1:1",
+      "image_size": "4K",
+      "temperature": 1.0,
+      "image_1": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "NanoBananaAIO",
+    "_meta": {
+      "title": "Nano Banana Pro (edit)"
+    }
+  },
+  "2": {
+    "inputs": {
+      "filename_prefix": "edit",
+      "images": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "3": {
+    "inputs": {
+      "image": "input_image.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Source image (edit)"
+    }
+  }
+}

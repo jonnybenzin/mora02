@@ -3,12 +3,13 @@
    ═══════════════════════════════════════════════════════════════
    - Renders the LLM dropdown from Pilot's /models endpoint
      (single source of truth: lib/.../llm/models.py MODELS dict)
-   - Talks to script-runner at :8096 for local LLM profile switching
+   - Talks to script-runner via Pilot's /sr passthrough for LLM profile switching
    - Keeps the active local-profile label in sync across menu and
      chat rendering. Routing key stays "qwen" — purely cosmetic.
    ═══════════════════════════════════════════════════════════════ */
 
-var LLM_API_BASE = 'http://mora02.local:8096';
+// script-runner has no port on the LAN (it binds to localhost); Pilot forwards under /sr.
+var LLM_API_BASE = 'http://mora02.local:8098/sr';
 var PILOT_API_BASE = (typeof API_BASE !== 'undefined') ? API_BASE : 'http://mora02.local:8098';
 var LLM_FALLBACK_LABEL = 'LOCAL LLM';
 

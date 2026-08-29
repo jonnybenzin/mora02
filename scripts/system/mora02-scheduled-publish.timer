@@ -3,7 +3,10 @@ Description=mora02 Scheduled Publish — alle 15 Minuten Baserow auf faellige 'r
 
 [Timer]
 OnCalendar=*:0/15
-Persistent=true
+# No Persistent=true on purpose: it replayed the run missed while the machine
+# was off within seconds of boot, before Baserow accepted connections. Nothing
+# is lost without it — a post is due when its timestamp has passed, so one that
+# came due during downtime is picked up by the next regular tick.
 
 [Install]
 WantedBy=timers.target

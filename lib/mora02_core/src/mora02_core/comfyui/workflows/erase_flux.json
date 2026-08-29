@@ -1,0 +1,195 @@
+{
+  "1": {
+    "inputs": {
+      "unet_name": "flux1-fill-dev-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load FLUX Fill Dev"
+    }
+  },
+  "2": {
+    "inputs": {
+      "clip_name1": "clip_l.safetensors",
+      "clip_name2": "t5xxl_fp8_e4m3fn.safetensors",
+      "type": "flux"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "7": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "10": {
+    "inputs": {
+      "image": "input_image.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Source Image"
+    }
+  },
+  "3": {
+    "inputs": {
+      "text": "empty scene background, continue the surroundings naturally, same style, same lighting, seamless, no subject, high quality",
+      "clip": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "6": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Negative (empty)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "seed": 0,
+      "steps": 28,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": [
+        "1",
+        0
+      ],
+      "positive": [
+        "15",
+        0
+      ],
+      "negative": [
+        "15",
+        1
+      ],
+      "latent_image": [
+        "15",
+        2
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "5",
+        0
+      ],
+      "vae": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "9": {
+    "inputs": {
+      "filename_prefix": "erase",
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Expanded"
+    }
+  },
+  "20": {
+    "class_type": "RemBGSession+",
+    "inputs": {
+      "model": "isnet-general-use: general purpose",
+      "providers": "CUDA"
+    },
+    "_meta": {
+      "title": "Matting model"
+    }
+  },
+  "21": {
+    "class_type": "ImageRemoveBackground+",
+    "inputs": {
+      "rembg_session": [
+        "20",
+        0
+      ],
+      "image": [
+        "10",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Subject matte"
+    }
+  },
+  "22": {
+    "class_type": "GrowMask",
+    "inputs": {
+      "mask": [
+        "21",
+        1
+      ],
+      "expand": 24,
+      "tapered_corners": true
+    },
+    "_meta": {
+      "title": "Grow the hole"
+    }
+  },
+  "15": {
+    "class_type": "InpaintModelConditioning",
+    "inputs": {
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "6",
+        0
+      ],
+      "vae": [
+        "7",
+        0
+      ],
+      "pixels": [
+        "10",
+        0
+      ],
+      "mask": [
+        "22",
+        0
+      ],
+      "noise_mask": true
+    },
+    "_meta": {
+      "title": "Fill the hole"
+    }
+  }
+}

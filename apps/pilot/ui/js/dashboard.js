@@ -12,7 +12,7 @@ var dashServices = {
     { name: 'Pilot Bot',     url: 'http://mora02.local:8098/health', port: 8098 },
     { name: 'Dify Web',      url: 'http://mora02.local:8190/',        port: 8190 },
     { name: 'Baserow',       url: 'http://mora02.local:8085/api/',   port: 8085 },
-    { name: 'Script Runner',  url: 'http://mora02.local:8096/health', port: 8096 },
+    { name: 'Script Runner',  url: 'http://mora02.local:8098/sr/health', port: 8096 },
     { name: 'Activepieces',   url: 'http://mora02.local:8089/',       port: 8089 },
     { name: 'SearXNG',        url: 'http://mora02.local:8094/',       port: 8094 },
   ],
@@ -240,7 +240,8 @@ function dashCheck(svc) {
 
 /* ─── TTS Engine Toggle (Chatterbox) ───────────────────────── */
 
-var TTS_API_DASH = 'http://mora02.local:8096';
+// script-runner has no port on the LAN (it binds to localhost); Pilot forwards under /sr.
+var TTS_API_DASH = 'http://mora02.local:8098/sr';
 var dashTTSBusy = false;
 
 async function dashRenderTTSToggle() {

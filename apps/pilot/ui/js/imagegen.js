@@ -29,7 +29,7 @@ var imgState = {
    ═══════════════════════════════════════════════════════════════ */
 
 /* Flows where seed/steps/cfg/negative are irrelevant (API-based) */
-var IMG_API_FLOWS = ['nanban', 'nanban-pro', 'gpt-image', 'flux-ultra'];
+var IMG_API_FLOWS = ['nanban', 'nanban-pro', 'flux-ultra'];
 
 function initImageGen() {
   /* Deactivate any previous image gen instances (strip their IDs to prevent conflicts) */

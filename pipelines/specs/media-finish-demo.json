@@ -1,1 +1,30 @@
-{"name":"media-finish-demo","steps":[{"llm.complete":{"id":"line","prompt":"Write one punchy 6-word motivational line, no quotes.","max_tokens":40}},{"text.overlay":{"id":"card","template":"dark","size":"1080x1080"}},{"gate":"Approve this text card?"}]}
+{
+  "name": "media-finish-demo",
+  "description": "Ein LLM schreibt eine kurze Zeile, sie wird auf eine quadratische Textkarte gelegt und zur Freigabe vorgelegt.",
+  "tags": [
+    "text",
+    "bild",
+    "hitl",
+    "demo"
+  ],
+  "steps": [
+    {
+      "llm.complete": {
+        "id": "line",
+        "prompt": "Write one punchy 6-word motivational line, no quotes.",
+        "max_tokens": 40
+      }
+    },
+    {
+      "text.overlay": {
+        "id": "card",
+        "template": "dark",
+        "size": "1080x1080"
+      }
+    },
+    {
+      "gate": "Approve this text card?"
+    }
+  ],
+  "updated": "2026-08-26T13:57:05Z"
+}

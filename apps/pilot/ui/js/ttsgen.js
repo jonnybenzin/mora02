@@ -4,7 +4,8 @@
    API: script-runner /tts/generate (was knowledge-api before ADR-020)
    ═══════════════════════════════════════════════════════════════ */
 
-var TTS_API   = 'http://mora02.local:8096';
+// script-runner has no port on the LAN (it binds to localhost); Pilot forwards under /sr.
+var TTS_API   = 'http://mora02.local:8098/sr';
 var TTS_MEDIA = 'http://mora02.local:8092';
 
 var ttsState = {
