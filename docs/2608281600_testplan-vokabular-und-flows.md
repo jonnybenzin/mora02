@@ -6,11 +6,42 @@
 
 ---
 
-## Schritt 0 — Commit (blockierend)
+## Stand: durchgeführt am 2026-08-29
 
-59 Dateien liegen unversioniert im Arbeitsbaum, `HEAD` steht auf `4ac1a22` — zwei volle Arbeitstage. Der Commit-Versuch vom 26. August scheiterte ohne erkennbare Ursache: nichts gestaged, kein Fehler sichtbar. Verdächtig ist der `pre-commit`-Hook (Credential-Scan).
+Alle acht Phasen abgearbeitet. **158 Prüfungen in zehn Suiten**, aus denen vierzehn Reparaturen hervorgingen. Der Plan bleibt unten stehen, wie er am 28. August geschrieben wurde — was dabei herauskam, steht hier:
 
-**Diesmal die Ausgabe des Commit-Laufs wirklich lesen**, statt aus dem Endzustand zu schließen. Erst danach testen — sonst kostet ein Fehlschlag beim Aufräumen zwei Tage Arbeit.
+| Phase | Suite | Ergebnis | Was sie fand |
+|---|---|---|---|
+| 1 Durchreichen | `test_passthrough.py` | 28 | Lauf-Protokoll kappte stumm bei 200 Zeichen; `publish.linkedin` versprach im Vokabular weniger, als es kann; `stock.download` las seine deklarierte Eingabe nie |
+| 2 Fehlerpfade | `test_errorpaths.py` | 25 | Verkabelungsfehler hinterließen **keine Spur** im Protokoll; die Kappungs-Warnung war gebaut, aber nie an die Ansicht angeschlossen |
+| 3 Verkabelung | `test_wiring.py` | 5 | die Landmine: ein Schritt ohne `in:` schluckt still die Ausgabe des Vorgängers |
+| 4 Gates | `test_gates.py` | 8 | ein Gate mit eigenem Schema übersprang **alles dahinter** und meldete `ok` |
+| 5 Teillauf | `test_rerun.py` | 9 | keine echten Fehler — die riskanteste Annahme (n-te Entscheidung ↔ n-tes Gate) hält |
+| 6a Bibliothek | `test_library.py` | 16 | ein Flow mit Verweis nach vorn wurde anstandslos gespeichert |
+| 6b Builder | `test_builder_ui.py` | 9 | keine Fehler — der DOM-Fehler vom 26.8. ist wirklich behoben |
+| 7 Vokabular | `test_vocabulary.py` | 32/38 Ops | der ganze `cloud`-Zweig war tot (`temperature` an ein SDK, das ihn nicht mehr kennt) |
+| 8 Grenzfälle | `test_edgecases.py` | 6 | **keine Typprüfung auf den Leitungen** — ein Bild lief durch eine Text-Vokabel |
+| (quer) | `test_truncation.py` | 14 | jede Kappung im System klassifiziert und begründet |
+
+Die Suiten liegen unter `tests/pipeline/` und laufen gegen den **laufenden Stack** — sie sind keine Unit-Tests. Ein Befehl startet die billigen:
+
+```
+bash tests/pipeline/run-all.sh            # acht Suiten, gratis, wenige Minuten
+bash tests/pipeline/run-all.sh --ui       # plus die Browser-Suite (Playwright)
+bash tests/pipeline/run-all.sh --vocab 1  # plus jede Vokabel einzeln, Stufe 1
+```
+
+Ab Vokabel-Stufe 2 kostet es GPU-Minuten, ab Stufe 3 Geld, ab Stufe 5 verlässt es das Haus (Signal, LinkedIn). Nichts davon läuft, ohne dass die Stufe ausdrücklich genannt wird.
+
+**Die Fehlerklasse, die den Tag bestimmt hat:** Von den vierzehn Reparaturen betrafen neun nicht Fehlverhalten, sondern **verschwiegenes** Fehlverhalten — ein Lauf-Protokoll, das stumm bei 200 Zeichen kappt; ein Gate, das alles dahinter überspringt und `ok` meldet; eine Kappungs-Warnung, die gebaut, aber nie angeschlossen war; eine Vokabel, die eine Eingabe verspricht, die sie nie liest. Die Leitfrage des Plans hat sich damit selbst bestätigt.
+
+**Drei Befunde hielten der Nachprüfung nicht stand** und wurden zurückgenommen, bevor jemand sie reparierte: die Gate-Zuordnung ist korrekt, der `approve`-Rückfall der Inbox ist aus einem Spec gar nicht erreichbar, und `gates_needed` bedeutet etwas anderes als sein Name nahelegt (geerbte Entscheidungen, nicht bevorstehende Rückfragen). Ohne diese Rücknahmen wären drei Reparaturen an funktionierenden Dingen entstanden.
+
+**Was keine Suite je zusichern kann:** die Zustellung selbst. Der schwerste Fund des Tages — Signal-Bildunterschriften kamen auf ihr erstes Zeichen gekürzt an — war nur sichtbar, weil ein Mensch aufs Handy geschaut und einen Screenshot geschickt hat. Alle Ebenen innerhalb unserer Reichweite meldeten korrekt „versendet".
+
+## Schritt 0 — Commit (blockierend) · ERLEDIGT
+
+Commit `10a81b3` (58 Dateien) am 29.8. Die Ursache des Fehlschlags vom 26. August blieb ungeklärt, aber ein verwandtes Phänomen trat am 29.8. erneut auf und ist geklärt: Beim zweistufigen Commit-Script lief nur der `check`-Schritt, dessen Schlusssatz („nothing committed yet") unter dreißig Zeilen Torwächter-Ausgabe stand. Eine ganze Phase lag deshalb eine Stunde gestaged im Baum. **Hinweise, zu denen man scrollen muss, werden übersehen** — auch das eine Form von Schweigen.
 
 ## Wie getestet wird
 
@@ -22,7 +53,11 @@ Drei Wege, je nach Frage:
 | `POST /pipeline/run-spec` mit Inline-Spec | Ketten, Gates, Referenzen |
 | Flow-Builder im Pilot | Bedienung, Speichern, Palette, Anzeige |
 
-Skript-Muster liegen unter `/tmp/mora02-claude/test_*.py`; Playwright läuft direkt, kein MCP nötig. **Offene Frage:** ob die Testskripte dauerhaft ins Repo gehören — nach dem Klon-Test ja, sie sind maschinenunabhängig.
+**Beantwortet:** Die Testskripte gehören ins Repo (`tests/pipeline/`) — die Vorgänger-Muster unter `/tmp` hatte ein Neustart gefressen, bevor sie ein zweites Mal gebraucht wurden. Playwright läuft direkt, kein MCP nötig.
+
+**Zwei Messinstrumente**, die sich bewährt haben und beim Weiterbauen Zeit sparen:
+- `llm.classify` mit **einem einzigen Etikett** kann nur eine Antwort geben — ein freier lokaler Modellaufruf wird damit zum deterministischen Wertgeber. Vorsicht: unzuverlässig, sobald der eingehende Text selbst ein Etikett ist; dann echot das Modell die Eingabe.
+- Ein Schritt, der eine Eingabe **sofort ablehnt** (z. B. `image.edit` auf Text), protokolliert trotzdem, was er bekommen hat — eine Sonde ohne GPU, ohne Kosten, ohne Nebenwirkung.
 
 ---
 
@@ -113,10 +148,20 @@ Ausdrücklich gewünscht. Kandidaten:
 ## Bekannte Baustellen — mitprüfen oder mitfixen
 
 - **Upscale-Zweig in `photo`/`concept`/`epic` defekt:** `VAEDecode` erwartet 16 Kanäle (Flux), bekommt 4 (SDXL). Betrifft nur die UI-Schalter, nicht die Pipelines.
-- **`in:`-Vorgabe implizit** (Punkt 1b) — siehe Phase 3.
-- **`image.facefix`** steht im Container noch auf `planned`; ein Bau fehlt.
-- **`entrypoint.sh`-Klon-Liste** noch nicht eingetragen (`/tmp/mora02-claude/patch-entrypoint.py`).
-- **Aufbewahrung der Run-Buckets** ungeregelt — Teilläufe hängen daran.
+- **`in:`-Vorgabe implizit** (Punkt 1b) — **erledigt.** `materialize_wiring()` schreibt die Leitung beim Speichern *und* beim Starten ins Spec; die Vorgabe bleibt erlaubt, sie wird nur nicht mehr verschwiegen.
+- **`image.facefix`** — **war längst gebaut.** Die Doku hing hinterher und stand auf `planned`; die Vokabel läuft (6 s in Stufe 2). Es gibt inzwischen **keine** `planned`-Vokabel mehr, weshalb die Compile-Sperre gegen ungebaute Vokabeln zurzeit nicht ausgelöst werden kann.
+- **`entrypoint.sh`-Klon-Liste** — offen; das Patch-Skript lag unter `/tmp` und ist einem Neustart zum Opfer gefallen.
+- **Aufbewahrung der Run-Buckets** ungeregelt — offen, Teilläufe hängen daran.
+
+## Offen nach dem Durchgang vom 29.8.
+
+- **37 von 38 Vokabeln belegt.** Offen bleibt allein `stock.download`: aus einer Kette nicht erreichbar, bis die Feld-Pick-Vokabel existiert. `stock.search` liefert eine Trefferliste, der Download will zwei Einzelwerte daraus — das Herausgreifen eines Feldes ist die fehlende Vokabel, und sie fehlt an derselben Stelle noch zweimal (Scheduled-Publish, und der `db.*`-Zyklus, der deshalb keine Kette sein kann).
+- **Nachgeholt am 29.8.:** `llm.switch` läuft als eigene Stufe 6 (rund eine Minute je Wechsel, schaltet zurück und prüft das), die vier schreibenden `db.*` als Zyklus anlegen→lesen→ändern→löschen gegen eine Wegwerf-Tabelle. Deren ID kommt aus `MORA02_TEST_TABLE` — ein Wert, der nur auf dieser Maschine gilt und deshalb nicht im Repo steht.
+- **Keine Typprüfung war der größte Einzelfund** und ist repariert (`check_wire_types`), aber sie prüft nur die stdin-Leitung. Parameter-Verweise `{"from": …}` tragen ihre eigenen Typen und bleiben ungeprüft.
+- **„Dienst nicht erreichbar" im engeren Sinn** — ComfyUI oder llama-server tatsächlich abschalten. Die Ersatzprüfung (toter Port, unauflösbarer Name) ist grün, prüft aber keine Zeitüberschreitungen.
+- **`cloud.vision`** hat noch eine feste Grenze von 1024 Token.
+- **Signal-Bildunterschriften** werden auf ihr erstes Zeichen gekürzt (Fehler außerhalb dieses Repos, in OpenClaw). Umgangen: Bild und Worte reisen als zwei Nachrichten, das Bild trägt ein Zero-Width-Space als eigene Unterschrift. Zurückschalten mit `MORA02_NOTIFY_MEDIA_CAPTION=inline`, sobald das Gateway Unterschriften trägt.
+- **Modell-Liste veraltet** (`claude-sonnet-4-5`, `claude-opus-4-6`, `claude-haiku-4-5`) und die SDK-Stände von Pilot und Script-Runner driften auseinander — Thema für das halbjährliche Modell-Review, nicht für einen Testdurchgang.
 
 ## Danach: das Ganze lokalisieren
 

@@ -16,6 +16,7 @@ Cost is a first-class concern here, so nothing runs unless it is asked for:
     --tier 3   real money           image.edit, cloud.complete, cloud.vision
     --tier 4   long and partly paid video, music, tts, clip
     --tier 5   VISIBLE OUTSIDE      notify (Signal), publish.linkedin
+    --tier 6   TAKES THE MODEL DOWN llm.switch (a minute per switch, and back)
 
 Tier 5 sends real messages and publishes publicly; it never runs without being
 named explicitly, and publish.linkedin additionally requires --i-mean-it.
@@ -40,7 +41,12 @@ from pathlib import Path
 
 RUNNER = os.environ.get("SCRIPT_RUNNER_URL", "http://127.0.0.1:8096")
 LOG_DIR = Path(os.environ.get("MORA02_PIPELINE_LOG_DIR", "/opt/mora02/pipelines/logs"))
-TABLE = os.environ.get("MORA02_TEST_TABLE", "576")
+# A scratch table for the db ops. Machine-specific, so it comes from the
+# environment rather than from this file: `export MORA02_TEST_TABLE=<id>`. The
+# writing ops need a table nobody relies on - they create, change and delete a
+# row - so pointing this at a live table is a bad idea. Unset means the db ops
+# report themselves as not run, with the reason.
+TABLE = os.environ.get("MORA02_TEST_TABLE", "")
 SEED_URL = "http://127.0.0.1:8096/health"
 
 TEXT_SEED = {"web.fetch": {"id": "seed", "in": "none", "url": SEED_URL}}
@@ -70,6 +76,29 @@ def post(path: str, payload: dict, timeout: int = 900) -> dict:
             return {"http_status": e.code, "detail": body}
     except Exception as e:
         return {"http_status": 0, "detail": f"{type(e).__name__}: {e}"}
+
+
+def step_json(op_and_query: str, data: dict | None = None) -> dict | None:
+    """Call one step endpoint directly and read its JSON answer back.
+
+    Used by the db cycle, which cannot be one chain: each op needs the row id out
+    of the previous one's JSON, and picking a field out of JSON is the very op
+    that does not exist yet. Returns None when the step refuses - which is the
+    expected answer after a delete.
+    """
+    body = json.dumps(data).encode("utf-8") if data is not None else b""
+    req = urllib.request.Request(f"{RUNNER}/pipeline/step/{op_and_query}&fmt=out",
+                                 data=body, method="POST",
+                                 headers={"Content-Type": "text/plain; charset=utf-8"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            text = r.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
 
 
 def step_event(run_id: str, step_id: str) -> dict | None:
@@ -143,10 +172,54 @@ def tier1() -> None:
         "id": "probe", "in": "none", "query": "leuchtturm"}}], "text")
     check("stock.search", t, [TEXT_SEED, {"stock.search": {
         "id": "probe", "in": "none", "query": "lighthouse", "count": 2}}], "text")
+    if not TABLE:
+        record("n/a", "[1] db.* (alle)",
+               "set MORA02_TEST_TABLE to a scratch table id to include them")
+        return
     check("db.query", t, [TEXT_SEED, {"db.query": {
         "id": "probe", "in": "none", "table": TABLE, "size": 2}}], "text")
     check("db.list_fields", t, [TEXT_SEED, {"db.list_fields": {
         "id": "probe", "in": "none", "table": TABLE}}], "text")
+    db_write_cycle()
+
+
+def db_write_cycle() -> None:
+    """create a row, read it, change it, delete it - each op checking the last.
+
+    Not one chain, deliberately. db.insert returns the new row as JSON and
+    db.get needs the id out of it, which is precisely the field-pick op that
+    does not exist yet - the same gap that keeps stock.download unreachable
+    from a chain. So the ids travel through this function instead, and the
+    limitation is visible here rather than hidden behind a helper.
+
+    The cycle cleans up after itself because deleting IS one of the ops under
+    test. If it breaks in the middle, the row it leaves behind is named so it
+    can be found by eye.
+    """
+    t = 1
+    marker = f"PIPELINE-TESTLAUF {int(time.time())}"
+    row = step_json(f"db.insert?table={TABLE}", {"Name": marker, "Notes": "angelegt"})
+    row_id = (row or {}).get("id")
+    if not row_id:
+        record("FAIL", "[1] db.insert", f"no row id came back: {str(row)[:90]}")
+        return
+    record("PASS", "[1] db.insert", f"row {row_id} created")
+
+    got = step_json(f"db.get?table={TABLE}&row_id={row_id}")
+    ok = (got or {}).get("Name") == marker
+    record("PASS" if ok else "FAIL", "[1] db.get",
+           f"read back {marker!r}" if ok else f"read back something else: {str(got)[:80]}")
+
+    changed = step_json(f"db.update?table={TABLE}&row_id={row_id}", {"Notes": "geaendert"})
+    ok = (changed or {}).get("Notes") == "geaendert"
+    record("PASS" if ok else "FAIL", "[1] db.update",
+           "the change took" if ok else f"unchanged: {str(changed)[:80]}")
+
+    step_json(f"db.delete?table={TABLE}&row_id={row_id}")
+    gone = step_json(f"db.get?table={TABLE}&row_id={row_id}")
+    record("PASS" if gone is None else "FAIL", "[1] db.delete",
+           "the row is gone" if gone is None
+           else f"still readable after delete - row {row_id} left behind")
     check("source.file", t, [TEXT_SEED, {"source.file": {
         "id": "probe", "in": "none", "store": "comfyui", "pick": "latest"}}], "image")
 
@@ -224,13 +297,38 @@ def tier5(allow_publish: bool) -> None:
         "visibility": "CONNECTIONS"}}], "text")
 
 
+def tier6() -> None:
+    """llm.switch - its own tier because it takes the local model down and up.
+
+    Roughly a minute per switch, during which no llm.* op can answer. It is run
+    deliberately, never as part of a sweep, and it puts the profile back where it
+    found it - a test that leaves the machine on a different model has broken
+    something even if every assertion passed.
+    """
+    state = Path(os.environ.get("MORA02_LLM_SWITCH_STATE",
+                                "/opt/mora02/llm-switch/current.json"))
+    if not state.is_file():
+        record("n/a", "[6] llm.switch", f"no profile state at {state}")
+        return
+    before = json.loads(state.read_text()).get("profile")
+    other = "qwen3-8b" if before != "qwen3-8b" else "qwen3-14b"
+
+    check("llm.switch", 6, [TEXT_SEED, {"llm.switch": {
+        "id": "probe", "in": "seed", "profile": other}}], "text", timeout=400)
+
+    now = json.loads(state.read_text()).get("profile")
+    record("PASS" if now == other else "FAIL", "[6] llm.switch · profile changed",
+           f"{before} -> {now}")
+
+    # Back where we found it, and checked - not assumed.
+    step_json(f"llm.switch?profile={before}")
+    restored = json.loads(state.read_text()).get("profile")
+    record("PASS" if restored == before else "FAIL", "[6] llm.switch · profile restored",
+           f"back on {restored}" if restored == before
+           else f"LEFT ON {restored}, expected {before} - switch it back by hand")
+
+
 NOT_RUN = {
-    "llm.switch": "switches the LLM profile and restarts llama-server for minutes - "
-                  "disruptive, run it deliberately",
-    "db.insert": "writes a row; needs a scratch table, not a live one",
-    "db.update": "writes a row; needs a scratch table, not a live one",
-    "db.delete": "deletes a row; needs a scratch table, not a live one",
-    "db.get": "needs a known row id; pair it with a scratch table",
     "stock.download": "cannot be reached from a chain until the field-pick op exists "
                       "(it takes source and image_url as params, stock.search emits a list)",
 }
@@ -257,6 +355,8 @@ def main() -> int:
         tier4()
     if 5 in tiers:
         tier5("--i-mean-it" in sys.argv)
+    if 6 in tiers:
+        tier6()
     if not ONLY:
         for op, why in NOT_RUN.items():
             record("n/a", f"[-] {op}", why)
