@@ -19,9 +19,14 @@ Mechanism::
 The calling container therefore needs the docker CLI and a mounted docker socket
 (as script-runner already has, per ADR-020).
 
+An image WITH a caption goes as two invocations - picture first, words second -
+because a caption sent alongside media arrives truncated to its first character.
+See ``send`` for the measurement and for the switch back.
+
 Config (env):
   MORA02_OPENCLAW_CONTAINER  gateway container name, default ``mora02-openclaw``
   MORA02_DOCKER_BIN          docker binary, default ``docker``
+  MORA02_NOTIFY_MEDIA_CAPTION  ``separate`` (default) or ``inline``
 """
 
 from __future__ import annotations
@@ -34,6 +39,12 @@ from mora02_core.notify._errors import NotifyError
 from mora02_core.notify.base import NotifyResult
 
 _DEFAULT_CONTAINER = "mora02-openclaw"
+
+# The picture's own caption when the words travel separately - see send(). Written
+# as an escape rather than as the character itself: an invisible literal in source
+# is the kind of thing a later tidy-up deletes without anyone noticing it was load
+# bearing.
+_INVISIBLE = "\u200b"  # zero-width space
 
 
 class OpenClawAdapter:
@@ -75,6 +86,54 @@ class OpenClawAdapter:
         body = _compose(message, title=title, link=link)
         if not body and not media:
             raise NotifyError("notify needs a message or media to send")
+
+        # A caption cannot travel WITH an image through this gateway. Measured on
+        # 29 August 2026 against Signal: with --media, "Pipeline-Testlauf …"
+        # arrived as "P" and "ZZZ-ANFANG mitte ENDE-ZZZ" as "Z" - a string being
+        # indexed at [0] somewhere upstream, reproducible and independent of
+        # punctuation. The other field, --presentation, replaces the text with a
+        # literal "<media:image>" placeholder. Both are outside this repository.
+        #
+        # So an image with a caption goes as TWO messages: the picture, then the
+        # words. Two notifications instead of one is the price; a caption that
+        # silently loses everything but its first letter is not a price worth
+        # paying. Set MORA02_NOTIFY_MEDIA_CAPTION=inline to go back to one send
+        # once the gateway carries captions properly - the behaviour is a switch,
+        # not a rewrite.
+        caption_mode = os.environ.get("MORA02_NOTIFY_MEDIA_CAPTION", "separate")
+        split = bool(media and body and caption_mode != "inline")
+
+        if split:
+            # A zero-width space as the picture's own caption. Sent with no message
+            # at all, the gateway writes a literal "<media:image>" under the image.
+            # Sent with one, it keeps the first character - so the caption has to
+            # be exactly one character wide and invisible. A plain space does not
+            # work: whitespace is trimmed and the placeholder comes back (measured
+            # 29 August 2026). U+200B is not whitespace to a trimmer and not ink to
+            # a reader.
+            result = await self._send_once(channel, target, body=_INVISIBLE, media=media)
+            try:
+                await self._send_once(channel, target, body=body)
+            except NotifyError as e:
+                # The picture is already delivered, so say precisely what is
+                # missing rather than reporting a failed send.
+                raise NotifyError(
+                    f"media delivered, but its caption could not follow: {e}"
+                ) from e
+            return result
+
+        return await self._send_once(channel, target, body=body or None, media=media)
+
+    async def _send_once(
+        self,
+        channel: str,
+        target: str,
+        *,
+        body: str | None = None,
+        media: str | None = None,
+    ) -> NotifyResult:
+        """One ``openclaw message send`` invocation inside the gateway container."""
+        container, docker_bin = self._resolve()
         argv = [
             docker_bin, "exec", container,
             "openclaw", "message", "send",
