@@ -172,6 +172,17 @@ def tier1() -> None:
         "id": "probe", "in": "none", "query": "leuchtturm"}}], "text")
     check("stock.search", t, [TEXT_SEED, {"stock.search": {
         "id": "probe", "in": "none", "query": "lighthouse", "count": 2}}], "text")
+    # The seed is the health JSON, so scripts.0 is a known value: "gifer".
+    check("data.pick", t, [TEXT_SEED, {"data.pick": {
+        "id": "probe", "in": "seed", "path": "scripts.0"}}], "text")
+    # The chain that was impossible until data.pick existed: a search emits a list
+    # of hits, the download wants one url out of it. Three steps, no hand-copying.
+    check("stock.download", t, [
+        {"stock.search": {"id": "hits", "in": "none", "source": "pexels",
+                          "query": "lighthouse", "count": 3}},
+        {"data.pick": {"id": "url", "in": "hits", "path": "results.0.url"}},
+        {"stock.download": {"id": "probe", "in": "none", "source": "pexels",
+                            "image_url": {"from": "url"}}}], "image")
     if not TABLE:
         record("n/a", "[1] db.* (alle)",
                "set MORA02_TEST_TABLE to a scratch table id to include them")
@@ -328,10 +339,7 @@ def tier6() -> None:
            else f"LEFT ON {restored}, expected {before} - switch it back by hand")
 
 
-NOT_RUN = {
-    "stock.download": "cannot be reached from a chain until the field-pick op exists "
-                      "(it takes source and image_url as params, stock.search emits a list)",
-}
+NOT_RUN: dict[str, str] = {}
 
 
 def main() -> int:

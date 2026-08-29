@@ -569,6 +569,26 @@ _OPS: tuple[Op, ...] = (
         output_type="text",  # JSON results
     ),
     Op(
+        name="data.pick",
+        summary="Take one value out of an earlier step's JSON (dotted path, list "
+                "indices as numbers). The joint between ops that emit a structure "
+                "and ops that want single values.",
+        plain="Greift einen einzelnen Wert aus dem Ergebnis eines früheren Schritts "
+              "heraus — etwa die Adresse des ersten Suchtreffers.",
+        bucket="data",
+        params=(
+            Param("path", required=True,
+                  desc="dotted path, e.g. results.0.url; -1 is the last entry"),
+            Param("default",
+                  desc="value to emit when the path is missing; without it a "
+                       "missing path is an error"),
+        ),
+        consumes="one",
+        input_type="text",
+        output_type="text",
+    ),
+
+    Op(
         name="stock.download",
         summary="Download a stock photo into a store as an image ref. Takes no "
                 "stdin: source and image_url are picked out of a stock.search "

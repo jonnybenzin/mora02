@@ -28,6 +28,7 @@ var FL_BUCKETS = [
   ['source', 'Quellen'], ['image', 'Bild'], ['video', 'Video'],
   ['blender', '3D-Text'], ['media', 'Medien-Finish'], ['audio', 'Audio'],
   ['llm', 'LLM lokal'], ['cloud', 'LLM Cloud'], ['db', 'Daten'],
+  ['data', 'Werte'],
   ['web', 'Web & Stock'], ['publish', 'Publizieren'], ['delivery', 'Zustellung']
 ];
 var FL_TYPES = { image: 'Bild', video: 'Video', audio: 'Audio', text: 'Text', any: 'beliebig' };

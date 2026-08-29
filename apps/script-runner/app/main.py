@@ -2268,6 +2268,79 @@ async def _step_tts_speak(inputs: List[str], params: dict) -> dict:
             "out": out_ref, "type": "audio", "url": asset_refs.url_for_ref(out_ref)}
 
 
+def _walk_path(data, path: str):
+    """Follow a dotted path into parsed JSON. Raises ValueError naming where it stopped."""
+    current = data
+    walked: list[str] = []
+    for part in path.split("."):
+        where = ".".join(walked) or "the top level"
+        walked.append(part)
+        if isinstance(current, list):
+            try:
+                index = int(part)
+            except ValueError:
+                raise ValueError(
+                    f"{where} is a list of {len(current)}, so {part!r} has to be a "
+                    "number (0 is the first, -1 the last)"
+                )
+            try:
+                current = current[index]
+            except IndexError:
+                raise ValueError(
+                    f"{where} has {len(current)} entries, so there is no {part!r}"
+                )
+        elif isinstance(current, dict):
+            if part not in current:
+                have = ", ".join(list(current)[:8]) or "nothing"
+                raise ValueError(f"{where} has no {part!r} — it has: {have}")
+            current = current[part]
+        else:
+            raise ValueError(
+                f"{where} is a plain value, so {part!r} cannot be looked up inside it"
+            )
+    return current
+
+
+async def _step_data_pick(inputs: List[str], params: dict) -> dict:
+    """data.pick — take one value out of an earlier step's JSON.
+
+    The missing joint between ops that EMIT a structure and ops that want single
+    values: stock.search returns a list of hits while stock.download wants a
+    source and a url, db.insert returns a row while db.get wants its id. Without
+    this, those pairs could not be wired at all - the values had to be copied out
+    by hand.
+
+    Params: path (dotted, list indices as numbers: ``results.0.url``, ``-1`` for
+    the last entry), default (what to emit when the path is not there; without
+    it a missing path is an error, because a silently empty value is how a later
+    step ends up working on nothing).
+    """
+    raw = "\n".join(inputs).strip()
+    if not raw:
+        raise ValueError("data.pick needs JSON on stdin (an earlier step's output)")
+    path = params.get("path")
+    if not path:
+        raise ValueError("data.pick needs ?path= (e.g. results.0.url)")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"data.pick: stdin is not JSON ({e}); got {raw[:80]!r}")
+
+    try:
+        value = _walk_path(data, path)
+    except ValueError as e:
+        if "default" in params:
+            return {"ok": True, "op": "data.pick", "out": params["default"], "type": "text",
+                    "log": {"path": path, "used_default": True, "why": str(e)}}
+        raise ValueError(f"data.pick: {e}")
+
+    # A scalar travels as itself; a branch travels as JSON, so it can be handed on
+    # to another data.pick or into db.insert.
+    out = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return {"ok": True, "op": "data.pick", "out": out, "type": "text",
+            "log": {"path": path, "picked_type": type(value).__name__}}
+
+
 # Generic table CRUD ops (Welle 5) — thin pipeline wrappers over mora02_core.db.
 # Each returns a JSON string on stdout so results chain as values; reads take
 # params, writes take their row data from ?data= or stdin (a prior step's JSON).
@@ -2662,6 +2735,7 @@ _PIPELINE_STEPS = {
     "tts.speak": _step_tts_speak,
     "music.generate": _step_music_generate,
     "pixeltext.render": _step_pixeltext_render,
+    "data.pick": _step_data_pick,
     "db.query": _step_db_query,
     "db.get": _step_db_get,
     "db.insert": _step_db_insert,
@@ -2833,6 +2907,20 @@ async def pipeline_step(op: str, request: Request):
     # usage); merge it into the step event so the run log captures it. Generic on
     # purpose — future ops (image seed/model, …) use the same channel.
     extra = result.get("log") or {}
+    # A handler's own log fields must not be able to break the step. log_event's
+    # signature already owns "kind", and the call below owns the rest; a colliding
+    # key raises TypeError - AFTER the handler ran and outside its try block, so
+    # the work is done, the value is in the bucket, and the caller gets a bare 500
+    # with no reason. An op that names a field badly is a naming mistake; losing
+    # the run over it is a design mistake. The op's key is dropped, and the drop
+    # is recorded rather than hidden.
+    _reserved = {"kind", "run_id", "step_id", "op", "params", "inputs", "out",
+                 "out_name", "out_type", "status", "duration_ms", "error"}
+    clashes = sorted(set(extra) & _reserved)
+    extra = {k: v for k, v in extra.items() if k not in _reserved}
+    if clashes:
+        extra["log_field_clash"] = clashes
+        _log.warning("op %s attaches reserved log field(s) %s - dropped", op, clashes)
     pipeline_runlog.log_event(
         run_id, "step", step_id=step_id, op=op, params=params,
         inputs=_log_inputs(inputs), out=out, out_name=_ref_name(out),

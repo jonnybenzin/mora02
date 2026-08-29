@@ -234,6 +234,34 @@ def main() -> int:
                "url=http%3A%2F%2Fno-such-host-7q4x.invalid%2F",
                ["resolve", "name", "connect", "getaddrinfo"], run_id=r)
 
+    # --- 8d. a path into a structure that does not go there -------------------
+    # data.pick is the joint between a step that emits a structure and one that
+    # wants a single value out of it. A path that misses must say what IS there,
+    # or the author is left guessing at a shape they cannot see.
+    r = rid("badpath")
+    check_case("path into nothing", "data.pick", '{"results": [{"url": "x"}]}',
+               "path=results.0.href", ["href", "url"], run_id=r)
+
+    r = rid("notjson")
+    check_case("data.pick on plain prose", "data.pick", "kein JSON, nur Text",
+               "path=a.b", ["json"], run_id=r)
+
+    # --- 8e. an op that names one of its log fields badly ---------------------
+    # A handler may attach its own fields to the run log. If one of them collides
+    # with a field the endpoint already writes, the merge used to raise AFTER the
+    # handler had run and outside its try block: the work was done, the value was
+    # in the bucket, and the caller got a bare 500 with no reason. Found by
+    # writing an op that used "kind".
+    r = rid("clash")
+    status, resp = step("data.pick", '{"a": {"b": "value"}}',
+                        f"path=a.b&run_id={r}&step_id=clash&fmt=out")
+    if status == 200 and resp.strip() == "value":
+        record("PASS", "a reserved log field does not kill the step",
+               "the step answered normally")
+    else:
+        record("FAIL", "a reserved log field does not kill the step",
+               f"HTTP {status}: {resp[:100]}")
+
     # --- 9. a flow that does not exist ---------------------------------------
     status, resp = _request("GET", f"{RUNNER}/pipeline/flow/no-such-flow-7q4x")
     record("PASS" if status == 404 and "no-such-flow" in resp else "FAIL",

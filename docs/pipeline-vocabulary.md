@@ -89,6 +89,12 @@ The step *ops* a mora02 pipeline is built from, grouped by kind. Each op has a p
 | [`db.delete`](#dbdelete) | Removes a row from a table. | 🟢 |
 | [`db.list_fields`](#dblist_fields) | Lists the columns (fields) a table has. | 🟢 |
 
+### Values (picking fields apart)
+
+| Op | What it does | Status |
+|----|--------------|--------|
+| [`data.pick`](#datapick) | Greift einen einzelnen Wert aus dem Ergebnis eines früheren Schritts heraus — etwa die Adresse des ersten Suchtreffers. | 🟢 |
+
 ### Web & stock
 
 | Op | What it does | Status |
@@ -649,6 +655,23 @@ Lists the columns (fields) a table has.
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `table` | string | yes |  |  |
+
+### Values (picking fields apart)
+
+#### `data.pick` 🟢
+
+Greift einen einzelnen Wert aus dem Ergebnis eines früheren Schritts heraus — etwa die Adresse des ersten Suchtreffers.
+
+*Technical:* Take one value out of an earlier step's JSON (dotted path, list indices as numbers). The joint between ops that emit a structure and ops that want single values.
+
+- **Default step id:** `data`  
+- **Consumes (stdin):** one (text)  
+- **Emits (stdout):** text
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `path` | string | yes |  | dotted path, e.g. results.0.url; -1 is the last entry |
+| `default` | string | no |  | value to emit when the path is missing; without it a missing path is an error |
 
 ### Web & stock
 

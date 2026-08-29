@@ -35,6 +35,7 @@ BUCKET_TITLES: list[tuple[str, str]] = [
     ("llm", "Local LLM"),
     ("cloud", "Cloud LLM"),
     ("db", "Data (tables)"),
+    ("data", "Values (picking fields apart)"),
     ("web", "Web & stock"),
     ("publish", "Publishing"),
     ("delivery", "Delivery / notify"),
