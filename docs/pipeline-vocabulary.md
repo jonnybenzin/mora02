@@ -158,7 +158,7 @@ Fetches exactly the file you asked for - the product photo for SKU 4711 - instea
 **Worth knowing:**
 - pick=one is the default and refuses an ambiguous match: it lists the candidates instead of choosing one for you.
 - Sorting for first/last is alphabetical by path, not by modification date - that is the whole difference to source.file.
-- A store has no customer border. asset://library/kunde-b/... is a valid ref for anyone who can reach the store.
+- Without ?project= a store has no customer border: asset://library/kunde-b/... is a valid ref for anyone who can reach the store. With ?project=kunde-a the library is narrowed to that folder - foreign hits vanish from a pattern rather than being refused by name, and an explicitly named foreign path is refused.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|

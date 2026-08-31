@@ -6,6 +6,8 @@ sometimes Frontend-message-blob with 'subtype'). See E5 in the concept doc.
 """
 
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -117,6 +119,86 @@ class AssetRefError(ValueError):
     """A malformed asset ref, an unknown store, or a containment violation."""
 
 
+# ---------------------------------------------------------------------------
+# Scope — the customer border
+# ---------------------------------------------------------------------------
+# Folder paths are an ordering, not a border. Measured on 2026-08-31: a call
+# working "for customer A" asked for asset://library/kunde-b/... and got a
+# finished result, because nothing in the system knew who was asking.
+#
+# The check lives HERE rather than in the ops, for the same reason gate
+# discipline is not left to the model: a border that thirty verbs each have to
+# remember is not a border. Two choke points cover both directions —
+# ``resolve_ref`` for reading a ref, ``make_ref`` for producing one, which is
+# what a lookup like source.find does when it expands a glob.
+#
+# A scope is per STORE: {"library": "kunde-a/"} restricts the library and
+# leaves comfyui, gifer and the rest alone, so a project scope does not
+# accidentally forbid writing an output. ``strict`` closes that door for
+# callers who want everything named explicitly.
+
+_scope: ContextVar[dict | None] = ContextVar("mora02_asset_scope", default=None)
+
+
+@contextmanager
+def scope(allow: dict[str, str], *, strict: bool = False):
+    """Restrict which refs may be produced or resolved inside this block.
+
+    ``allow`` maps a store to a path prefix. A store that is not mentioned is
+    unrestricted unless ``strict`` is set, in which case it is denied.
+
+    Async-safe: the value lives in a ContextVar, so two pipeline steps running
+    concurrently do not see each other's scope.
+    """
+    token = _scope.set({"allow": dict(allow), "strict": bool(strict)})
+    try:
+        yield
+    finally:
+        _scope.reset(token)
+
+
+def current_scope() -> dict | None:
+    """The scope in force, or None. For logging and for tests."""
+    return _scope.get()
+
+
+def in_scope(store: str, rel: str) -> bool:
+    """Is this ref inside the scope in force? Answers instead of raising.
+
+    A lookup that expands a pattern needs to *skip* what is not its own, not
+    trip over it: refusing with the foreign path in the message would hold the
+    file back and reveal its name in the same breath. Naming an exact path is
+    different — the caller typed it, so refusing tells them nothing new.
+    """
+    try:
+        _check_scope(store, rel)
+        return True
+    except AssetRefError:
+        return False
+
+
+def _check_scope(store: str, rel: str) -> None:
+    active = _scope.get()
+    if not active:
+        return
+    prefix = active["allow"].get(store)
+    if prefix is None:
+        if active["strict"]:
+            raise AssetRefError(
+                f"store {store!r} is outside the scope in force "
+                f"({', '.join(sorted(active['allow'])) or 'nothing allowed'})"
+            )
+        return
+    prefix = prefix.strip("/")
+    rel_clean = rel.strip("/")
+    # Boundary on a path separator, so "kunde-a" does not also open "kunde-ab".
+    if not (rel_clean == prefix or rel_clean.startswith(prefix + "/")):
+        raise AssetRefError(
+            f"{store}/{rel_clean} is outside the scope {store}/{prefix}/ "
+            f"in force for this run"
+        )
+
+
 def store_root(store: str) -> Path:
     """Resolve a logical store name to this container's mount root."""
     root = os.environ.get(f"MORA02_ASSET_STORE_{store.upper()}") or _DEFAULT_STORE_ROOTS.get(store)
@@ -130,6 +212,7 @@ def make_ref(store: str, relpath) -> str:
     rel = str(relpath).lstrip("/")
     if not store or not rel:
         raise AssetRefError(f"need both store and relpath (got {store!r}, {relpath!r})")
+    _check_scope(store, rel)
     return f"{_REF_SCHEME}{store}/{rel}"
 
 
@@ -146,10 +229,13 @@ def parse_ref(ref: str) -> tuple[str, str]:
 def resolve_ref(ref: str) -> Path:
     """Resolve a ref to a concrete container path, guarding against traversal."""
     store, rel = parse_ref(ref)
+    # Order matters: containment first, so a traversal attempt is reported as
+    # what it is rather than as a scope violation.
     root = store_root(store).resolve()
     path = (root / rel).resolve()
     if path != root and root not in path.parents:
         raise AssetRefError(f"ref escapes its store root: {ref!r}")
+    _check_scope(store, rel)
     return path
 
 

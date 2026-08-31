@@ -15,6 +15,7 @@ import subprocess
 import httpx
 from pathlib import Path
 from datetime import datetime, timezone
+from contextlib import nullcontext
 from typing import Optional, List
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
@@ -1614,15 +1615,29 @@ async def _step_source_find(inputs: List[str], params: dict) -> dict:
             raise ValueError(f"{path!r} not found in store {store!r} ({root})")
         found = [target]
     else:
+        # Out-of-scope hits are dropped, not refused: a pattern that happens
+        # to span two customers must not answer customer A with customer B's
+        # file name in an error message (T3 of the material plan -- not
+        # visible, rather than refused). An exact path is a different case and
+        # is still refused above, because the caller named it themselves.
         found = sorted(
-            _inside(p) for p in root.glob(match) if p.is_file()
+            hit for hit in (_inside(p) for p in root.glob(match) if p.is_file())
+            if asset_refs.in_scope(store, str(hit.relative_to(root.resolve())))
         )
 
     if not found:
         # Say what was looked for and where, and how much is there at all: an
         # empty result with no context sends the reader hunting for a typo in
         # the wrong half of the problem.
-        total = sum(1 for p in root.rglob("*") if p.is_file())
+        # Counted within the scope in force. The file names are already hidden
+        # from a foreign project; a total that includes them would still say
+        # "there is more here than you can see", which is the same leak one
+        # size smaller.
+        total = sum(
+            1 for f in root.rglob("*")
+            if f.is_file()
+            and asset_refs.in_scope(store, str(f.relative_to(root.resolve())))
+        )
         raise ValueError(
             f"nothing matches {match!r} in store {store!r} ({root}); "
             f"the store holds {total} files"
@@ -3095,6 +3110,11 @@ async def pipeline_step(op: str, request: Request):
     # the handler — pop them so they don't reach the op as stray params.
     run_id = params.pop("run_id", None)
     step_id = params.pop("step_id", op)
+    # The customer/project axis. Baked by the compiler like run_id, not a param
+    # the op sees: it narrows which library paths this step may touch at all,
+    # and it does that below the ops rather than inside each of them (see
+    # mora02_core.assets.scope).
+    project = params.pop("project", None)
     # Resolve step-output references: a compiled ref param arrives as
     # __ref_<param>=<source step id>; pull that earlier step's output from the run
     # bucket into the real param before the handler runs (non-linear fan-in, so a
@@ -3123,8 +3143,15 @@ async def pipeline_step(op: str, request: Request):
             )
     started = time.monotonic()
 
+    # A border thirty verbs each have to remember is not a border, so it is
+    # held here: inside this block a library ref outside the project's folder
+    # cannot be produced or resolved, whichever op is running.
+    step_scope = (asset_refs.scope({"library": f"{project}/"})
+                  if project else nullcontext())
+
     try:
-        result = await handler(inputs, params)
+        with step_scope:
+            result = await handler(inputs, params)
     except (asset_refs.AssetRefError, MediaError, ValueError, FileNotFoundError) as e:
         pipeline_runlog.log_event(
             run_id, "step", step_id=step_id, op=op, params=params,
