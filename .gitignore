@@ -118,3 +118,10 @@ scripts/backup/
 # Separate product with its own release cycle, destined for private GitLab.
 # Must never land in this public repository.
 apps/matrix-tool-v2/
+
+# Plans, notes, roadmap. Own audience (one person), own rhythm, own repository
+# -- test 3 of the boundary question in CLAUDE.md. This is a private git repo
+# of its own living inside the working directory, so the notes sit next to the
+# work they describe while belonging to a different history. Do not un-ignore:
+# a plan that lands in the public repo is a plan published by accident.
+notizen/
