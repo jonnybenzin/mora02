@@ -68,7 +68,7 @@ class Op:
     bucket: str = ""  # service family for grouping in docs / front-ends
 
     # ---- what it costs a human to use ------------------------------------
-    # Written for the VOKABULAR table in the Pilot wiki, where someone decides
+    # Written for the VOCABULARY table in the Pilot wiki, where someone decides
     # whether to put an op in a loop, in a nightly job, or in front of an
     # audience. Duration and actual spend are NOT here: those are measured from
     # the run log rather than declared, because a number somebody typed once

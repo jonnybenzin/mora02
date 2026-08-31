@@ -149,7 +149,7 @@ def render() -> str:
                 f"\n- **Emits (stdout):** {d['output_type']}"
             )
             # What it costs a human to use. Duration and actual spend are NOT here:
-            # those are measured from the run log and shown live in the VOKABULAR
+            # those are measured from the run log and shown live in the VOCABULARY
             # tab, because a number typed into a document ages into a lie.
             facts = []
             if d.get("runs_on"):

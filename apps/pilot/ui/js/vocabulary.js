@@ -1,4 +1,4 @@
-/* VOKABULAR — the pipeline vocabulary as a filterable table.
+/* VOCABULARY — the pipeline vocabulary as a filterable table.
  *
  * Two sources, both live:
  *   /pipeline/ops         the vocabulary itself (mora02_core.pipeline.vocab)
@@ -27,13 +27,13 @@ var vocabOpen = {};         // op name -> row expanded?
 
 /* Filters are questions a human asks before using an op, not database columns. */
 var VOCAB_FILTERS = [
-  { id: 'free',    label: 'gratis',            test: function(o){ return o.cost === 'free'; } },
-  { id: 'paid',    label: 'kostet Geld',       test: function(o){ return o.cost === 'paid' || o.cost === 'mixed'; } },
-  { id: 'gpu',     label: 'GPU-Zeit',          test: function(o){ return o.runs_on === 'local-gpu'; } },
-  { id: 'local',   label: 'lokal',             test: function(o){ return (o.runs_on || '').indexOf('local') === 0; } },
-  { id: 'cloud',   label: 'Cloud',             test: function(o){ return o.runs_on === 'cloud'; } },
-  { id: 'outward', label: 'verlässt das Haus', test: function(o){ return o.effect === 'outward'; } },
-  { id: 'writes',  label: 'schreibt',          test: function(o){ return o.effect === 'writes'; } }
+  { id: 'free',    label: 'free',            test: function(o){ return o.cost === 'free'; } },
+  { id: 'paid',    label: 'costs money',       test: function(o){ return o.cost === 'paid' || o.cost === 'mixed'; } },
+  { id: 'gpu',     label: 'GPU time',          test: function(o){ return o.runs_on === 'local-gpu'; } },
+  { id: 'local',   label: 'local',             test: function(o){ return (o.runs_on || '').indexOf('local') === 0; } },
+  { id: 'cloud',   label: 'cloud',             test: function(o){ return o.runs_on === 'cloud'; } },
+  { id: 'outward', label: 'leaves the house', test: function(o){ return o.effect === 'outward'; } },
+  { id: 'writes',  label: 'writes',          test: function(o){ return o.effect === 'writes'; } }
 ];
 
 function _vEsc(s) {
@@ -76,22 +76,23 @@ function vocabWhen(iso) {
   if (!iso) return '—';
   var d = new Date(iso);
   if (isNaN(d)) return '—';
-  return ('0' + d.getDate()).slice(-2) + '.' + ('0' + (d.getMonth() + 1)).slice(-2) + '.';
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return d.getDate() + ' ' + months[d.getMonth()];
 }
 
 function vocabMoney(o) {
   /* An absent field is NOT "free": an older container has no cost field at all,
-     and printing "gratis" there would assert something the page cannot know. */
-  if (o.cost == null) return '<span style="opacity:.3" title="nicht bekannt">—</span>';
-  if (o.cost === 'paid') return '<span style="color:var(--c-warn,#eb4)">zahlt</span>';
-  if (o.cost === 'mixed') return '<span style="color:var(--c-warn,#eb4)">teils</span>';
-  return '<span style="opacity:.55">gratis</span>';
+     and printing "free" there would assert something the page cannot know. */
+  if (o.cost == null) return '<span style="opacity:.3" title="not known">—</span>';
+  if (o.cost === 'paid') return '<span style="color:var(--c-warn,#eb4)">paid</span>';
+  if (o.cost === 'mixed') return '<span style="color:var(--c-warn,#eb4)">partly</span>';
+  return '<span style="opacity:.55">free</span>';
 }
 
 function vocabEffect(o) {
-  if (o.effect == null) return '<span style="opacity:.3" title="nicht bekannt">—</span>';
-  if (o.effect === 'outward') return '<span style="color:#e66" title="verlässt das Haus">⚠ extern</span>';
-  if (o.effect === 'writes') return '<span style="opacity:.7" title="schreibt in einen Speicher">schreibt</span>';
+  if (o.effect == null) return '<span style="opacity:.3" title="not known">—</span>';
+  if (o.effect === 'outward') return '<span style="color:#e66" title="leaves the house">⚠ outward</span>';
+  if (o.effect === 'writes') return '<span style="opacity:.7" title="writes to a store">writes</span>';
   return '<span style="opacity:.3">—</span>';
 }
 
@@ -132,32 +133,32 @@ function vocabRender() {
   var h =
     '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">' +
       '<button class="tool-btn ' + (allOn ? 'tool-btn-primary' : 'tool-btn-secondary') +
-        '" data-vf="__all">ALLE</button>' +
+        '" data-vf="__all">ALL</button>' +
       '<span style="opacity:.3">|</span>' + chips +
       '<span style="margin-left:auto;font-size:12px;opacity:.7" id="vocab-count">' +
-        rows.length + ' von ' + vocabOps.length + '</span>' +
+        rows.length + ' of ' + vocabOps.length + '</span>' +
     '</div>';
 
   if (vocabStats && vocabStats.rate) {
-    h += '<div style="font-size:11px;opacity:.5;margin-bottom:8px">Geldbeträge in Euro · ' +
-         _vEsc(vocabStats.rate.note) + ' · gemessen aus ' +
-         vocabStats.scanned_runs + ' Läufen, Fenster ' + vocabStats.window_days + ' Tage</div>';
+    h += '<div style="font-size:11px;opacity:.5;margin-bottom:8px">Amounts in euros · ' +
+         _vEsc(vocabStats.rate.note) + ' · measured over ' +
+         vocabStats.scanned_runs + ' runs, window ' + vocabStats.window_days + ' days</div>';
   } else {
     h += '<div style="font-size:11px;color:var(--c-warn,#eb4);margin-bottom:8px">' +
-         'Gemessene Werte (Dauer, letzter Lauf, Ausgaben) fehlen — der Statistik-Endpunkt ' +
-         'antwortet nicht. Spalten mit „—" heißt: nicht bekannt, nicht „nichts".</div>';
+         'Measured values (duration, last run, spend) are missing — the stats endpoint ' +
+         'is not answering. A column showing “—” means not known, not “nothing”.</div>';
   }
 
   h += '<table class="vocab-table" style="width:100%;border-collapse:collapse;font-size:13px">' +
        '<thead><tr style="text-align:left;opacity:.6;font-size:11px">' +
-         '<th style="padding:4px 6px">VOKABEL</th>' +
-         '<th style="padding:4px 6px">WAS SIE TUT</th>' +
-         '<th style="padding:4px 6px">EIN → AUS</th>' +
-         '<th style="padding:4px 6px">LÄUFT WO</th>' +
-         '<th style="padding:4px 6px">GELD</th>' +
-         '<th style="padding:4px 6px">Ø DAUER</th>' +
-         '<th style="padding:4px 6px">WIRKUNG</th>' +
-         '<th style="padding:4px 6px">ZULETZT</th>' +
+         '<th style="padding:4px 6px">OP</th>' +
+         '<th style="padding:4px 6px">WHAT IT DOES</th>' +
+         '<th style="padding:4px 6px">IN → OUT</th>' +
+         '<th style="padding:4px 6px">RUNS ON</th>' +
+         '<th style="padding:4px 6px">MONEY</th>' +
+         '<th style="padding:4px 6px">TYPICAL TIME</th>' +
+         '<th style="padding:4px 6px">EFFECT</th>' +
+         '<th style="padding:4px 6px">LAST OK</th>' +
        '</tr></thead><tbody>';
 
   rows.forEach(function(o) {
@@ -181,8 +182,8 @@ function vocabRender() {
 
   h += '</tbody></table>';
   if (!rows.length) {
-    h += '<div style="padding:16px;opacity:.6">Keine Vokabel passt auf diese Filter. ' +
-         'ALLE stellt den vollen Blick wieder her.</div>';
+    h += '<div style="padding:16px;opacity:.6">No op matches these filters. ' +
+         'ALL brings the whole list back.</div>';
   }
   el.innerHTML = h;
 
@@ -203,40 +204,40 @@ function vocabDetailRow(o, st) {
   parts.push('<div style="opacity:.85;margin-bottom:8px">' + _vEsc(o.summary) + '</div>');
 
   var facts = [];
-  if (o.service) facts.push('<b>Dienst:</b> ' + _vEsc(o.service));
-  if (o.cost_note) facts.push('<b>Kosten:</b> ' + _vEsc(o.cost_note));
-  if (st && st.spend_eur) facts.push('<b>Ausgegeben (30 Tage):</b> ' +
+  if (o.service) facts.push('<b>Service:</b> ' + _vEsc(o.service));
+  if (o.cost_note) facts.push('<b>Price:</b> ' + _vEsc(o.cost_note));
+  if (st && st.spend_eur) facts.push('<b>Actually spent (30 days):</b> ' +
       String(st.spend_eur.toFixed(2)).replace('.', ',') + ' €');
-  if (st && st.runs) facts.push('<b>Läufe:</b> ' + st.runs +
-      (st.failed ? ' (' + st.failed + ' gescheitert)' : ''));
+  if (st && st.runs) facts.push('<b>Runs:</b> ' + st.runs +
+      (st.failed ? ' (' + st.failed + ' failed)' : ''));
   if (st && st.stores && st.stores.length)
-    facts.push('<b>Landet in:</b> ' + st.stores.map(function(s){ return 'asset://' + _vEsc(s); }).join(', '));
+    facts.push('<b>Lands in:</b> ' + st.stores.map(function(s){ return 'asset://' + _vEsc(s); }).join(', '));
   if (st && st.used_by && st.used_by.length)
-    facts.push('<b>Benutzt von:</b> ' + st.used_by.map(_vEsc).join(', '));
+    facts.push('<b>Used by:</b> ' + st.used_by.map(_vEsc).join(', '));
   if (o.requires && o.requires.length)
-    facts.push('<b>Braucht:</b> ' + o.requires.map(_vEsc).join(' · '));
+    facts.push('<b>Needs:</b> ' + o.requires.map(_vEsc).join(' · '));
   if (facts.length) parts.push('<div style="margin-bottom:8px">' + facts.join('<br>') + '</div>');
 
   if (o.caveats && o.caveats.length) {
-    parts.push('<div style="margin-bottom:8px"><b>Worauf man achten sollte</b><ul style="margin:4px 0 0 16px">' +
+    parts.push('<div style="margin-bottom:8px"><b>Worth knowing</b><ul style="margin:4px 0 0 16px">' +
       o.caveats.map(function(c) { return '<li>' + _vEsc(c) + '</li>'; }).join('') + '</ul></div>');
   }
 
   if (o.params && o.params.length) {
     parts.push('<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">' +
       '<tr style="opacity:.6;text-align:left"><th style="padding:2px 6px">Parameter</th>' +
-      '<th style="padding:2px 6px">Typ</th><th style="padding:2px 6px">Pflicht</th>' +
-      '<th style="padding:2px 6px">Vorgabe</th><th style="padding:2px 6px">Beschreibung</th></tr>' +
+      '<th style="padding:2px 6px">Type</th><th style="padding:2px 6px">Required</th>' +
+      '<th style="padding:2px 6px">Default</th><th style="padding:2px 6px">Description</th></tr>' +
       o.params.map(function(p) {
         return '<tr><td style="padding:2px 6px"><code>' + _vEsc(p.name) + '</code></td>' +
                '<td style="padding:2px 6px">' + _vEsc(p.type) + '</td>' +
-               '<td style="padding:2px 6px">' + (p.required ? 'ja' : '') + '</td>' +
+               '<td style="padding:2px 6px">' + (p.required ? 'yes' : '') + '</td>' +
                '<td style="padding:2px 6px">' + (p.default == null ? '' : '<code>' + _vEsc(p.default) + '</code>') + '</td>' +
                '<td style="padding:2px 6px;opacity:.8">' + _vEsc(p.desc || '') + '</td></tr>';
       }).join('') + '</table>');
   }
 
-  parts.push('<div style="font-size:12px;opacity:.7"><b>Minimalbeispiel</b><pre style="margin:4px 0;padding:8px;' +
+  parts.push('<div style="font-size:12px;opacity:.7"><b>Minimal example</b><pre style="margin:4px 0;padding:8px;' +
     'background:var(--bg-2,#1a1a1a);overflow-x:auto">' + _vEsc(vocabExample(o)) + '</pre></div>');
 
   return '<tr><td colspan="8" style="padding:12px 16px;background:var(--bg-2,#161616)">' +
@@ -267,15 +268,15 @@ function vocabToggleFilter(id) {
   vocabRender();
 }
 
-/* Called by wiki.js when the VOKABULAR tab is opened or its search box changes. */
+/* Called by wiki.js when the VOCABULARY tab is opened or its search box changes. */
 async function vocabShow() {
   var el = document.getElementById('wiki-list');
-  if (el && !vocabOps.length) el.innerHTML = '<div class="flw-note">Lade Vokabular…</div>';
+  if (el && !vocabOps.length) el.innerHTML = '<div class="flw-note">Loading vocabulary…</div>';
   if (!vocabOps.length) {
     try {
       await vocabLoad();
     } catch (e) {
-      if (el) el.innerHTML = '<div class="flw-err" style="padding:12px">Vokabular nicht erreichbar:<br>' +
+      if (el) el.innerHTML = '<div class="flw-err" style="padding:12px">Vocabulary not reachable:<br>' +
         _vEsc(e.message) + '</div>';
       return;
     }

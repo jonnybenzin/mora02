@@ -103,7 +103,7 @@ def interview() -> dict:
     spec["plain"] = _ask("plain-language line (what it does, for a non-programmer)")
     spec["bucket"] = _ask("bucket (service family)", default=spec["name"].split(".")[0])
 
-    # What the VOKABULAR table needs and nothing can measure: where the work
+    # What the VOCABULARY table needs and nothing can measure: where the work
     # happens, whether money moves, whether it can be undone. Asked here because
     # an op added without them leaves a hole in that table, and a table with
     # holes stops being consulted.

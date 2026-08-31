@@ -18,7 +18,7 @@ var wikiTabs = [
   { id: 'glossar', label: 'GLOSSAR', kind: 'sections', path: 'glossar.md' },
   { id: 'bash',    label: 'BASH',    kind: 'sections', path: 'bash.md' },
   { id: 'adr',     label: 'ADR',     kind: 'files',    path: 'adrs/' },
-  { id: 'vocab',   label: 'VOKABULAR', kind: 'table' },
+  { id: 'vocab',   label: 'VOCABULARY', kind: 'table' },
   { id: 'xray',    label: 'X-RAY',   kind: 'iframe' }
 ];
 
@@ -95,13 +95,13 @@ async function wikiLoadTab(tabId) {
     return;
   }
 
-  /* VOKABULAR renders its own table into the list area: it is not a pile of
+  /* VOCABULARY renders its own table into the list area: it is not a pile of
      documents but one live view, fed from /pipeline/ops rather than from a file. */
   if (tab.kind === 'table') {
     wikiHideDoc();
     wikiHideXray();
     var vs = document.getElementById('wiki-search');
-    if (vs) { vs.style.display = ''; vs.placeholder = 'Vokabel, Zweck oder Dienst suchen…'; }
+    if (vs) { vs.style.display = ''; vs.placeholder = 'Search op, purpose or service...'; }
     var vc = document.getElementById('wiki-count');
     if (vc) vc.textContent = '';
     await vocabShow();

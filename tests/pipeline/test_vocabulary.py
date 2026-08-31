@@ -155,7 +155,7 @@ def check(op: str, tier: int, steps: list, out_type: str, timeout: int = 900) ->
 
 
 def audit_facts() -> None:
-    """Every wired op must carry what the VOKABULAR table cannot measure.
+    """Every wired op must carry what the VOCABULARY table cannot measure.
 
     Duration, spend and last-use come from the run log. Where an op runs, what
     it is built on, whether money moves and whether it can be undone cannot be

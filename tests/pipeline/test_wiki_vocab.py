@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The VOKABULAR tab: does the vocabulary read as a table a human can act on?
+"""The VOCABULARY tab: does the vocabulary read as a table a human can act on?
 
 The tab answers questions that are asked before an op is used - what does this
 cost, how long does it take, does it leave the house - so the things worth
@@ -51,21 +51,21 @@ def run(page) -> None:
 
     labels = page.eval_on_selector_all(
         ".wiki-tabs *", "els => els.map(e => e.textContent.trim()).filter(Boolean)")
-    record("VOKABULAR" in labels, "the tab sits with the others", f"tabs: {labels}")
+    record("VOCABULARY" in labels, "the tab sits with the others", f"tabs: {labels}")
 
-    page.click("text=VOKABULAR")
+    page.click("text=VOCABULARY")
     page.wait_for_selector("[data-vrow]", timeout=15000)
 
     total = rows(page)
     record(total >= 39, "every op is listed", f"{total} rows")
-    record(count_label(page) == f"{total} von {total}",
+    record(count_label(page) == f"{total} of {total}",
            "the count says how many of how many", count_label(page))
 
     # ALL is the absence of filters, so it is lit when nothing is filtered.
     all_btn = page.query_selector('[data-vf="__all"]')
     record(all_btn is not None and "tool-btn-primary" in (all_btn.get_attribute("class") or ""),
-           "ALLE is lit when nothing is filtered",
-           (all_btn.get_attribute("class") if all_btn else "no ALLE button"))
+           "ALL is lit when nothing is filtered",
+           (all_btn.get_attribute("class") if all_btn else "no ALL button"))
 
     # A filter must visibly reduce - and the count must say so, because a filter
     # left on silently is how someone concludes an op no longer exists.
@@ -84,12 +84,12 @@ def run(page) -> None:
                         "the container serves no cost/effect fields yet — rebuild first"))
     else:
         record(0 < filtered < total, "a filter reduces the list",
-               f"{filtered} of {total} left after 'verlässt das Haus'")
-    record(count_label(page) == f"{filtered} von {total}",
+               f"{filtered} of {total} left after 'leaves the house'")
+    record(count_label(page) == f"{filtered} of {total}",
            "the count follows the filter", count_label(page))
     all_btn = page.query_selector('[data-vf="__all"]')
     record("tool-btn-primary" not in (all_btn.get_attribute("class") or ""),
-           "ALLE goes dark while a filter is on",
+           "ALL goes dark while a filter is on",
            all_btn.get_attribute("class") or "")
 
     # Two filters combine rather than replace each other.
@@ -104,7 +104,7 @@ def run(page) -> None:
     page.click('[data-vf="__all"]')
     page.wait_for_timeout(300)
     record(rows(page) == total and (page.input_value("#wiki-search") or "") == "",
-           "ALLE restores the full view and clears the search",
+           "ALL restores the full view and clears the search",
            f"{rows(page)} rows, search={page.input_value('#wiki-search')!r}")
 
     # Search alone narrows the table.
@@ -119,7 +119,7 @@ def run(page) -> None:
     before = rows(page)
     page.click('[data-vrow="notify"]')
     page.wait_for_timeout(300)
-    detail = page.query_selector("text=Minimalbeispiel")
+    detail = page.query_selector("text=Minimal example")
     record(detail is not None and rows(page) == before,
            "a row opens its detail in place",
            "detail shown" if detail else "no detail block appeared")
@@ -127,8 +127,8 @@ def run(page) -> None:
     # Whatever the backend can offer, the page must SAY which state it is in.
     note = page.eval_on_selector_all(
         "#wiki-list div",
-        "els => els.map(e => e.textContent).filter(t => t.indexOf('Geldbeträge in Euro') !== -1"
-        " || t.indexOf('Statistik-Endpunkt') !== -1)")
+        "els => els.map(e => e.textContent).filter(t => t.indexOf('Amounts in euros') !== -1"
+        " || t.indexOf('stats endpoint') !== -1)")
     record(bool(note), "the page names its own data state",
            (note[0][:90] if note else "neither a rate line nor a missing-stats notice"))
 

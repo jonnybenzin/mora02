@@ -78,7 +78,7 @@ run_suite "truncation - does every cut announce itself"    tests/pipeline/test_t
 
 if [ "$WITH_UI" = "1" ]; then
     run_suite "builder UI - the browser half of the builder" tests/pipeline/test_builder_ui.py
-    run_suite "wiki VOKABULAR - the vocabulary as a table"   tests/pipeline/test_wiki_vocab.py
+    run_suite "wiki VOCABULARY - the vocabulary as a table"   tests/pipeline/test_wiki_vocab.py
 fi
 
 if [ -n "$VOCAB_TIERS" ]; then

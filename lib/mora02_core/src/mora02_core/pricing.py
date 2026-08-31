@@ -57,4 +57,4 @@ def eur_str(usd: float | int | None, *, places: int = 2) -> str:
 
 def rate_note() -> str:
     """One line naming the rate behind every converted figure."""
-    return f"USD→EUR {usd_eur():.5f} (Stand {RATE_DATE})"
+    return f"USD→EUR {usd_eur():.5f} (as of {RATE_DATE})"
