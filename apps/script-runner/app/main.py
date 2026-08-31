@@ -47,6 +47,9 @@ from mora02_core.notify import notify, NotifyError
 from mora02_core.pipeline import run_pipeline, run_pipeline_spec, rerun_pipeline_spec, resume_pipeline, PipelineError, spec as pipeline_spec, vocab as pipeline_vocab, runlog as pipeline_runlog, runbucket as pipeline_runbucket
 from mora02_core.publish import post_to_linkedin, LinkedInError
 
+# The agent layer keeps its endpoints in their own module (see agents.py).
+from agents import router as agents_router
+
 # ============================================================================
 # CONFIG
 # ============================================================================
@@ -86,6 +89,8 @@ app = FastAPI(
     description="API for gifer, clipper, typer scripts",
     version="1.2.0"
 )
+
+app.include_router(agents_router)
 
 app.add_middleware(
     CORSMiddleware,

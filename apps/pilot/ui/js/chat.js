@@ -87,6 +87,13 @@ async function sendChatMessage() {
     return;
   }
 
+  // Intercept agent commands → one turn, answered in the chat itself
+  var agent = matchAgent(text);
+  if (agent) {
+    await askAgent(agent);
+    return;
+  }
+
   showTyping(true);
   isStreaming = true;
   updateSendButton(false);
@@ -371,6 +378,67 @@ function msgActionsHTML() {
 }
 
 /* ── Tool Widgets (inline in chat) ────────────────────────────── */
+
+/* Agents answer IN the chat, so they are not tool widgets: a widget replaces
+   the conversation with a page, an agent adds a turn to it. Kept as its own
+   table for that reason, and read by prefix -- "/researcher what is X" hands
+   everything after the command to the agent. */
+var CHAT_AGENTS = [
+  { match: '/researcher', id: 'researcher', label: 'RESEARCHER' },
+];
+
+var AGENT_API = (typeof LLM_API_BASE !== 'undefined')
+  ? LLM_API_BASE : 'http://mora02.local:8098/sr';
+
+function matchAgent(text) {
+  var t = text.trim();
+  var tl = t.toLowerCase();
+  for (var i = 0; i < CHAT_AGENTS.length; i++) {
+    var a = CHAT_AGENTS[i];
+    if (tl === a.match || tl.indexOf(a.match + ' ') === 0) {
+      return { id: a.id, label: a.label, text: t.slice(a.match.length).trim() };
+    }
+  }
+  return null;
+}
+
+/* One agent turn. The Pilot session id travels along as `conversation`, and
+   the far side derives the OpenClaw session key from it -- so the thread holds
+   across turns without anything being remembered in a process that gets
+   rebuilt on every python change. */
+async function askAgent(agent) {
+  if (!agent.text) {
+    addSystemMessage(agent.label + ': say what you want to ask, e.g. '
+      + '"/researcher what does vocab.py declare about cost?"');
+    return;
+  }
+  showTyping(true);
+  isStreaming = true;
+  updateSendButton(false);
+  try {
+    var resp = await fetch(AGENT_API + '/agent/' + agent.id + '/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: agent.text, conversation: sessionId || 'default' }),
+    });
+    var data = await resp.json();
+    showTyping(false);
+    if (!resp.ok) {
+      // The detail names which half failed -- the gateway, the model, or a
+      // missing agent -- so it is shown rather than swallowed into "error".
+      addSystemMessage(agent.label + ' could not answer: ' + (data.detail || resp.status));
+    } else if (!data.text) {
+      addSystemMessage(agent.label + ' came back empty (run ' + (data.run_id || '?') + ')');
+    } else {
+      addBotMessage(data.text, agent.id);
+    }
+  } catch (err) {
+    showTyping(false);
+    addSystemMessage(agent.label + ' unreachable: ' + err.message);
+  }
+  isStreaming = false;
+  updateSendButton(true);
+}
 
 var TOOL_WIDGETS = [
   { match: '/post',  page: 'post',           label: 'POST EDITOR',  init: 'initPost' },
