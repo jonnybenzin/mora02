@@ -28,7 +28,9 @@ REQUESTS_DIR="$SWITCH_DIR/requests"
 RESPONSES_DIR="$SWITCH_DIR/responses"
 CURRENT_STATE_FILE="$SWITCH_DIR/current.json"
 COMPOSE_DIR=/opt/mora02/docker
-MAX_HEALTH_WAIT=240          # seconds to wait for healthcheck after start
+MAX_HEALTH_WAIT=600          # seconds to wait for healthcheck after start
+                             # 240 was tuned for 5-8 GB models; a cold 12-13 GB
+                             # model needs longer on first load (page cache empty)
                              # (cold-load of a 24B gguf from disk can take >2min)
 VRAM_SAFETY_MARGIN_MB=1500   # leave this much headroom
 
@@ -37,10 +39,8 @@ VRAM_SAFETY_MARGIN_MB=1500   # leave this much headroom
 declare -A VALID_PROFILES=(
   [qwen3-14b]=1
   [qwen3-8b]=1
-  [qwen25-7b]=1
-  [qwen25-coder]=1
-  [nous-hermes]=1
-  [magistral]=1
+  [qwen36-27b]=1
+  [glimmer-30b]=1
 )
 
 # --- VRAM requirements per profile (MiB) -----------------------------------
@@ -52,10 +52,8 @@ declare -A VALID_PROFILES=(
 declare -A VRAM_REQUIRED_MB=(
   [qwen3-14b]=15000
   [qwen3-8b]=9500
-  [qwen25-7b]=9000
-  [qwen25-coder]=15000
-  [nous-hermes]=9000
-  [magistral]=20000
+  [qwen36-27b]=17000
+  [glimmer-30b]=17000
 )
 
 # --- Helpers ----------------------------------------------------------------

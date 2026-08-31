@@ -62,6 +62,73 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+  
+  ####
+  llama-qwen36-27b:
+    profiles: ["qwen36-27b"]
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: llama-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /opt/mora02/ai-models/llama-cpp:/models
+    environment:
+      - LLAMA_ARG_MODEL=/models/Qwen3.6-27B-UD-IQ3_XXS.gguf
+      - LLAMA_ARG_CTX_SIZE=32768
+      - LLAMA_ARG_N_GPU_LAYERS=-1
+      - LLAMA_ARG_HOST=0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - mora02-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  llama-glimmer-30b:
+    profiles: ["glimmer-30b"]
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: llama-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /opt/mora02/ai-models/llama-cpp:/models
+    environment:
+      - LLAMA_ARG_MODEL=/models/Muse-Glimmer-30B-UD-Q3_K_XL.gguf
+      - LLAMA_ARG_CTX_SIZE=65536
+      - LLAMA_ARG_N_GPU_LAYERS=-1
+      - LLAMA_ARG_HOST=0.0.0.0
+      # Meta's recommended sampling for this model. llama.cpp's own default is
+      # temp 0.8, which is what the running server reported -- so openclaw does
+      # not send one and these server-side defaults should actually take hold.
+      # Verify after loading: curl -s localhost:8080/slots | grep temperature
+      #- LLAMA_ARG_TEMP=1.0
+      #- LLAMA_ARG_TOP_P=0.95
+      #- LLAMA_ARG_TOP_K=64
+    command: ["--temp", "1.0", "--top-p", "0.95", "--top-k", "64", "--reasoning-preserve"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]    
+    networks:
+      - mora02-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Qwen2.5-7B-Instruct
   llama-qwen25-7b:
@@ -1008,6 +1075,9 @@ services:
       # Relocate config + state into the mounted volume (Option A: container-owned)
       - OPENCLAW_CONFIG_PATH=/data/openclaw/openclaw.json
       - OPENCLAW_STATE_DIR=/data/openclaw
+      # Cloud reference line for the tool-calling bench (ADR-004: the 20%).
+      # Referenced, never written into openclaw.json in the volume.
+      - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
       - TZ=Europe/Berlin
     volumes:
       - /opt/mora02/volumes/openclaw:/data/openclaw

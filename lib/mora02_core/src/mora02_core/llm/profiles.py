@@ -35,34 +35,22 @@ PROFILES: dict[str, ProfileMeta] = {
         "vram": "~9 GB",
         "description": "Faster, lower VRAM",
     },
-    "qwen25-7b": {
-        "label": "Qwen2.5 7B",
-        "category": "Fast",
-        "model": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
-        "vram": "~8 GB",
-        "description": "Instruction-tuned",
+
+    "qwen36-27b": {
+        "label": "Qwen3.6 27B",
+        "category": "Agentic",
+        "model": "Qwen3.6-27B-UD-IQ3_XXS.gguf",
+        "vram": "~16 GB",
+        "description": "Agentic-trained 27B, 3-bit (candidate)",
     },
-    "qwen25-coder": {
-        "label": "Qwen2.5 Coder",
-        "category": "Code",
-        "model": "qwen2.5-coder-14b-instruct-q4_k_m.gguf",
-        "vram": "~15.5 GB",
-        "description": "Code-specialized 14B",
+    "glimmer-30b": {
+        "label": "Muse Glimmer 30B",
+        "category": "Agentic",
+        "model": "Muse-Glimmer-30B-UD-Q3_K_XL.gguf",
+        "vram": "~16 GB",
+        "description": "Meta agent-loop model, 3-bit (candidate)",
     },
-    "nous-hermes": {
-        "label": "Nous-Hermes",
-        "category": "Balanced",
-        "model": "nous-hermes-2-mistral-7b-q4_k_m.gguf",
-        "vram": "~8 GB",
-        "description": "Chat-tuned Mistral 7B",
-    },
-    "magistral": {
-        "label": "Magistral",
-        "category": "Reasoning",
-        "model": "Magistral-Small-2506-Q4_K_M.gguf",
-        "vram": "~25 GB",
-        "description": "Long-chain reasoning 24B",
-    },
+
 }
 
 

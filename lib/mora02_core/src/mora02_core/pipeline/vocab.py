@@ -124,8 +124,11 @@ _IMAGE_FLOWS = (
 # maintained duplication the host-side switcher whitelist already carries. The
 # handler additionally validates the profile against the live catalog at runtime.
 _LLM_PROFILES = (
-    "qwen3-14b", "qwen3-8b", "qwen25-7b", "qwen25-coder", "nous-hermes", "magistral",
+    "qwen3-14b", "qwen3-8b", "qwen36-27b", "glimmer-30b",
 )
+# Four profiles retired 2026-08-31 after the tool-calling bench measured them:
+# see _archive/2608311230_llm-profile-retirement. The weights are still on disk;
+# only the wiring is gone, so a rollback is three files and a compose block.
 
 # PixelText .blend templates for pixeltext.render (empty = worker procedural
 # default). A curated subset of apps/blender-worker/templates/*.blend — only the
