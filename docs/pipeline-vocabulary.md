@@ -18,6 +18,7 @@ The step *ops* a mora02 pipeline is built from, grouped by kind. Each op has a p
 | Op | What it does | Status |
 |----|--------------|--------|
 | [`source.file`](#sourcefile) | Grabs a file that already exists (e.g. the latest image ComfyUI made) and hands it to the next step. | 🟢 |
+| [`source.find`](#sourcefind) | Fetches exactly the file you asked for - the product photo for SKU 4711 - instead of whatever happened to be made last. | 🟢 |
 
 ### Image generation
 
@@ -141,6 +142,30 @@ Grabs a file that already exists (e.g. the latest image ComfyUI made) and hands 
 | `store` | string | no | `comfyui` | logical store to read from |
 | `name` | string | no |  | exact filename; omit to auto-pick from the store |
 | `pick` | enum | no | `latest` | which file to pick when 'name' is omitted (by mtime) (one of: latest, oldest) |
+
+#### `source.find` 🟢
+
+Fetches exactly the file you asked for - the product photo for SKU 4711 - instead of whatever happened to be made last.
+
+*Technical:* Pick a named file out of a store by path or pattern, never by date.
+
+- **Default step id:** `source`  
+- **Consumes (stdin):** none (any)  
+- **Emits (stdout):** any
+- **Runs on:** local-cpu — the asset stores  
+- **Money:** free
+
+**Worth knowing:**
+- pick=one is the default and refuses an ambiguous match: it lists the candidates instead of choosing one for you.
+- Sorting for first/last is alphabetical by path, not by modification date - that is the whole difference to source.file.
+- A store has no customer border. asset://library/kunde-b/... is a valid ref for anyone who can reach the store.
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `store` | string | no | `library` | logical store to look in |
+| `path` | string | no |  | exact path inside the store, e.g. kunde-a/produktfotos/4711.png |
+| `match` | string | no |  | glob instead of an exact path, e.g. kunde-a/produktfotos/*.png |
+| `pick` | enum | no | `one` | what to do when the pattern matches more than one file (one of: one, first, last, all) |
 
 ### Image generation
 
@@ -641,7 +666,7 @@ Swaps which local AI model is running (a bigger or smaller brain), then continue
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `profile` | enum | yes |  | target llama.cpp profile to load (one of: qwen3-14b, qwen3-8b, qwen25-7b, qwen25-coder, nous-hermes, magistral) |
+| `profile` | enum | yes |  | target llama.cpp profile to load (one of: qwen3-14b, qwen3-8b, qwen36-27b, glimmer-30b) |
 
 ### Cloud LLM
 

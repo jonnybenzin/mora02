@@ -1555,6 +1555,109 @@ async def _step_source_file(inputs: List[str], params: dict) -> dict:
     return {"ok": True, "op": "source.file", "out": ref, "type": "image"}
 
 
+async def _step_source_find(inputs: List[str], params: dict) -> dict:
+    """source.find — pick a named file out of a store, by path or pattern.
+
+    The counterpart to source.file, which picks by modification date: that
+    answers "the newest thing ComfyUI made" and cannot answer "the product
+    photo for SKU 4711". This one names what it wants.
+
+    Params: store (default "library"), and exactly one of path (an exact path
+    inside the store) or match (a glob). pick decides what happens when a glob
+    matches several files:
+
+      one    (default) refuse, and list the candidates
+      first  alphabetically first by path
+      last   alphabetically last
+      all    every match, one ref per line
+
+    Sorting is by path, never by mtime — a lookup that silently changes its
+    answer when a file is touched is the thing this op exists to replace.
+    """
+    store = params.get("store", "library")
+    root = asset_refs.store_root(store)
+    if not root.is_dir():
+        raise ValueError(f"store {store!r} is not mounted here ({root})")
+
+    path, match = params.get("path"), params.get("match")
+    if bool(path) == bool(match):
+        raise ValueError("source.find needs exactly one of ?path= or ?match=")
+
+    # A pattern that walks upwards is refused by name rather than by outcome.
+    # pathlib.glob simply finds nothing for "../../x", so without this the
+    # caller would be told "nothing matches" — true, but it reads as "the
+    # pattern was fine and the store is empty of it", which is a different
+    # sentence from "you may not look there".
+    if match and (".." in Path(match).parts or match.startswith("/")):
+        raise ValueError(
+            f"{match!r} points outside store {store!r} — a pattern stays inside "
+            f"its store root"
+        )
+
+    # Containment is checked here rather than left to ref_for_path, which
+    # falls back to the bare filename for a path outside the root instead of
+    # refusing — safe, but silent, and silence is what we are avoiding.
+    def _inside(candidate: Path) -> Path:
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(root.resolve())
+        except ValueError:
+            raise ValueError(
+                f"{str(candidate)!r} leaves store {store!r} — a lookup may not "
+                f"reach outside its store root"
+            )
+        return resolved
+
+    if path:
+        target = _inside(root / path)
+        if not target.is_file():
+            raise ValueError(f"{path!r} not found in store {store!r} ({root})")
+        found = [target]
+    else:
+        found = sorted(
+            _inside(p) for p in root.glob(match) if p.is_file()
+        )
+
+    if not found:
+        # Say what was looked for and where, and how much is there at all: an
+        # empty result with no context sends the reader hunting for a typo in
+        # the wrong half of the problem.
+        total = sum(1 for p in root.rglob("*") if p.is_file())
+        raise ValueError(
+            f"nothing matches {match!r} in store {store!r} ({root}); "
+            f"the store holds {total} files"
+        )
+
+    pick = params.get("pick", "one")
+    if pick == "one" and len(found) > 1:
+        shown = ", ".join(str(p.relative_to(root)) for p in found[:8])
+        more = f" (+{len(found) - 8} more)" if len(found) > 8 else ""
+        raise ValueError(
+            f"{match!r} matches {len(found)} files in store {store!r}: {shown}{more}. "
+            f"Narrow the pattern, or say pick=first|last|all."
+        )
+
+    chosen = found if pick == "all" else [found[-1] if pick == "last" else found[0]]
+    refs = [asset_refs.ref_for_path(p, store) for p in chosen]
+    kind = _step_kind_for_suffix(chosen[0].suffix) if len(chosen) == 1 else "any"
+    return {
+        "ok": True, "op": "source.find", "out": "\n".join(refs), "type": kind,
+        "log": {"store": store, "matched": len(found), "picked": len(chosen)},
+    }
+
+
+def _step_kind_for_suffix(suffix: str) -> str:
+    """Name the wire type of a file, so the next step knows what it got."""
+    s = suffix.lower()
+    if s in _STEP_IMAGE_EXTS:
+        return "image"
+    if s in {".mp4", ".mov", ".webm", ".gif", ".mkv"}:
+        return "video"
+    if s in {".mp3", ".wav", ".flac", ".m4a", ".ogg"}:
+        return "audio"
+    return "any"
+
+
 async def _step_llm_image_prompt(inputs: List[str], params: dict) -> dict:
     """llm.image_prompt — subject -> one rich image-prompt TEXT value (local qwen).
 
@@ -2721,6 +2824,7 @@ _PIPELINE_STEPS = {
     "image.erase": _step_image_erase,
     "image.facefix": _step_image_facefix,
     "source.file": _step_source_file,
+    "source.find": _step_source_find,
     "llm.image_prompt": _step_llm_image_prompt,
     "llm.complete": _step_llm_complete,
     "llm.summarize": _step_llm_summarize,

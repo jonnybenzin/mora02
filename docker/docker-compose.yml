@@ -785,6 +785,7 @@ services:
       - /opt/mora02/output/_default/tts:/usr/share/nginx/html/tool-assets/tts:ro
       - /opt/mora02/output/_default/music:/usr/share/nginx/html/tool-assets/music:ro
       - /opt/mora02/output/_default/uploads:/usr/share/nginx/html/tool-assets/uploads:ro
+      - /opt/mora02-material/library:/usr/share/nginx/html/library-assets:ro
     networks:
       - mora02-net
 
@@ -841,6 +842,8 @@ services:
       - /opt/mora02/output/_default/pixeltext:/pixeltext-out:ro
       # image upload
       - /opt/mora02/output/_default/uploads:/uploads:ro
+      # library
+      - /opt/mora02-material/library:/library:ro
 
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}
@@ -854,6 +857,8 @@ services:
       - MORA02_LINKEDIN_TOKEN=${MORA02_LINKEDIN_TOKEN}
       - MORA02_LINKEDIN_AUTHOR=${MORA02_LINKEDIN_AUTHOR}
       - MORA02_SIGNAL_TARGET=${MORA02_SIGNAL_TARGET}
+      - MORA02_ASSET_STORE_LIBRARY=/library
+      - MORA02_ASSET_URLPATH_LIBRARY=/library-assets
       
     networks:
       - mora02-net

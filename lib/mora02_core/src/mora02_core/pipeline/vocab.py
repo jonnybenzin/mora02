@@ -1119,6 +1119,28 @@ _OPS: tuple[Op, ...] = (
         input_type="image",
         output_type="image",
     ),
+    Op(
+        name="source.find",
+        summary="Pick a named file out of a store by path or pattern, never by date.",
+        plain="Fetches exactly the file you asked for - the product photo for SKU 4711 - instead of whatever happened to be made last.",
+        bucket="source",
+        runs_on="local-cpu",
+        service="the asset stores",
+        caveats=(
+            "pick=one is the default and refuses an ambiguous match: it lists the candidates instead of choosing one for you.",
+            "Sorting for first/last is alphabetical by path, not by modification date - that is the whole difference to source.file.",
+            "A store has no customer border. asset://library/kunde-b/... is a valid ref for anyone who can reach the store.",
+        ),
+        status="wired",
+        params=(
+            Param("store", default="library", desc="logical store to look in"),
+            Param("path", desc="exact path inside the store, e.g. kunde-a/produktfotos/4711.png"),
+            Param("match", desc="glob instead of an exact path, e.g. kunde-a/produktfotos/*.png"),
+            Param("pick", type="enum", default="one", choices=("one", "first", "last", "all",), desc="what to do when the pattern matches more than one file"),
+        ),
+        consumes="none",
+        output_type="any",
+    ),
     # <<< add-vocab: scripts/add-vocab.py inserts new Op() entries above this line >>>
 )
 

@@ -64,6 +64,13 @@ docker/ComfyUI/output/
 docker/ComfyUI/input/
 docker/ComfyUI/models/
 nginx-images/
+# ...except the routing table itself. That folder once held served images; today
+# it holds only nginx.conf, which says WHICH asset store is served under which
+# path. Without it a fresh clone mounts directories into nginx that nothing
+# serves, and a library file can be read but never fed back into ComfyUI.
+!docker/nginx-images/
+docker/nginx-images/*
+!docker/nginx-images/nginx.conf
 
 # Grosse Modell-Dateien
 *.ckpt
