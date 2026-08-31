@@ -125,3 +125,7 @@ apps/matrix-tool-v2/
 # work they describe while belonging to a different history. Do not un-ignore:
 # a plan that lands in the public repo is a plan published by accident.
 notizen/
+
+# Tool-calling bench output: measurements of this machine at this moment.
+# The runner is public, its results are not (MORA02_BENCH_OUT overrides).
+bench-results/
