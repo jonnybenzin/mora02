@@ -75,7 +75,7 @@ services:
       - /opt/mora02/ai-models/llama-cpp:/models
     environment:
       - LLAMA_ARG_MODEL=/models/Qwen3.6-27B-UD-IQ3_XXS.gguf
-      - LLAMA_ARG_CTX_SIZE=32768
+      - LLAMA_ARG_CTX_SIZE=65536
       - LLAMA_ARG_N_GPU_LAYERS=-1
       - LLAMA_ARG_HOST=0.0.0.0
     deploy:

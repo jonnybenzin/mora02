@@ -47,6 +47,7 @@ from mora02_core.media import MediaError, create_clip, create_gif, create_text_f
 from mora02_core.notify import notify, NotifyError
 from mora02_core.pipeline import run_pipeline, run_pipeline_spec, rerun_pipeline_spec, resume_pipeline, PipelineError, spec as pipeline_spec, vocab as pipeline_vocab, runlog as pipeline_runlog, runbucket as pipeline_runbucket
 from mora02_core.publish import post_to_linkedin, LinkedInError
+from mora02_core import web
 
 # The agent layer keeps its endpoints in their own module (see agents.py).
 from agents import router as agents_router
@@ -2558,11 +2559,10 @@ async def _step_db_list_fields(inputs: List[str], params: dict) -> dict:
             "out": json.dumps(fields, ensure_ascii=False)}
 
 
-# Web + stock ops (Welle 6).
-_SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://searxng:8080")
-_RE_SCRIPT = _re.compile(r"<(script|style)[^>]*>.*?</\1>", _re.DOTALL | _re.IGNORECASE)
-_RE_TAG = _re.compile(r"<[^>]+>")
-_RE_WS = _re.compile(r"\s+")
+# Web + stock ops (Welle 6). The searching and reading themselves live in
+# mora02_core.web -- the agent layer's MCP surface needs the same two calls, and
+# that module is imported BY this one, so it cannot import back. Logic once
+# (ADR-011); what stays here is the step contract around it.
 
 
 async def _step_web_search(inputs: List[str], params: dict) -> dict:
@@ -2570,21 +2570,13 @@ async def _step_web_search(inputs: List[str], params: dict) -> dict:
     query = params.get("query") or "\n".join(inputs).strip()
     if not query:
         raise ValueError("web.search needs a query (?query= or on stdin)")
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        resp = await client.get(
-            f"{_SEARXNG_URL}/search",
-            params={"q": query, "format": "json",
-                    "categories": params.get("categories", "general")},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    results = [
-        {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")}
-        for r in data.get("results", [])[:8]
-    ]
+    try:
+        found = await web.search(query, categories=params.get("categories", "general"))
+    except web.WebError as e:
+        raise ValueError(str(e)) from e
     return {"ok": True, "op": "web.search", "type": "text",
-            "out": json.dumps({"query": query, "results": results}, ensure_ascii=False),
-            "log": {"results": len(results)}}
+            "out": json.dumps(found, ensure_ascii=False),
+            "log": {"results": len(found["results"])}}
 
 
 async def _step_web_fetch(inputs: List[str], params: dict) -> dict:
@@ -2592,23 +2584,14 @@ async def _step_web_fetch(inputs: List[str], params: dict) -> dict:
     url = params.get("url") or "\n".join(inputs).strip()
     if not url:
         raise ValueError("web.fetch needs a url (?url= or on stdin)")
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (mora02 pipeline)"})
-        resp.raise_for_status()
-        body = resp.text
-    text = _RE_WS.sub(" ", _RE_TAG.sub(" ", _RE_SCRIPT.sub(" ", body))).strip()
-    # A ceiling here is real - a long page would blow past any context window -
-    # but it is announced and adjustable, never silent: ?max_chars= raises it,
-    # and a cut page reports how long it actually was, so a summary of half a
-    # document cannot look like a summary of the whole.
-    max_chars = int(params.get("max_chars") or 20000)
-    log = {"chars": len(text), "url": url}
-    if len(text) > max_chars:
-        log.update(truncated=True, source_chars=len(text), max_chars=max_chars,
-                   hint=f"Seite auf {max_chars} von {len(text)} Zeichen gekürzt "
-                        f"— ?max_chars= erhöhen, um mehr zu holen.")
-        text = text[:max_chars]
-    return {"ok": True, "op": "web.fetch", "type": "text", "out": text, "log": log}
+    try:
+        page = await web.fetch(url, max_chars=int(params.get("max_chars") or 20000))
+    except web.WebError as e:
+        raise ValueError(str(e)) from e
+    # The step's log keeps the shape the run log and the Runs view already read,
+    # truncation flag and hint included.
+    text = page.pop("text")
+    return {"ok": True, "op": "web.fetch", "type": "text", "out": text, "log": page}
 
 
 async def _stock_search(source: str, query: str, count: int, orientation: str) -> list:

@@ -545,6 +545,65 @@ async function askAgent(agent) {
       addSystemMessage(agent.label + ' came back empty (run ' + (data.run_id || '?') + ')');
     } else {
       addBotMessage(data.text, agent.id);
+      // A cut-off answer that looks like a whole one is the failure this layer
+      // spends most of its rules on. Say it, right under the fragment.
+      // What the turn actually did. Shown because an answer's shape says
+      // nothing about whether it was researched or remembered -- and a turn
+      // with zero tool calls on a question that needed them is the one thing
+      // you cannot see by reading the answer.
+      if (typeof data.tool_calls === 'number') {
+        var used = (data.tools_used || []).join(', ') || 'keine';
+        addSystemMessage('· ' + data.tool_calls + ' Werkzeugaufruf(e): ' + used
+          + (data.tool_failures ? ' — ' + data.tool_failures + ' gescheitert' : '')
+          + (data.duration_ms ? ' · ' + Math.round(data.duration_ms / 1000) + 's' : ''));
+      }
+      // The addresses the tools really produced. A citation in the answer that
+      // is not listed here was not read -- checkable at a glance, which is the
+      // only defence against a fabricated footnote that a rule cannot give.
+      var src = data.sources;
+      if (src && (src.read_count || src.found_count)) {
+        var line = '· gelesen: ' + src.read_count + ' Seite(n)';
+        if (src.read && src.read.length) line += ' — ' + src.read.join('  ');
+        if (src.found_count) line += '  · ' + src.found_count + ' Treffer gesehen';
+        if (src.failed && src.failed.length) line += '  · ' + src.failed.length + ' nicht erreichbar';
+        addSystemMessage(line);
+      }
+      // Notes taken while reading. Shown next to the answer because the point
+      // is the comparison: a restriction that is in the notes and missing from
+      // the answer is exactly the failure this stage was built for.
+      if (data.sources && data.sources.read_count) {
+        var notes = data.notes || [];
+        if (!notes.length) {
+          addSystemMessage('⚠ ' + data.sources.read_count
+            + ' Seite(n) gelesen, aber nichts notiert — Einschränkungen gehen so verloren.');
+        } else {
+          var lim = notes.filter(function (n) { return n.restriction; });
+          var line = '· ' + notes.length + ' Notiz(en), ' + lim.length + ' mit Einschränkung'
+            + (data.notes_reviewed ? ' · vor dem Schreiben nochmal gelesen'
+                                   : ' · ⚠ NICHT nochmal gelesen');
+          for (var i = 0; i < lim.length && i < 6; i++) {
+            line += '\n   ⚑ ' + lim[i].restriction + '  (' + (lim[i].claim || '').slice(0, 70) + ')';
+          }
+          addSystemMessage(line);
+        }
+      }
+      // How close this turn came to the wall. Worth showing permanently: the
+      // gateway budgeted against a window four times larger than the server
+      // really had, reported "fits", and produced no answer at all.
+      if (data.cost_eur_last_call) {
+        addSystemMessage('· letzter Modellaufruf: ' + (data.usage_in || 0) + ' rein / '
+          + (data.usage_out || 0) + ' raus · ~' + data.cost_eur_last_call.toFixed(3)
+          + ' € — nur dieser eine Aufruf, nicht der ganze Zug');
+      }
+      if (data.ctx_budget) {
+        var k = function (n) { return Math.round((n || 0) / 100) / 10 + 'k'; };
+        addSystemMessage('· Kontext: ' + k(data.ctx_prompt) + ' von ' + k(data.ctx_budget)
+          + (data.ctx_route && data.ctx_route !== 'fits' ? '  ⚠ ' + data.ctx_route : ''));
+      }
+      if (data.complete === false) {
+        addSystemMessage('⚠ Antwort abgeschnitten (' + (data.stop_reason || 'Grund unbekannt')
+          + '). Frag nach dem Rest — der Gesprächsfaden hält.');
+      }
     }
   } catch (err) {
     showTyping(false);

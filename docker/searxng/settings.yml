@@ -343,7 +343,6 @@ engines:
     engine: 360search
     shortcut: 360so
     timeout: 10.0
-    disabled: true
 
   - name: 360search videos
     engine: 360search_videos
@@ -526,7 +525,7 @@ engines:
     engine: wikipedia
     shortcut: wp
     # add "list" to the array to get results in the results list
-    display_type: ["infobox"]
+    display_type: ["infobox", "list"]
     categories: [general]
 
   - name: bilibili
@@ -537,7 +536,6 @@ engines:
   - name: bing
     engine: bing
     shortcut: bi
-    disabled: true
 
   - name: bing images
     engine: bing_images
@@ -813,6 +811,7 @@ engines:
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
+    disabled: true
 
   - name: duckduckgo images
     engine: duckduckgo_extra
@@ -1102,7 +1101,6 @@ engines:
   - name: hackernews
     engine: hackernews
     shortcut: hn
-    disabled: true
 
   - name: hex
     engine: hex
@@ -1313,7 +1311,6 @@ engines:
     # To get an API key, please follow the instructions at
     # - https://about.marginalia-search.com/article/api/
     # api_key: ''
-    disabled: true
     inactive: true
 
   - name: mastodon users
@@ -1993,6 +1990,7 @@ engines:
     categories: [general, web]
     additional_tests:
       rosebud: *test_rosebud
+    disabled: true
 
   - name: startpage news
     engine: startpage
@@ -2374,7 +2372,6 @@ engines:
   - name: seznam
     shortcut: szn
     engine: seznam
-    disabled: true
 
   - name: deepl
     engine: deepl
@@ -2389,7 +2386,6 @@ engines:
     shortcut: mjk
     engine: mojeek
     categories: [general, web]
-    disabled: true
 
   - name: mojeek images
     shortcut: mjkimg
@@ -2633,6 +2629,7 @@ engines:
     categories: [general, web]
     brave_category: search
     # brave_spellcheck: true
+    disabled: true
 
   - name: brave.images
     engine: brave

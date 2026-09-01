@@ -1,0 +1,88 @@
+{
+  "label": "Recherche",
+  "icon": "🔦",
+  "colour": "#a3e635",
+  "description": "Sucht breit, liest nach, bewertet — und sagt, worauf er sich stützt.",
+  "opening": "Ich habe eine Frage zu recherchieren.",
+  "active": true,
+  "sort_order": 30,
+  "model": "anthropic/claude-sonnet-4-6",
+  "timeout": 1500,
+  "limits": {
+    "page_chars": 4000,
+    "max_urls": 8,
+    "max_queries": 8,
+    "snippet_chars": 300,
+    "results_per_query": 8,
+    "max_pages_total": 24,
+    "max_searches_total": 8
+  },
+  "_why_limits": [
+    "Sized for a 1M window, not for the 32k the local profile has.",
+    "",
+    "Measured side by side, same question, same model: Claude's own harness",
+    "answered with Sonnet in under a minute and two search operations. This",
+    "agent, with Sonnet, took 28 tool calls and eight minutes and never",
+    "finished — because the defaults, cut for 32k, forced five read calls to",
+    "see what one could have carried. A narrow payload does not save time,",
+    "it multiplies round trips.",
+    "",
+    "Lower these again if this agent is ever pointed back at a local model.",
+    "",
+    "page_chars lowered from 10000 to 4000 after measuring where a five-minute turn actually goes: reading eight pages costs 1.6 seconds, searching eight queries costs 20, and the model costs the remaining four minutes. Page text is resent with every later call of the same turn, so it is paid for once in latency and many times in tokens. The notes are what makes the shorter excerpt affordable — twenty of them, each with its restriction, now survive the turn where the raw pages no longer have to."
+  ],
+  "skills": [
+    "recherche"
+  ],
+  "tools": {
+    "allow": [
+      "read",
+      "mora02__web_search",
+      "mora02__web_read",
+      "mora02__note",
+      "mora02__notes_review"
+    ]
+  },
+  "_why_tools": [
+    "Reading only, and deliberately so. No flow_run: this agent does not steer",
+    "the factory, it gathers. That is not tidiness — it is what decides which",
+    "models it may ever use. A steering agent stays local because it knows the",
+    "whole operation; a reading one hands out a question and takes back pages,",
+    "so a cloud model is defensible for it later (ADR-004). Giving it a pipeline",
+    "tool would quietly move it across that line.",
+    "",
+    "`read` is for the workspace: its own method and, later, a briefing handed",
+    "to it as a file."
+  ],
+  "_why_model": [
+    "Cloud, and this is the one agent where that is allowed: reading only, no",
+    "pipeline tools, so it steers nothing (ADR-004 and the standing rule that the",
+    "control plane stays local). The tool list above is what makes it permissible.",
+    "",
+    "Why it was switched: context was the binding constraint. The local profile ran",
+    "at 65,536 with 20,000 reserved for the reply, so a three-turn research",
+    "conversation reached 44.7k and stood at the wall; raw page text accumulates in",
+    "the history and never leaves. This model carries 1,024k — the same three turns",
+    "use four per cent of it.",
+    "",
+    "Queries and page contents leave the house. Fine for a coffee machine, not for",
+    "a client. That judgement belongs to whoever asks, and it is the reason this",
+    "line is a data field rather than a fixed default.",
+    "",
+    "Set for an experiment: the same question that three local runs answered three",
+    "different ways. Same skill, same tools, same payload limits — so a difference",
+    "measures the HARNESS, not the model. Loosening the payloads comes after, as a",
+    "separate question."
+  ],
+  "_why_timeout": [
+    "25 minutes, and that is not padding. Measured: on the local model a research",
+    "turn took three to four minutes with five to twelve tool calls. The same",
+    "agent on Sonnet made 28 calls and read 15 pages in a single turn -- a 1M",
+    "window removes every reason to hold back -- and ran into the 480s ceiling set",
+    "for the local profile, returning nothing after eight minutes of real work.",
+    "",
+    "A ceiling sized for one model silently truncates another. That is a property",
+    "of this agent and its model, which is why it lives here rather than in an",
+    "environment variable everyone shares."
+  ]
+}

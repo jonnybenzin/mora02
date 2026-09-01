@@ -130,14 +130,62 @@ async def ask(
     payloads = result.get("payloads") or [{}]
     meta = result.get("meta") or {}
     agent_meta = meta.get("agentMeta") or {}
+    # Why the turn ended. "stop" means it finished; anything else -- a length
+    # cap, an abort -- means the answer you are holding is a fragment. Passing
+    # only the text on makes a cut-off answer indistinguishable from a complete
+    # one, which is the failure every house rule in this layer is written
+    # against; it would be absurd to commit it in the transport.
+    stop = meta.get("stopReason") or (meta.get("completion") or {}).get("stopReason")
+
+    # What the turn actually DID, not what it said it did. An answer built from
+    # three searches and eight pages and one built from a single search look
+    # alike in prose; here they do not. This is the difference between asking
+    # "why was that answer thin" and guessing at it -- and it is the only way to
+    # tell a model that will not iterate from a method that never told it to.
+    # An absent summary means no tool ran -- openclaw only reports the block
+    # when there was something to report. Defaulting to 0 rather than None is
+    # deliberate: "zero tool calls on a question that needed them" is the single
+    # most useful thing this field can say, and leaving it null hides exactly
+    # that case while showing all the harmless ones.
+    # What the gateway thinks its context budget is, and how close this turn
+    # came. Surfaced because that number was wrong by a factor of four --
+    # contextWindow 128000 on a server running 32768 -- and nothing showed it:
+    # the gateway reported "fits" while a turn overran and returned no answer.
+    # A budget you cannot see is a budget nobody checks.
+    budget = agent_meta.get("contextBudgetStatus") or {}
+
+    # What the turn consumed. Zero on a local profile, real on a cloud one --
+    # and worth carrying because a research turn makes many model calls, each
+    # resending a growing history, so the bill is not obvious from the answer.
+    # NOTE: openclaw reports the LAST call, not the sum over the turn. It is a
+    # floor on the cost, never the whole of it, and it is labelled as such
+    # rather than quietly presented as a total.
+    usage = agent_meta.get("lastCallUsage") or {}
+
+    summary = meta.get("toolSummary") or {}
+    tools = summary.get("tools") or []
+    calls = summary.get("calls", 0)
     return {
         "text": payloads[0].get("text") or "",
+        "stop_reason": stop,
+        "complete": stop in (None, "stop", "end_turn"),
         "agent": agent,
         "session_key": key,
         "session_id": agent_meta.get("sessionId"),
         "run_id": data.get("runId"),
         "status": data.get("status"),
         "duration_ms": meta.get("durationMs"),
+        "ctx_budget": budget.get("contextTokenBudget"),
+        "ctx_prompt": budget.get("estimatedPromptTokens"),
+        "ctx_left": budget.get("remainingPromptBudgetTokens"),
+        "ctx_route": budget.get("route"),
+        "usage_in": usage.get("input"),
+        "usage_out": usage.get("output"),
+        "usage_cache_read": usage.get("cacheRead"),
+        "usage_note": "last model call of the turn, not the sum",
+        "tool_calls": calls,
+        "tools_used": tools,
+        "tool_failures": summary.get("failures", 0),
         # Which weights actually answered is NOT this field: the provider name
         # points at a port, and a local profile swap leaves it unchanged.
         "provider": agent_meta.get("provider"),

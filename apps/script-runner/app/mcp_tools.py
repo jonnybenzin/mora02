@@ -1,4 +1,4 @@
-"""The three verbs an agent may use on the pipeline layer, spoken as MCP.
+"""The verbs an agent may use, spoken as MCP.
 
 Increment 2 of the agent layer gives the agent hands. This is the hand, and
 what it CANNOT hold is the point of it.
@@ -11,7 +11,13 @@ for five different tools to force a gate, and a shell was the commonest. MCP is
 the only path that adds exactly one capability and nothing else.
 
 So this server offers ``flows_list``, ``flow_run`` and ``run_status`` -- and no
-resume, no approve, no cancel. Pillar 6 of the plan ("the agent does not release
+resume, no approve, no cancel.
+
+Two more were added for the research agent: ``web_search`` and ``web_read``,
+both against the LOCAL metasearch engine and the open web via
+``mora02_core.web``. They are granted separately, so an agent can read the web
+without touching pipelines and vice versa -- the line that lets a
+reading-only agent later run on a cloud model while a steering one may not. Pillar 6 of the plan ("the agent does not release
 a gate") stops being a request to the model and becomes a property of its tool
 surface. ``flow_run`` therefore also DROPS the ``resume_token`` that
 ``/pipeline/run-spec`` hands back: whoever holds that token can open the gate,
@@ -59,13 +65,17 @@ posture of this service, not a decision taken here.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import time
+from collections import deque
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Request, Response
 
+from mora02_core import web
 from mora02_core._common import get_logger
 from mora02_core.pipeline import (
     PipelineError,
@@ -81,6 +91,148 @@ router = APIRouter(tags=["mcp"])
 # agent picks from exactly the library a human sees in the Pilot.
 _SPECS_DIR = os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/data/pipelines/specs")
 _PILOT_URL = os.environ.get("PILOT_URL", "http://pilot:8098")
+
+# What the tools may put into the model's context, and it is a hard budget.
+#
+# MEASURED: llama-server runs at LLAMA_ARG_CTX_SIZE=32768 while OpenClaw's model
+# entry claims contextWindow 128000. The gateway therefore budgets against four
+# times the room that exists, never trims, and a turn that read five pages
+# simply produced no answer -- ~27k tokens of input against a 32k ceiling, with
+# the reply still to come. Same trap as the provider name that always says
+# qwen3-14b: the number on the card is not the number in the machine.
+#
+# So the payloads are sized for 32k, not for the advertised 128k. The notes are
+# what makes that affordable -- meaning is carried forward in a few hundred
+# characters instead of in the raw page, which is the whole point of taking
+# them. Every cut is still reported, and max_chars raises it per call when a
+# page really is worth reading whole.
+# These are DEFAULTS, sized for a 32k local window. An agent may raise them in
+# its own agent.json, and one on a large-context model should.
+#
+# WHY PER AGENT: measured side by side on the same question and the same model.
+# Claude's own harness answered with Sonnet in under a minute and two search
+# operations. Ours, with Sonnet, took 28 tool calls and over eight minutes and
+# never finished -- because these limits, cut for a 32k window, forced five read
+# calls to see what one could have carried. Every call is a full round trip
+# (model -> gateway -> service -> web -> back), so a narrow payload does not
+# save time, it multiplies it.
+#
+# A ceiling sized for one model throttles another. Same lesson as the context
+# window, from the other direction.
+_DEFAULTS = {
+    "page_chars": 2500,
+    "max_queries": 5,
+    "max_urls": 3,
+    "snippet_chars": 160,       # a snippet decides whether to open a page, no more
+    "results_per_query": 5,
+    # Ceilings for the WHOLE turn, not per call. Raising what one call may carry
+    # says nothing about how many calls there will be -- eight pages per read
+    # and five reads is forty pages. A budget makes a turn's cost predictable,
+    # and it is spent rather than forbidden: the tools report what is left and
+    # say plainly when it is gone.
+    "max_pages_total": 12,
+    "max_searches_total": 6,
+}
+
+_LIMITS: dict = dict(_DEFAULTS)
+
+
+def _lim(key: str) -> int:
+    return int(_LIMITS.get(key) or _DEFAULTS[key])
+
+# ---------------------------------------------------------------------------
+# What the tools actually touched
+# ---------------------------------------------------------------------------
+# A model completes a URL like it completes any other text. Measured: of four
+# citations in one research answer, three were dead -- two 404, one that did not
+# resolve at all. A footnote that LOOKS checkable is worse than none, because it
+# invites the trust it cannot carry, and it defeats every rule written to make
+# an answer verifiable.
+#
+# A rule against it is a request to the very faculty that produces it. So this
+# records what the tools really handed out and really fetched. A citation that
+# is not in this list was not read -- visible at a glance, without anyone having
+# to click.
+#
+# Attribution is by time window, not by session: OpenClaw sends no turn id with
+# an MCP call, and this process serves both the agent route and /mcp, so calls
+# made during a turn fall between its start and end. Two turns running at once
+# would blur -- acceptable here, and named rather than hidden.
+_SEEN: deque = deque(maxlen=600)
+
+# What the agent wrote down while reading. Measured across a day of use: rules
+# the machinery enforces are kept, rules that are only prose are followed when
+# convenient. "No gate tool exists" held every time; "cite only URLs a tool gave
+# you" held as soon as the real ones were displayed; "take notes as you read"
+# was rolled out, quoted back verbatim on request, and ignored in the next three
+# reports -- and with it went a closure notice, a seasonal caveat and a mountain
+# 640 metres too short.
+#
+# So noting becomes an ACT with a record, not a resolution. A claim in an answer
+# with no note behind it is then as visible as a fabricated URL is now.
+_NOTES: deque = deque(maxlen=300)
+
+# Where the current turn began. The MCP surface has no turn id -- OpenClaw sends
+# none -- so the agent route stamps this when it starts one, and the note tools
+# read it. Same time-window approach as the URL record above, with the same
+# limitation: two turns at once would blur.
+_TURN_T0: float = 0.0
+_REVIEWED: float = 0.0
+_SPENT: dict = {"pages": 0, "searches": 0}
+
+
+def begin_turn(limits: dict | None = None) -> float:
+    """Called by the agent route when a turn starts.
+
+    Carries the acting agent's payload limits, because the MCP surface has no
+    way to know who is calling -- the same reason the turn boundary is stamped
+    here at all.
+    """
+    global _TURN_T0, _LIMITS, _SPENT
+    _TURN_T0 = time.time()
+    _LIMITS = {**_DEFAULTS, **(limits or {})}
+    _SPENT = {"pages": 0, "searches": 0}
+    return _TURN_T0
+
+
+def reviewed_this_turn() -> bool:
+    """Did the agent look at its own notes before answering?"""
+    return _REVIEWED >= _TURN_T0 > 0
+
+
+def _remember(kind: str, url: str, ok: bool = True) -> None:
+    if url:
+        _SEEN.append((time.time(), kind, url, ok))
+
+
+def notes_since(t0: float) -> list[dict]:
+    return [n for ts, n in list(_NOTES) if ts >= t0]
+
+
+def urls_since(t0: float) -> dict:
+    """Which addresses the tools produced after ``t0``.
+
+    ``read`` is what a claim may rest on -- those pages were actually fetched.
+    ``found`` were only ever offered by a search engine, so a claim citing one
+    without reading it rests on a snippet.
+    """
+    read, found, failed = [], [], []
+    for ts, kind, url, ok in list(_SEEN):
+        if ts < t0:
+            continue
+        if kind == "read":
+            (read if ok else failed).append(url)
+        else:
+            found.append(url)
+    seen = set()
+    read = [u for u in read if not (u in seen or seen.add(u))]
+    return {
+        "read": read[:20],
+        "read_count": len(read),
+        "found_count": len(set(found)),
+        "failed": failed[:5],
+    }
+
 
 _SERVER_NAME = "mora02-pipelines"
 _SERVER_VERSION = "1.0.0"
@@ -133,6 +285,102 @@ TOOLS: list[dict[str, Any]] = [
             },
             "required": ["flow"],
         },
+    },
+    {
+        "name": "web_search",
+        "description": (
+            "Use this to search the web whenever a question needs information "
+            "you do not already have. Pass SEVERAL queries at once — different "
+            "wordings, synonyms, the English term, a vendor name, the opposing "
+            "view — because one phrasing finds one corner of a subject. Results "
+            "come back grouped per query, each with its title, URL and a "
+            "snippet. The URL is what makes a later claim checkable, so keep it "
+            "with whatever you take from a result."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Several search queries, run at once — use the room you have.",
+                },
+            },
+            "required": ["queries"],
+        },
+    },
+    {
+        "name": "web_read",
+        "description": (
+            "Use this to read pages you found with web_search, when a snippet "
+            "is not enough to answer. Pass several URLs at once. Returns the "
+            "readable text of each, and says so when a page was cut short or "
+            "could not be read — a page that failed is reported as failed, "
+            "never as empty."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "urls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Several page URLs, read at once — every call is a round trip, so send them together.",
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Per page. Raise it "
+                                   "when a cut page says it left something behind.",
+                },
+            },
+            "required": ["urls"],
+        },
+    },
+    {
+        "name": "note",
+        "description": (
+            "Use this right after reading, while the pages are still in front of "
+            "you and BEFORE opening more. Record ALL findings from what you just "
+            "read in ONE call — pass the whole list. Each note says what the "
+            "source claims, which source it was, and above all any restriction "
+            "attached: a date, a season, a region, a version, a closure, a "
+            "licence limit, a 'but only if'. What is written down does not have "
+            "to survive being remembered."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "notes": {
+                    "type": "array",
+                    "description": "All findings from this reading round, at once.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "claim": {"type": "string",
+                                      "description": "What the source says, in one sentence."},
+                            "source": {"type": "string",
+                                       "description": "The URL it came from."},
+                            "restriction": {"type": "string",
+                                            "description": "The limit attached: date, season, "
+                                                           "region, version, closure, licence."},
+                        },
+                        "required": ["claim", "source"],
+                    },
+                },
+            },
+            "required": ["notes"],
+        },
+    },
+    {
+        "name": "notes_review",
+        "description": (
+            "Call this immediately BEFORE writing your answer, every time you "
+            "have taken notes. It returns everything you noted during this "
+            "task, with the restrictions attached. Build the answer from what "
+            "comes back rather than from what you remember of the pages — by "
+            "the time you compose, the reading is twenty tool calls behind you "
+            "and the qualifiers are the first thing to fade. Takes no arguments."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "run_status",
@@ -280,6 +528,89 @@ async def _run_status(run_id: str) -> dict:
     }
 
 
+async def _web_search(queries: list) -> dict:
+    """Several angles at once. A failed angle stays distinguishable from an empty one."""
+    queries = [q for q in queries if isinstance(q, str) and q.strip()][:_lim("max_queries")]
+    if not queries:
+        return {"error": "web_search needs at least one query in 'queries'"}
+    if _lim("max_searches_total") - _SPENT["searches"] <= 0:
+        return {"error": "Such-Budget für diesen Zug erschöpft.",
+                "hint": "Nicht weitersuchen. Schreibe die Antwort aus dem, was du "
+                        "hast, und sag im Bericht, dass du aus Budgetgründen "
+                        "aufgehört hast — das ist ein gültiger Grund und gehört "
+                        "genannt."}
+    _SPENT["searches"] += 1
+    try:
+        found = await web.search_many(queries, limit=_lim("results_per_query"))
+    except web.WebError as e:
+        return {"error": str(e)}
+    for block in found.get("per_query", []):
+        for r in block.get("results", []):
+            _remember("found", r.get("url", ""))
+            # A snippet exists to decide whether the page is worth opening. Kept
+            # whole it costs context that the answer needs later.
+            if len(r.get("content") or "") > _lim("snippet_chars"):
+                r["content"] = r["content"][:_lim("snippet_chars")] + "…"
+
+    # If every angle failed, that is not a thin result — it is a broken search,
+    # and saying so is what keeps a model from reporting "nothing exists".
+    if found["unique_urls"] == 0 and len(found["failed"]) == len(queries):
+        first = next((b.get("error") for b in found["per_query"] if b.get("error")), "")
+        return {
+            "error": f"no angle could be searched — {first}",
+            "queries": queries,
+            "note": "This is a failed search, not an empty one. Say so; do not "
+                    "answer from memory as if the search had returned nothing.",
+        }
+    found["budget_left"] = {
+        "searches": _lim("max_searches_total") - _SPENT["searches"],
+        "pages": _lim("max_pages_total") - _SPENT["pages"],
+    }
+    return found
+
+
+async def _web_read(urls: list, max_chars: int | None) -> dict:
+    """Read several pages. Each one reports its own outcome."""
+    urls = [u for u in urls if isinstance(u, str) and u.strip()][:_lim("max_urls")]
+    if not urls:
+        return {"error": "web_read needs at least one url in 'urls'"}
+    left = _lim("max_pages_total") - _SPENT["pages"]
+    if left <= 0:
+        return {"error": "Lese-Budget für diesen Zug erschöpft.",
+                "hint": "Keine weiteren Seiten. Rufe `notes_review` auf und "
+                        "schreibe die Antwort aus deinen Notizen. Sag im "
+                        "Bericht, dass du aus Budgetgründen aufgehört hast."}
+    urls = urls[:left]
+    _SPENT["pages"] += len(urls)
+    cap = int(max_chars or _lim("page_chars"))
+
+    async def one(u: str) -> dict:
+        try:
+            return await web.fetch(u, max_chars=cap)
+        except web.WebError as e:
+            return {"url": u, "error": str(e)}
+
+    pages = await asyncio.gather(*(one(u) for u in urls))
+    for pg in pages:
+        _remember("read", pg.get("url", ""), ok=not pg.get("error"))
+    failed = [p["url"] for p in pages if p.get("error")]
+    if len(failed) == len(pages):
+        return {"error": "none of the pages could be read", "pages": pages}
+    # The reminder travels WITH the page, not in a system prompt read once at
+    # the start. That is the difference between an instruction and a prompt: it
+    # arrives at the moment the act is due.
+    return {
+        "pages": pages, "read": len(pages) - len(failed), "failed": failed,
+        "budget_left": {"pages": _lim("max_pages_total") - _SPENT["pages"],
+                        "searches": _lim("max_searches_total") - _SPENT["searches"]},
+        "next": "Jetzt je gelesener Seite `note` aufrufen — was sie zur Frage "
+                "sagt und welche Einschränkung daran hängt (Datum, Saison, "
+                "Version, Sperrung, Lizenz) — ALLE Funde in EINEM Aufruf, als "
+                "Liste. Erst danach weiterlesen. Vor dem Schreiben dann "
+                "`notes_review`.",
+    }
+
+
 async def _call(name: str, arguments: dict) -> dict:
     if name == "flows_list":
         return await _flows_list()
@@ -289,6 +620,62 @@ async def _call(name: str, arguments: dict) -> dict:
             return {"error": "flow_run needs a 'flow' name"}
         args = arguments.get("args")
         return await _flow_run(flow.strip(), args if isinstance(args, dict) else None)
+    if name == "notes_review":
+        global _REVIEWED
+        _REVIEWED = time.time()
+        notes = notes_since(_TURN_T0)
+        limits = [n for n in notes if n.get("restriction")]
+        if not notes:
+            return {"notes": [], "hint": "Nichts notiert. Wenn du Seiten gelesen "
+                                         "hast, fehlt die Grundlage der Antwort."}
+        return {
+            "notes": notes,
+            "count": len(notes),
+            "with_restriction": len(limits),
+            "hint": "Schreibe die Antwort JETZT aus diesen Notizen. Jede "
+                    "Einschränkung reist mit ihrer Behauptung mit — eine "
+                    "Empfehlung, deren Einschränkung weggelassen wurde, ist "
+                    "nicht kürzer, sondern falsch. Was hier nicht steht, hast "
+                    "du nicht gelesen.",
+        }
+    if name == "note":
+        # A list, not one call per finding. The tool bench measured this model
+        # holding eight hops in four runs of five; note-per-finding pushed real
+        # turns to twelve calls and they started dying without an answer. Same
+        # principle as web_search and web_read: fewer, fatter hops. A single
+        # note is still accepted -- an agent that sends one is not wrong, just
+        # slower.
+        raw = arguments.get("notes")
+        if not isinstance(raw, list):
+            raw = [arguments] if arguments.get("claim") else []
+        kept = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            claim = (item.get("claim") or "").strip()
+            if not claim:
+                continue
+            note = {
+                "claim": claim[:400],
+                "source": (item.get("source") or "").strip()[:300],
+                "restriction": (item.get("restriction") or "").strip()[:300],
+            }
+            _NOTES.append((time.time(), note))
+            kept.append(note)
+        if not kept:
+            return {"error": "note needs a 'notes' list, each with a claim"}
+        return {"ok": True, "noted": len(kept),
+                "notes_so_far": len(notes_since(_TURN_T0)),
+                "hint": "Weiterlesen oder direkt zum Schluss. Unmittelbar VOR dem "
+                        "Schreiben `notes_review` aufrufen und die Antwort daraus "
+                        "bauen."}
+    if name == "web_search":
+        qs = arguments.get("queries")
+        return await _web_search(qs if isinstance(qs, list) else [])
+    if name == "web_read":
+        us = arguments.get("urls")
+        return await _web_read(us if isinstance(us, list) else [],
+                               arguments.get("max_chars"))
     if name == "run_status":
         rid = arguments.get("run_id")
         if not isinstance(rid, str) or not rid.strip():
