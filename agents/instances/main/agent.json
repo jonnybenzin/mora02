@@ -1,0 +1,33 @@
+{
+  "label": "Main",
+  "icon": "📮",
+  "description": "The gateway's built-in default agent — the one an inbound message lands on.",
+  "active": false,
+
+  "workspace": "/data/openclaw/workspace",
+  "manage_workspace": false,
+
+  "tools": {
+    "allow": ["read", "memory_search", "memory_get"]
+  },
+
+  "_why": [
+    "Not an agent anybody authored: OpenClaw brings it, and an inbound Signal",
+    "message lands on it because it is the default and carries no routing rule.",
+    "Measured dormant — two sessions in three months, and the only tools it ever",
+    "called were memory_search and cron. mora02 itself never runs a turn on it:",
+    "notify uses `message send`, a CLI call with no model in it.",
+    "",
+    "It is in the roster for one reason. An MCP server is registered GLOBALLY,",
+    "and an agent WITHOUT an explicit allow list receives every tool the gateway",
+    "has — including every MCP tool registered later. Until this list existed it",
+    "carried all of them, exec included, with the sandbox off, reachable by",
+    "anyone who knew the number.",
+    "",
+    "active:false keeps it out of the Pilot's agent list. It is not a persona to",
+    "talk to; it is a letterbox that needs its lid held down.",
+    "",
+    "manage_workspace:false because its workspace is the shared, hand-made one.",
+    "The rollout governs its tool surface and touches none of its files."
+  ]
+}

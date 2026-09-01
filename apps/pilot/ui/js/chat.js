@@ -41,6 +41,11 @@ function initChat() {
   setupScrollObserver();
   syncSendButtonColor();
 
+  // Not awaited: the roster is only needed once someone types a slash command,
+  // and blocking the chat's start-up on a fetch would make an unreachable
+  // script-runner look like a broken chat.
+  loadAgents();
+
   if (window._pendingChatMessage) {
     var pending = window._pendingChatMessage;
     delete window._pendingChatMessage;
@@ -87,12 +92,34 @@ async function sendChatMessage() {
     return;
   }
 
-  // Intercept agent commands → one turn, answered in the chat itself
+  // Intercept agent commands → answered in the chat itself.
+  //
+  // Two ways in. "/briefing ..." names an agent explicitly; after that the
+  // conversation STAYS with it until you leave, because an agent that has to be
+  // re-addressed every turn is not a conversation partner -- the first version
+  // sent turn one to the agent and turn two to the chat model, which answered a
+  // question it had never seen.
+  if (activeAgent && isLeaveCommand(text)) {
+    setActiveAgent(null);
+    return;                       // consumed here, never forwarded to the model
+  }
   var agent = matchAgent(text);
+  var enteredByName = !!agent;          // "/briefing ..." rather than a reply
+  if (!agent && activeAgent && text.charAt(0) !== '/') {
+    agent = { id: activeAgent.id, label: activeAgent.label,
+              match: activeAgent.match, text: text };
+  }
   if (agent) {
+    // Naming the agent asks for a NEW conversation; replying continues the one
+    // you are in.
+    if (enteredByName) agentThread += 1;
+    setActiveAgent(agent);
     await askAgent(agent);
     return;
   }
+  // Any other slash command leaves the agent -- an explicit command is a change
+  // of subject, and staying would silently swallow it.
+  if (activeAgent && text.charAt(0) === '/') setActiveAgent(null);
 
   showTyping(true);
   isStreaming = true;
@@ -382,13 +409,93 @@ function msgActionsHTML() {
 /* Agents answer IN the chat, so they are not tool widgets: a widget replaces
    the conversation with a page, an agent adds a turn to it. Kept as its own
    table for that reason, and read by prefix -- "/researcher what is X" hands
-   everything after the command to the agent. */
-var CHAT_AGENTS = [
-  { match: '/researcher', id: 'researcher', label: 'RESEARCHER' },
-];
+   everything after the command to the agent.
+
+   The table is FETCHED, not written. One folder under agents/instances/ is one
+   agent, so a new agent appears here by existing -- no entry in this file, no
+   rebuild, no line of code. That is the point of the agent layer's third
+   increment, and this array is where it would otherwise have been undone. */
+var CHAT_AGENTS = [];
 
 var AGENT_API = (typeof LLM_API_BASE !== 'undefined')
   ? LLM_API_BASE : 'http://mora02.local:8098/sr';
+
+/* Loaded once at start-up. A failure leaves the array empty, which means slash
+   commands for agents simply do not match and the text goes to the LLM as any
+   other message would -- the chat keeps working. The reason is logged rather
+   than shown: the roster failing is an operator's problem, not the typist's. */
+async function loadAgents() {
+  try {
+    var resp = await fetch(AGENT_API + '/agents/roster');
+    var data = await resp.json();
+    if (!resp.ok) {
+      console.warn('agent roster unavailable:', data.detail || resp.status);
+      return;
+    }
+    CHAT_AGENTS = (data.agents || []).map(function (a) {
+      return {
+        match: '/' + a.id,
+        id: a.id,
+        label: (a.label || a.id).toUpperCase(),
+        icon: a.icon || '',
+        description: a.description || '',
+        /* What a bare "/<agent>" sends. An agent whose first move is to ask
+           something needs no question from the typist; one that answers
+           questions does. Which of the two it is belongs to the agent, not
+           here -- so it travels with the roster. */
+        opening: a.opening || '',
+      };
+    });
+  } catch (e) {
+    console.warn('agent roster could not be loaded:', e);
+  }
+}
+
+/* The agent the conversation is currently with, or null. Kept in a variable
+   rather than in the URL or storage: it is a property of this chat, and a
+   reload should land you back in the ordinary chat rather than in a
+   conversation you cannot see the beginning of. */
+var activeAgent = null;
+
+/* One thread per entry. The far side derives the agent's session from whatever
+   we send as `conversation`, so sending the bare Pilot session id means every
+   "/briefing" continues the SAME conversation -- including the finished
+   document from last time. Measured: a second /briefing right after a long
+   answer ran for minutes and died with `incomplete_result`, because the agent
+   was handed a completed briefing and told to start over.
+   Typing the slash command is the request for a new one; staying in the
+   conversation continues it. */
+var agentThread = 0;
+
+function agentConversationId() {
+  return (sessionId || 'default') + '-t' + agentThread;
+}
+
+function setActiveAgent(agent) {
+  var was = activeAgent && activeAgent.id;
+  activeAgent = agent ? { id: agent.id, label: agent.label, match: agent.match } : null;
+  if (was === (agent && agent.id)) return;
+
+  // Say it, rather than leaving the person to infer from the answer's label
+  // which of the two they are talking to.
+  var input = document.getElementById('chat-input');
+  if (agent) {
+    addSystemMessage('Im Gespräch mit ' + agent.label
+      + ' — jede weitere Nachricht geht dorthin. "/ende" beendet es, '
+      + '"' + agent.match + '" beginnt ein neues.');
+    if (input) input.placeholder = agent.label + ' …';
+  } else {
+    addSystemMessage('Gespräch mit ' + (was || 'dem Agenten') + ' beendet.');
+    if (input) input.placeholder = '';
+  }
+}
+
+/* Leaving is its own command, so that ending a conversation never depends on
+   guessing which word means goodbye. */
+function isLeaveCommand(text) {
+  var lead = text.trim().toLowerCase();
+  return lead === '/ende' || lead === '/exit' || lead === '/stop';
+}
 
 function matchAgent(text) {
   var t = text.trim();
@@ -396,7 +503,10 @@ function matchAgent(text) {
   for (var i = 0; i < CHAT_AGENTS.length; i++) {
     var a = CHAT_AGENTS[i];
     if (tl === a.match || tl.indexOf(a.match + ' ') === 0) {
-      return { id: a.id, label: a.label, text: t.slice(a.match.length).trim() };
+      return {
+        id: a.id, label: a.label, match: a.match, opening: a.opening,
+        text: t.slice(a.match.length).trim(),
+      };
     }
   }
   return null;
@@ -408,9 +518,13 @@ function matchAgent(text) {
    rebuilt on every python change. */
 async function askAgent(agent) {
   if (!agent.text) {
-    addSystemMessage(agent.label + ': say what you want to ask, e.g. '
-      + '"/researcher what does vocab.py declare about cost?"');
-    return;
+    if (agent.opening) {
+      agent.text = agent.opening;      // the agent opens; nothing to type
+    } else {
+      addSystemMessage(agent.label + ': schreib dazu, was du wissen willst — '
+        + 'z.B. "' + agent.match + ' ..."');
+      return;
+    }
   }
   showTyping(true);
   isStreaming = true;
@@ -419,7 +533,7 @@ async function askAgent(agent) {
     var resp = await fetch(AGENT_API + '/agent/' + agent.id + '/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: agent.text, conversation: sessionId || 'default' }),
+      body: JSON.stringify({ message: agent.text, conversation: agentConversationId() }),
     });
     var data = await resp.json();
     showTyping(false);

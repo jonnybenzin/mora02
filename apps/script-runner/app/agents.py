@@ -12,6 +12,9 @@ a builder, and starting it in its own module keeps that growth out of there.
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -22,7 +25,15 @@ from mora02_core._common import get_logger
 
 log = get_logger("agents")
 
-router = APIRouter(prefix="/agent", tags=["agents"])
+# Full paths rather than a prefix. The prefix form needed a route literally
+# spelled "s" to produce /agents, which reads as a typo to anyone who has not
+# been told; with a third route arriving it stops being worth the cleverness.
+router = APIRouter(tags=["agents"])
+
+# The roster as the repo holds it, seen through the mount. The gateway has its
+# own idea of which agents exist (see /agents); this is the other half -- the
+# label, icon and description a person needs, which the gateway never stores.
+AGENTS_DIR = Path(os.environ.get("MORA02_AGENTS_DIR", "/data/agents"))
 
 
 class AgentMessage(BaseModel):
@@ -36,16 +47,68 @@ class AgentMessage(BaseModel):
     timeout: Optional[int] = None
 
 
-@router.get("s")          # GET /agents
+@router.get("/agents")
 async def get_agents():
-    """List the agents the gateway knows."""
+    """List the agents the GATEWAY knows — the running truth, not the intent."""
     try:
         return {"agents": await listing()}
     except AgentError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 
-@router.post("/{agent_id}/message")
+@router.get("/agents/roster")
+async def get_roster():
+    """The agents as people see them: label, icon, colour, description.
+
+    Read by looking, exactly as the rollout does — one folder under
+    ``instances/`` is one agent, and its folder name is its id. Nothing
+    enumerates them, so an agent created in the builder appears here without
+    anything else being edited. That is the whole of increment 3.
+
+    Only ``active`` agents are returned. ``main`` is a letterbox rather than
+    someone to talk to, and offering it in a chat would invite exactly the turn
+    its narrow tool list exists to make harmless.
+    """
+    instances = AGENTS_DIR / "instances"
+    if not instances.is_dir():
+        # A 503 naming the mount rather than an empty list: "no agents" and
+        # "the directory was never mounted" look identical to a UI, and only
+        # one of them is something an operator can fix.
+        raise HTTPException(
+            status_code=503,
+            detail=f"no agent instances at {instances} — is /opt/mora02/agents "
+                   f"mounted into this container?",
+        )
+
+    agents = []
+    for folder in sorted(instances.iterdir()):
+        manifest = folder / "agent.json"
+        if not folder.is_dir() or folder.name.startswith(".") or not manifest.is_file():
+            continue
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue  # a broken manifest hides itself, never the others
+        if not data.get("active", True):
+            continue
+        agents.append({
+            "id": folder.name,
+            "label": data.get("label") or folder.name,
+            "icon": data.get("icon", ""),
+            "colour": data.get("colour", ""),
+            "description": data.get("description", ""),
+            "skills": data.get("skills", []),
+            "sort_order": data.get("sort_order", 100),
+            # What a bare "/<agent>" should send. Empty for an agent that needs
+            # a question; set for one whose first move is to ask one.
+            "opening": data.get("opening", ""),
+        })
+
+    agents.sort(key=lambda a: (a["sort_order"], a["id"]))
+    return {"agents": agents}
+
+
+@router.post("/agent/{agent_id}/message")
 async def post_agent_message(agent_id: str, req: AgentMessage):
     """Run one turn and return the answer.
 

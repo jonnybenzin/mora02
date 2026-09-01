@@ -1,0 +1,40 @@
+{
+  "label": "Researcher",
+  "icon": "🔎",
+  "colour": "#7dd3fc",
+  "description": "Findet Dinge heraus, liest was da ist, und sagt auch was fehlt.",
+  "active": true,
+  "sort_order": 10,
+
+  "model": "llama-local/qwen3-14b",
+  "skills": ["pipeline-run"],
+
+  "tools": {
+    "allow": [
+      "read",
+      "mora02__flows_list",
+      "mora02__flow_run",
+      "mora02__run_status"
+    ]
+  },
+
+  "_why_model": [
+    "Nominal, not a measurement: the provider name points at a port, and the",
+    "weights behind it are whatever llama-server currently holds. Read the live",
+    "profile from llm-switch/current.json, never from this string or from a",
+    "turn's answer JSON."
+  ],
+  "_why_tools": [
+    "Named one by one rather than as mora02__*, so what this agent can do is",
+    "readable here without resolving a glob against a running server. There is",
+    "no resume, approve or cancel tool — not because the model is asked to",
+    "behave, but because the surface has no such verb. web_search and web_fetch",
+    "stay absent: they send data out of the house, which is its own open",
+    "question."
+  ],
+  "_why_skills": [
+    "An explicit list REPLACES the inherited default rather than adding to it,",
+    "so this also drops the bundled skills that were sitting in the prompt",
+    "without ever being used."
+  ]
+}

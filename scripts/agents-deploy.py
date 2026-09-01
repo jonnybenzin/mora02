@@ -2,10 +2,27 @@
 """Render the agent roster from the repo into the OpenClaw volume.
 
 Pillar 2 of the agent-layer plan: the volume is an impression, not a source.
-Config entries and workspace files are rendered INTO it from ``agents/`` and
-from ``agents/agents.json``; throw the volume away, run this, and the agents are
-back. Modelled on ``install.sh`` from the mora02-host repo, including its most
-useful habit -- a ``--check`` that reports drift and changes nothing.
+Config entries and workspace files are rendered INTO it from ``agents/``; throw
+the volume away, run this, and the agents are back. Modelled on ``install.sh``
+from the mora02-host repo, including its most useful habit -- a ``--check``
+that reports drift and changes nothing.
+
+The roster is READ BY LOOKING. One folder under ``agents/instances/`` is one
+agent and its folder name is its id::
+
+    agents/
+      AGENTS.md                     house rules, rendered into every workspace
+      mcp.json                      the servers to register
+      skills/<name>/SKILL.md        skills, granted per agent
+      instances/<id>/agent.json     one agent
+      instances/<id>/SOUL.md        its personality, prose in a prose file
+
+Nothing enumerates the agents, so creating one means creating a directory and
+nothing else -- which is what lets a builder in the browser make one without a
+line of code changing. The plan had this data in Baserow; files won because the
+reason for Baserow was the free CRUD frontend, and increment 4 builds a frontend
+regardless. Files also answer the risk the plan itself named: a prompt in a
+database cell has no history, a prompt in a file has git.
 
     python3 scripts/agents-deploy.py --check     what would change (exit 1 if any)
     python3 scripts/agents-deploy.py             apply it
@@ -39,15 +56,26 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-ROSTER = REPO / "agents" / "agents.json"
-SKILLS_DIR = REPO / "agents" / "skills"
+AGENTS_DIR = REPO / "agents"
+INSTANCES_DIR = AGENTS_DIR / "instances"
+SKILLS_DIR = AGENTS_DIR / "skills"
+MCP_FILE = AGENTS_DIR / "mcp.json"
+HOUSE_RULES = AGENTS_DIR / "AGENTS.md"
 
 OC = os.environ.get("MORA02_OPENCLAW_CONTAINER", "mora02-openclaw")
 DOCKER = os.environ.get("MORA02_DOCKER_BIN", "docker")
 
-# Workspace files an agent may carry. Only these are rendered: a stray file in
-# an agent's repo directory should not silently become part of its prompt.
-WORKSPACE_FILES = ["SOUL.md", "AGENTS.md", "TOOLS.md", "USER.md", "IDENTITY.md"]
+# Workspace files an agent may carry in its own folder. Only these are rendered:
+# a stray file in an instance directory should not silently become part of a
+# prompt. AGENTS.md is deliberately NOT in this list -- the house rules are
+# shared and come from agents/AGENTS.md, the same text for every agent.
+WORKSPACE_FILES = ["SOUL.md", "TOOLS.md", "USER.md", "IDENTITY.md"]
+
+# Where an agent's workspace lands inside the gateway container, unless the
+# instance names its own. Derived from the id, so a new folder is a new agent
+# and nothing else has to be written down.
+def default_workspace(agent_id: str) -> str:
+    return f"/data/openclaw/agents/{agent_id}/workspace"
 
 
 class DeployError(RuntimeError):
@@ -118,14 +146,61 @@ def digest(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def load_roster() -> dict:
-    try:
-        roster = json.loads(ROSTER.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        raise DeployError(f"cannot read {ROSTER}: {e}") from e
-    # Keys starting with _ are commentary. They are in the file on purpose --
-    # a config without its reasons is a config nobody dares change -- but they
-    # must never reach the gateway.
-    return roster
+    """Read the roster by LOOKING, not by consulting a list of names.
+
+    One folder under agents/instances/ is one agent, and its folder name is its
+    id. That is the whole point of increment 3: a new agent comes into being by
+    being written down somewhere, and nothing else has to be edited to admit it
+    -- no list, no registry, no line of code. The Pilot builder therefore only
+    ever has to create a directory.
+
+    The earlier form enumerated agents in a single file because skills/ sat as a
+    sibling of the agent folders and a scan could not tell them apart. The
+    instances/ level removes that ambiguity, and with it the list.
+    """
+    if not INSTANCES_DIR.is_dir():
+        raise DeployError(f"no instance directory at {INSTANCES_DIR}")
+
+    agents: list[dict] = []
+    for folder in sorted(INSTANCES_DIR.iterdir()):
+        if not folder.is_dir() or folder.name.startswith("."):
+            continue
+        manifest = folder / "agent.json"
+        if not manifest.is_file():
+            # Named rather than skipped: a folder without a manifest is far more
+            # likely a half-finished agent than a deliberate placeholder, and a
+            # silently ignored agent is the failure this layer keeps guarding
+            # against.
+            raise DeployError(
+                f"{folder.relative_to(REPO)} has no agent.json — an instance "
+                f"folder without one cannot be deployed. Remove the folder or "
+                f"give it a manifest."
+            )
+        try:
+            agent = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise DeployError(f"cannot read {manifest.relative_to(REPO)}: {e}") from e
+
+        # The id is the folder name, never a field. Two sources for one identity
+        # is one source too many, and a manifest whose id disagrees with its
+        # folder is a bug waiting for someone to rename one of them.
+        agent["id"] = folder.name
+        agent.setdefault("workspace", default_workspace(folder.name))
+        agent.setdefault("manage_workspace", True)
+        agent["_dir"] = str(folder)
+        agents.append(agent)
+
+    if not agents:
+        raise DeployError(f"no agents found under {INSTANCES_DIR}")
+
+    mcp: dict = {}
+    if MCP_FILE.is_file():
+        try:
+            mcp = json.loads(MCP_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise DeployError(f"cannot read {MCP_FILE.name}: {e}") from e
+
+    return {"agents": agents, "mcp": mcp}
 
 
 def strip_comments(obj):
@@ -136,12 +211,68 @@ def strip_comments(obj):
     return obj
 
 
+# The written opt-out. An agent may be unrestricted, but only if somebody typed
+# the word -- the same shape as .boundaryignore beside the boundary guard: the
+# exception is allowed and on the record, the oversight is not.
+UNRESTRICTED = "unrestricted"
+
+
+def check_tools(roster: dict) -> None:
+    """Refuse a roster in which an agent's tool surface is left unsaid.
+
+    An agent without tools.allow does not get FEWER tools, it gets ALL of them --
+    every tool the gateway has, plus every MCP tool registered later, without
+    anyone touching that agent again. Measured: a server projected at one agent
+    still reached the one that had no list. The absent list is therefore not a
+    neutral default but the widest possible setting, and it looks like nothing.
+
+    So the rollout refuses rather than quietly rendering it. A warning would not
+    do: the atlas drift check spent months proving that a reminder which stops
+    nothing stops nothing.
+    """
+    for agent in roster.get("agents", []):
+        aid = agent.get("id", "<unnamed>")
+        tools = agent.get("tools")
+
+        if tools == UNRESTRICTED:
+            continue  # said out loud, and it stays in the file to be read
+
+        if not isinstance(tools, dict) or "allow" not in tools:
+            raise DeployError(
+                f"agent {aid!r} has no tool allow list.\n"
+                f"    Without one it receives EVERY tool the gateway has, "
+                f"including every MCP tool registered later.\n"
+                f"    Set tools.allow, or write  \"tools\": \"{UNRESTRICTED}\"  "
+                f"if that is really what is meant."
+            )
+
+        allow = tools["allow"]
+        if not isinstance(allow, list) or not allow:
+            # Not pedantry: the gateway refuses to submit a run that has no
+            # callable tool left, so an empty list is a mute agent, not a safe
+            # one. The narrowest working setting is one tool, never none.
+            raise DeployError(
+                f"agent {aid!r} has an empty tool allow list.\n"
+                f"    The gateway stops a run that has no callable tool, so this "
+                f"agent would not answer at all.\n"
+                f"    Name at least one tool."
+            )
+
+
 def desired_agent_entry(agent: dict) -> dict:
     """The config entry for one agent, as the gateway wants it."""
     entry = {"id": agent["id"]}
+    # Only what the gateway knows about. label, icon, colour, description,
+    # active and sort_order belong to the Pilot's view of an agent, not to the
+    # gateway's -- they travel to the UI over /agents/roster instead.
     for key in ("name", "workspace", "agentDir", "model", "skills", "tools"):
         if key in agent:
             entry[key] = agent[key]
+    # "unrestricted" is our vocabulary, not the gateway's. Leaving the key out
+    # is how the gateway is told "no restriction" -- so the marker is dropped
+    # here rather than sent, and an agent that once had a list gets it removed.
+    if entry.get("tools") == UNRESTRICTED:
+        entry["tools"] = None
     return strip_comments(entry)
 
 
@@ -149,21 +280,40 @@ def desired_workspace_files(agent: dict) -> dict[str, str]:
     """{container path: contents} for the files this agent's workspace carries."""
     if not agent.get("manage_workspace"):
         return {}
-    src = REPO / agent["files"]
+    src = Path(agent["_dir"])
     ws = agent["workspace"]
     out: dict[str, str] = {}
+
+    # The house rules are shared, not per-agent. agents/AGENTS.md carries no
+    # instance's name -- every one of its rules exists because a model was
+    # measured breaking it, and they apply to whoever holds the tools. Rendering
+    # the same text into every workspace is how "these apply to all of you"
+    # stops being a claim.
+    if HOUSE_RULES.is_file():
+        out[f"{ws}/AGENTS.md"] = HOUSE_RULES.read_text(encoding="utf-8")
+
     for name in WORKSPACE_FILES:
         p = src / name
         if p.is_file():
             out[f"{ws}/{name}"] = p.read_text(encoding="utf-8")
     for skill in agent.get("skills", []):
-        sp = SKILLS_DIR / skill / "SKILL.md"
+        folder = SKILLS_DIR / skill
+        sp = folder / "SKILL.md"
         if not sp.is_file():
             raise DeployError(
                 f"agent {agent['id']!r} wants skill {skill!r}, but "
                 f"{sp.relative_to(REPO)} does not exist"
             )
-        out[f"{ws}/skills/{skill}/SKILL.md"] = sp.read_text(encoding="utf-8")
+        # The whole folder, not only SKILL.md. A skill may carry material the
+        # agent reads at the moment it needs it -- a question catalogue, a
+        # template, an example -- and keeping that beside the method is what
+        # lets it be improved as prose instead of as code. Only the description
+        # of SKILL.md reaches the prompt either way; the rest is read on demand,
+        # which is precisely why it may be long.
+        for f in sorted(folder.rglob("*")):
+            if f.is_file() and not f.name.startswith("."):
+                rel = f.relative_to(folder)
+                out[f"{ws}/skills/{skill}/{rel}"] = f.read_text(encoding="utf-8")
     return out
 
 
@@ -227,15 +377,20 @@ def plan(roster: dict, only: str | None) -> tuple[list[str], dict, dict]:
             rendered.append(live_agents[stray])
 
     # --- the workspace files ----------------------------------------------
+    # Only files that actually differ go into the write set. Writing the
+    # unchanged ones too is harmless but dishonest: the run then prints
+    # "writing X" for a file it did not change, and a log that says more than it
+    # did is a log nobody can use to tell a real change from a no-op.
     files: dict[str, str] = {}
     for a in agents:
         for path, body in desired_workspace_files(a).items():
-            files[path] = body
             have = remote_file(path)
             if have is None:
                 drift.append(f"file/{path}: missing")
+                files[path] = body
             elif have != body:
                 drift.append(f"file/{path}: differs ({digest(have)} -> {digest(body)})")
+                files[path] = body
 
     return drift, {"list": rendered}, files
 
@@ -302,6 +457,10 @@ def main() -> int:
 
     try:
         roster = load_roster()
+        # Before anything is read from the gateway: a roster that leaves a tool
+        # surface unsaid is refused, --check included. Checking a roster that
+        # cannot be applied would report drift nobody may close.
+        check_tools(roster)
         drift, agents_block, files = plan(roster, args.agent)
     except DeployError as e:
         print(f"error: {e}", file=sys.stderr)

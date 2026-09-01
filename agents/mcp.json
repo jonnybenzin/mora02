@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "MCP servers the gateway registers. Mechanism, not instance data — the",
+    "server exists once and every agent that may use it names its tools in an",
+    "allow list.",
+    "",
+    "MIND THE BLAST RADIUS: an MCP server is registered GLOBALLY. A server",
+    "projected at one agent was measured still reaching another, so the only",
+    "guard that holds is agents/instances/<id>/agent.json -> tools.allow.",
+    "An agent WITHOUT one receives every tool registered here, forever after."
+  ],
+
+  "mora02": {
+    "url": "http://script-runner:8096/mcp",
+    "transport": "streamable-http",
+    "timeout": 120
+  }
+}

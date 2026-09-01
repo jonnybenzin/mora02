@@ -844,6 +844,8 @@ services:
       - /opt/mora02/output/_default/uploads:/uploads:ro
       # library
       - /opt/mora02-material/library:/library:ro
+      # agents
+      - /opt/mora02/agents:/data/agents
 
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}
