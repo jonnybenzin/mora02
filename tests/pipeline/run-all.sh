@@ -84,6 +84,7 @@ run_suite "truncation - does every cut announce itself"    tests/pipeline/test_t
 # hand-written MCP server, so it belongs in every pass.
 run_suite "mcp handshake - does our server still speak what openclaw sends" \
     tests/agents/test_mcp_handshake.py
+run_suite "agent roster - does an agent exist by existing"  tests/agents/test_roster.py
 
 if [ "$WITH_UI" = "1" ]; then
     run_suite "builder UI - the browser half of the builder" tests/pipeline/test_builder_ui.py
@@ -103,6 +104,8 @@ fi
 if [ "$WITH_AGENTS" = "1" ]; then
     run_suite "gate discipline - the agent starts a flow but cannot open its gate" \
         tests/agents/test_gate_discipline.py
+    run_suite "briefing - does it hold a conversation and leave gaps as gaps" \
+        tests/agents/test_briefing.py
 fi
 
 echo

@@ -1,0 +1,48 @@
+{
+  "label": "Briefing",
+  "icon": "📝",
+  "colour": "#fbbf24",
+  "description": "Fragt ab, was gebraucht wird — Recherche- oder Kreativ-Briefing — und gießt es in eine feste Struktur.",
+  "opening": "Ich brauche ein Briefing.",
+  "active": true,
+  "sort_order": 20,
+  "model": "llama-local/qwen3-14b",
+  "skills": [
+    "briefing"
+  ],
+  "tools": {
+    "allow": [
+      "read"
+    ]
+  },
+  "_status": [
+    "A TEST, and meant to be rewritten. Two kinds of briefing live in the skill:",
+    "recherche/ and kreativ/. The research catalogue is real content — its",
+    "questions come from what a research order actually needs to be executable",
+    "(angles, source criteria, a stopping rule). The creative one is a generic",
+    "placeholder until real briefings show what belongs in it.",
+    "",
+    "Both are ordinary files under agents/skills/briefing/. Improving them is",
+    "editing prose — no rollout of code, no rebuild.",
+    "",
+    "The research brief is also the ORDER a research agent will later work from.",
+    "That is why it goes first: its structure is derivable, and its output is",
+    "immediately useful to the next agent rather than only to a person."
+  ],
+  "_why_tools": [
+    "read only. It reads its question catalogue and its template, and hands the",
+    "finished briefing back in the chat. No write tool: a briefing that the",
+    "agent files away somewhere is a briefing nobody reviewed, and there is no",
+    "reason yet to spend that risk. If persisting it turns out to matter, that",
+    "is one narrow tool later, not a wide one now.",
+    "",
+    "No pipeline tools either. This agent gathers and structures; it does not",
+    "produce. Whether a briefing should be able to start a flow is a real",
+    "question, and it is not answered by giving it the ability first."
+  ],
+  "_why_model": [
+    "Local, and that is the whole of the choice: the agent hears what a client",
+    "wants before anyone has decided what is public. Nominal string, as always —",
+    "the weights behind the port are whatever profile is loaded."
+  ]
+}
