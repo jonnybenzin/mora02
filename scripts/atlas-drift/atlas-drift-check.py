@@ -23,7 +23,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path("/opt/mora02")
+# Derived from this file's own location rather than hardcoded, so the check
+# works in a clone that does not live at /opt/mora02 — and so the post-commit
+# hook finds the right repository when several are checked out.
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 ATLAS_DIR = REPO_ROOT / "kompendium" / "atlas"
 ATLAS_SKIP = {"README.md", "coverage.md"}
 
@@ -98,6 +101,29 @@ def path_matches(source_path: str, changed_path: str) -> bool:
     return False
 
 
+def anchor_weights(all_sources: dict[str, list[str]]) -> dict[str, float]:
+    """How much a match on each anchor is worth.
+
+    Not every anchor carries the same information. docker/docker-compose.yml is
+    cited by most articles in the atlas, so a match on it says almost nothing —
+    every compose change would name a dozen suspects. An anchor cited by exactly
+    one article says almost everything.
+
+    This is why the unweighted output was ignorable: for the commit that retired
+    four LLM profiles it named twelve articles, of which one had actually gone
+    stale. The right one was in there, and even carried the most matches — but a
+    warning that lists twelve candidates when one is real gets skimmed past by
+    the third time, and then it protects nothing.
+
+    So each anchor is worth 1/n, where n is the number of articles citing it.
+    """
+    counts: dict[str, int] = {}
+    for sources in all_sources.values():
+        for src in set(sources):
+            counts[src] = counts.get(src, 0) + 1
+    return {src: 1.0 / n for src, n in counts.items()}
+
+
 def main() -> int:
     rev = sys.argv[1] if len(sys.argv) > 1 else "HEAD"
     changed = get_changed_files(rev)
@@ -106,43 +132,73 @@ def main() -> int:
         print(f"atlas-drift-check: no files changed in {rev}")
         return 0
 
-    hits: dict[str, list[tuple[str, str]]] = {}
+    all_sources: dict[str, list[str]] = {}
     for atlas in sorted(ATLAS_DIR.glob("*.md")):
         if atlas.name in ATLAS_SKIP:
             continue
-        sources = parse_atlas_sources(atlas)
+        all_sources[atlas.name] = parse_atlas_sources(atlas)
+
+    weights = anchor_weights(all_sources)
+
+    hits: dict[str, list[tuple[str, str]]] = {}
+    for atlas_name, sources in all_sources.items():
         for src in sources:
             for changed_path in changed:
                 if path_matches(src, changed_path):
-                    hits.setdefault(atlas.name, []).append((src, changed_path))
+                    hits.setdefault(atlas_name, []).append((src, changed_path))
 
     if not hits:
         print(f"atlas-drift-check: no atlas drift detected for {rev}")
         return 0
 
-    print(f"atlas-drift-check: possible drift detected for {rev}")
-    print("=" * 60)
-    for atlas_name in sorted(hits):
-        # Group hits by source-anchor: anchor -> list of changed paths
+    # Score, then rank. An article that matches on three narrow anchors outranks
+    # one that matches only because it happens to cite the compose file.
+    scored: list[tuple[float, str, dict[str, list[str]]]] = []
+    for atlas_name, pairs in hits.items():
         by_anchor: dict[str, list[str]] = {}
-        for src, changed_path in hits[atlas_name]:
+        for src, changed_path in pairs:
             by_anchor.setdefault(src, [])
             if changed_path not in by_anchor[src]:
                 by_anchor[src].append(changed_path)
+        score = sum(weights.get(src, 1.0) for src in by_anchor)
+        scored.append((score, atlas_name, by_anchor))
+    scored.sort(key=lambda row: (-row[0], row[1]))
 
-        print(f"\n{atlas_name}")
-        for src in sorted(by_anchor):
+    print(f"atlas-drift-check: possible drift detected for {rev}")
+    print("=" * 60)
+
+    # The cut is relative, not absolute: whatever reaches a third of the leader's
+    # score gets the full treatment, the rest becomes one line. A fixed threshold
+    # would either hide everything on a small commit or nothing on a large one.
+    lead = scored[0][0]
+    cutoff = lead / 3
+    tail: list[str] = []
+
+    for score, atlas_name, by_anchor in scored:
+        if score < cutoff and len(scored) > 3:
+            tail.append(atlas_name.removesuffix(".md"))
+            continue
+        print(f"\n{atlas_name}   (score {score:.2f})")
+        for src in sorted(by_anchor, key=lambda s: (-weights.get(s, 1.0), s)):
             paths = by_anchor[src]
+            shared = round(1 / weights.get(src, 1.0))
+            # Naming how many articles share an anchor is what lets a reader
+            # dismiss a line without opening the article.
+            note = "" if shared == 1 else f"  [shared by {shared} articles]"
             if len(paths) == 1:
-                print(f"  {src}  <-  {paths[0]}")
+                print(f"  {src}  <-  {paths[0]}{note}")
             else:
-                # Show count + first two examples
                 example = ", ".join(Path(p).name for p in paths[:2])
                 if len(paths) > 2:
                     example += f" + {len(paths) - 2} more"
-                print(f"  {src}  <-  {len(paths)} files ({example})")
+                print(f"  {src}  <-  {len(paths)} files ({example}){note}")
+
+    if tail:
+        print(f"\nweak matches (shared anchors only): {', '.join(sorted(tail))}")
+
     print()
     print("Pruefe ob die betroffenen Atlas-Artikel aktualisiert werden muessen.")
+    print("Vergiss last_updated nicht, wenn du einen anfasst.")
     return 0
 
 

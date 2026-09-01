@@ -1,0 +1,29 @@
+#!/bin/sh
+# Atlas-Drift-Erinnerung nach jedem Commit.
+#
+# Das SCHEMA verlangt, dass betroffene Atlas-Artikel MIT dem
+# Implementierungs-Commit nachgezogen werden, nicht spaeter. Dieser Hook ist
+# das Netz darunter, nicht der Ersatz: er merkt an, welche Artikel eine
+# geaenderte Datei als Quelle fuehren.
+#
+# Warum es ihn ueberhaupt braucht: das Skript existierte lange, ohne je
+# automatisch zu laufen. Ein Artikel behauptete daraufhin monatelang sechs
+# LLM-Profile, waehrend vier im Betrieb waren, und der Beispiel-Ablauf darin
+# beschrieb ein Profil, das es nicht mehr gab.
+#
+# Und warum GENAU HIER: dieses Repository setzt core.hooksPath auf .githooks.
+# Git ignoriert .git/hooks/ deshalb vollstaendig — ein Hook, der dort abgelegt
+# wird, feuert nie und sagt auch nicht, dass er nicht feuert.
+#
+# Ein post-commit-Hook kann einen Commit nicht mehr verhindern und soll das
+# auch nicht: die Ausgabe ist ein Hinweis, kein Tor. Er endet immer mit 0,
+# damit ein Fehler im Hinweis-Werkzeug niemals eine Arbeitssitzung stoert.
+
+HOOK_DIR=$(dirname "$0")
+CHECK="$HOOK_DIR/../scripts/atlas-drift/atlas-drift-check.py"
+
+[ -f "$CHECK" ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+python3 "$CHECK" HEAD 2>/dev/null || true
+exit 0
