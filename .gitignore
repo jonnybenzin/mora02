@@ -136,3 +136,4 @@ notizen/
 # Tool-calling bench output: measurements of this machine at this moment.
 # The runner is public, its results are not (MORA02_BENCH_OUT overrides).
 bench-results/
+docker/searxng/settings.yml.bak-*
