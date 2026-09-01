@@ -50,6 +50,9 @@ from mora02_core.publish import post_to_linkedin, LinkedInError
 
 # The agent layer keeps its endpoints in their own module (see agents.py).
 from agents import router as agents_router
+# ...and its MCP surface in another: /mcp is a protocol, not an endpoint, and
+# the tools it exposes are deliberately fewer than the routes below.
+from mcp_tools import router as mcp_router
 
 # ============================================================================
 # CONFIG
@@ -92,6 +95,7 @@ app = FastAPI(
 )
 
 app.include_router(agents_router)
+app.include_router(mcp_router)
 
 app.add_middleware(
     CORSMiddleware,
