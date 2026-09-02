@@ -58,7 +58,7 @@ def _first_json_object(out: str) -> dict | None:
             obj, _ = decoder.raw_decode(out[i:])
         except json.JSONDecodeError:
             continue
-        if isinstance(obj, dict) and "result" in obj:
+        if isinstance(obj, dict) and ("result" in obj or "models" in obj):
             return obj
     return None
 
@@ -228,3 +228,44 @@ async def listing() -> list[dict]:
         elif agents and line.strip().startswith("Model:"):
             agents[-1]["model"] = line.split(":", 1)[1].strip()
     return agents
+
+
+async def models() -> list[dict]:
+    """The models the gateway can run an agent on, from ``models list --json``.
+
+    The Pilot has its own model registry, but that one speaks Pilot keys
+    ("qwen", "sonnet") and the gateway wants provider-prefixed ids
+    ("llama-local/qwen3-14b", "anthropic/claude-sonnet-4-6"). Asking the gateway
+    is the only way to offer exactly the ids it will accept.
+
+    ``local`` is decided HERE by the provider prefix and not taken from the
+    gateway's own field: measured 2026-09-02, the gateway reports
+    ``"local": false`` for the llama-local provider, because "local" to it means
+    a model running inside its own process. To this house, local means the
+    weights are on this machine and the question never leaves it -- and that is
+    the prefix. The same rule agents.py uses to decide which weights to report.
+    """
+    container = os.environ.get("MORA02_OPENCLAW_CONTAINER", _DEFAULT_CONTAINER)
+    docker_bin = os.environ.get("MORA02_DOCKER_BIN", "docker")
+    proc = await asyncio.create_subprocess_exec(
+        docker_bin, "exec", container, "openclaw", "models", "list", "--json",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+    if proc.returncode != 0:
+        raise AgentError(f"could not list models: {(stderr or b'').decode()[:300]}")
+    data = _first_json_object((stdout or b"").decode(errors="replace")) or {}
+    out: list[dict] = []
+    for m in data.get("models") or []:
+        key = str(m.get("key") or "")
+        if not key:
+            continue
+        out.append({
+            "key": key,
+            "name": m.get("name") or key,
+            "context_window": m.get("contextWindow"),
+            "local": key.startswith("llama-local/"),
+            "available": bool(m.get("available", True)),
+            "tags": m.get("tags") or [],
+        })
+    return out

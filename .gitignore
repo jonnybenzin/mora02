@@ -137,3 +137,7 @@ notizen/
 # The runner is public, its results are not (MORA02_BENCH_OUT overrides).
 bench-results/
 docker/searxng/settings.yml.bak-*
+
+# agents deleted in the builder are moved here, not removed. Local history of
+# this machine, never part of the roster and never something to publish.
+agents/instances/.trash/

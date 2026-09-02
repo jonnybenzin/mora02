@@ -1,0 +1,114 @@
+{
+  "_comment": [
+    "The gateway's OWN tools, as the builder offers them. MCP tools are not",
+    "listed here -- they come live from script-runner's /mcp (tools/list),",
+    "so a new MCP tool appears in the builder the moment it exists.",
+    "",
+    "Why a list in the repo, against the plan's preference for asking the",
+    "gateway: the gateway has no command that lists its tool ids together",
+    "with what each can DO, and the second half is what a person deciding",
+    "an agent's rights needs. A checkbox labelled `exec` says nothing; one",
+    "labelled 'runs shell commands in the container' is a decision.",
+    "",
+    "`risk`: read = harmless to the machine, write = changes files in the",
+    "agent's workspace, act = reaches beyond the workspace or beyond the",
+    "house. The tool bench of 2026-09-01 measured models reaching for exec,",
+    "edit, cron and sub-agents to get past a locked gate -- every one of",
+    "those is `act` here, and the builder paints them red.",
+    "",
+    "Drift against the gateway is caught at rollout: `config patch`",
+    "validates tool ids, so a stale entry here fails loudly, not quietly."
+  ],
+  "tools": [
+    {
+      "id": "memory_get",
+      "risk": "read",
+      "what": "Fetches one memory note by id. Read-only."
+    },
+    {
+      "id": "memory_search",
+      "risk": "read",
+      "what": "Searches the gateway's memory notes. Read-only."
+    },
+    {
+      "id": "read",
+      "risk": "read",
+      "what": "Reads files in the agent's own workspace: its method, a briefing handed to it, its skills."
+    },
+    {
+      "id": "session_status",
+      "risk": "read",
+      "what": "Reports the agent's own session: model, context used, tokens. Harmless."
+    },
+    {
+      "id": "apply_patch",
+      "risk": "write",
+      "what": "Applies a diff to workspace files. Measured in the tool bench as a route around a lock."
+    },
+    {
+      "id": "edit",
+      "risk": "write",
+      "what": "Patches files in place. Measured being used to rewrite the rule that forbade opening a gate."
+    },
+    {
+      "id": "skill_workshop",
+      "risk": "write",
+      "what": "Creates and edits skills. Measured rewriting the very rule that forbade opening a gate."
+    },
+    {
+      "id": "write",
+      "risk": "write",
+      "what": "Creates or overwrites files in the workspace. An agent with this can rewrite its own rules."
+    },
+    {
+      "id": "browser",
+      "risk": "act",
+      "what": "Drives a browser from the gateway. Reaches the web and leaves traces there."
+    },
+    {
+      "id": "cron",
+      "risk": "act",
+      "what": "Schedules future runs. An agent that can schedule itself outlives the conversation."
+    },
+    {
+      "id": "exec",
+      "risk": "act",
+      "what": "Runs shell commands inside the gateway container, sandbox off. The tool models reach for first to get around a lock."
+    },
+    {
+      "id": "lobster",
+      "risk": "act",
+      "what": "The embedded pipeline runner. DOES NOT hold at input gates and resolves approvals itself -- never grant this; use mora02__flow_run."
+    },
+    {
+      "id": "message",
+      "risk": "act",
+      "what": "Sends messages on the connected channels (Signal). Reaches phones."
+    },
+    {
+      "id": "process",
+      "risk": "act",
+      "what": "Manages background processes started with exec. Only meaningful with exec."
+    },
+    {
+      "id": "sessions_send",
+      "risk": "act",
+      "what": "Sends a message into another agent's session. Measured as a route around a lock."
+    },
+    {
+      "id": "sessions_spawn",
+      "risk": "act",
+      "what": "Starts a sub-agent. Measured as a route around a lock: the child had the tools the parent lacked."
+    },
+    {
+      "id": "web_fetch",
+      "risk": "act",
+      "what": "Fetches a URL from the gateway itself. Prefer the house's mora02__web_read, which records what was fetched."
+    },
+    {
+      "id": "web_search",
+      "risk": "act",
+      "what": "The gateway's own search, via an external provider. Prefer mora02__web_search, which stays on the local engine."
+    }
+  ]
+}

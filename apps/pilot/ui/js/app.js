@@ -99,6 +99,7 @@ async function navigate(page) {
         if (page === "inbox" && typeof initInbox === "function") initInbox();
         if (page === "runs" && typeof initRuns === "function") initRuns();
         if (page === "flows" && typeof initFlows === "function") initFlows();
+        if (page === "agents" && typeof initAgents === "function") initAgents();
         // Auto-focus primary input field
         autoFocusPage(page);
       } else {

@@ -12,6 +12,7 @@ a builder, and starting it in its own module keeps that growth out of there.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -28,6 +29,11 @@ from mcp_tools import (begin_turn, checks_earlier, checks_since, end_turn,
                        single_source_notes, turn_progress, urls_since)
 from mora02_core import auth, pricing
 from mora02_core.agents import AgentError, ask, listing, session_key
+from mora02_core.agents import models as gateway_models
+from mora02_core.agents import deploy as deploy_mod
+from mora02_core.agents.store import (StoreError, builtin_tools, effective_limits,
+                                      instance_detail, load_manifest, save_instance,
+                                      skills_catalog, trash_instance)
 from mora02_core._common import get_logger
 
 log = get_logger("agents")
@@ -70,11 +76,7 @@ _RATES = {
 
 
 def _manifest(agent_id: str) -> dict:
-    path = AGENTS_DIR / "instances" / agent_id / "agent.json"
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return load_manifest(agent_id, AGENTS_DIR)
 
 
 def agent_timeout(agent_id: str) -> int:
@@ -105,7 +107,7 @@ async def get_agents():
 
 
 @router.get("/agents/roster")
-async def get_roster():
+async def get_roster(include_inactive: bool = False):
     """The agents as people see them: label, icon, colour, description.
 
     Read by looking, exactly as the rollout does — one folder under
@@ -113,9 +115,10 @@ async def get_roster():
     enumerates them, so an agent created in the builder appears here without
     anything else being edited. That is the whole of increment 3.
 
-    Only ``active`` agents are returned. ``main`` is a letterbox rather than
-    someone to talk to, and offering it in a chat would invite exactly the turn
-    its narrow tool list exists to make harmless.
+    Only ``active`` agents are returned unless ``include_inactive`` is set --
+    the builder asks for all of them, the chat never does. ``main`` is a
+    letterbox rather than someone to talk to, and offering it in a chat would
+    invite exactly the turn its narrow tool list exists to make harmless.
     """
     instances = AGENTS_DIR / "instances"
     if not instances.is_dir():
@@ -137,10 +140,12 @@ async def get_roster():
             data = json.loads(manifest.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue  # a broken manifest hides itself, never the others
-        if not data.get("active", True):
+        if not data.get("active", True) and not include_inactive:
             continue
         agents.append({
             "id": folder.name,
+            "active": bool(data.get("active", True)),
+            "model": data.get("model", ""),
             "label": data.get("label") or folder.name,
             "icon": data.get("icon", ""),
             "colour": data.get("colour", ""),
@@ -154,6 +159,119 @@ async def get_roster():
 
     agents.sort(key=lambda a: (a["sort_order"], a["id"]))
     return {"agents": agents}
+
+
+# ---------------------------------------------------------------------------
+# The builder's half: what an agent may be made of, one agent in full, and the
+# rollout. Everything below writes files into the mounted roster or talks to
+# the gateway through the library; nothing here knows the folder layout.
+# ---------------------------------------------------------------------------
+
+def _store_error(e: StoreError) -> HTTPException:
+    # 422 for a manifest the store refuses, 404 for an agent that is not there.
+    # The message is the store's own: it names the field and says what is wrong.
+    code = 404 if str(e).startswith("no agent") else 422
+    return HTTPException(status_code=code, detail=str(e))
+
+
+@router.get("/agents/models")
+async def get_models():
+    """The models the gateway will accept in an agent's `model` field."""
+    try:
+        return {"models": await gateway_models()}
+    except (AgentError, Exception) as e:
+        raise HTTPException(status_code=502, detail=f"gateway model list unavailable: {e}")
+
+
+@router.get("/agents/skills")
+async def get_skills():
+    return {"skills": skills_catalog(AGENTS_DIR)}
+
+
+@router.get("/agents/tools")
+async def get_tools():
+    """Every tool an allow list may name, with what each one does.
+
+    Two sources, deliberately. The house's MCP tools come from the live server
+    in this very process -- a tool added to mcp_tools.py is in the builder
+    without a second edit. The gateway's own tools come from agents/tools.json,
+    curated, because only a person can write what `exec` means for an agent.
+    Ids are what the allow list wants: MCP tools carry the server prefix.
+    """
+    from mcp_tools import TOOLS as _MCP_TOOLS  # local: the module is heavy at import
+    server = "mora02"
+    try:
+        servers = json.loads((AGENTS_DIR / "mcp.json").read_text(encoding="utf-8"))
+        names = [k for k in servers if not k.startswith("_")]
+        if names:
+            server = names[0]
+    except (OSError, ValueError):
+        pass
+    mcp = [{
+        "id": f"{server}__{t['name']}",
+        "risk": "act" if t["name"] in ("flow_run",) else "read",
+        "what": t.get("description", "")[:220],
+        "source": "mcp",
+    } for t in _MCP_TOOLS]
+    builtin = [{**t, "source": "gateway"} for t in builtin_tools(AGENTS_DIR)]
+    return {"tools": mcp + builtin}
+
+
+@router.get("/agents/drift")
+async def get_drift():
+    """`agents-deploy.py --check` as a GET: what the rollout would change."""
+    res = await asyncio.to_thread(deploy_mod.run, check=True, agents_dir=AGENTS_DIR)
+    if res["error"]:
+        raise HTTPException(status_code=422, detail=res["error"])
+    return res
+
+
+@router.post("/agents/deploy")
+async def post_deploy(agent: Optional[str] = None):
+    """Render the roster into the gateway. Returns what changed and whether it
+    took; 502 when the gateway refused, 422 when the roster itself is unfit."""
+    res = await asyncio.to_thread(deploy_mod.run, check=False, only=agent, agents_dir=AGENTS_DIR)
+    if res["error"]:
+        raise HTTPException(status_code=502 if res["applied"] or res["drift"] else 422,
+                            detail=res["error"])
+    return res
+
+
+@router.get("/agents/{agent_id}/detail")
+async def get_detail(agent_id: str):
+    try:
+        return instance_detail(agent_id, AGENTS_DIR)
+    except StoreError as e:
+        raise _store_error(e)
+
+
+class AgentSave(BaseModel):
+    manifest: dict
+    soul: Optional[str] = None
+    soul_shared_with: Optional[str] = None
+
+
+@router.put("/agents/{agent_id}")
+async def put_agent(agent_id: str, req: AgentSave):
+    """Write one agent's folder. Saving does NOT roll out: the drift view shows
+    what changed, and the person decides when the gateway follows. Two steps
+    on purpose -- a form that deploys on every keystroke's save is a form that
+    cannot be used to prepare anything."""
+    try:
+        return save_instance(agent_id, req.manifest, soul=req.soul,
+                             soul_shared_with=req.soul_shared_with, agents_dir=AGENTS_DIR)
+    except StoreError as e:
+        raise _store_error(e)
+
+
+@router.delete("/agents/{agent_id}")
+async def delete_agent(agent_id: str):
+    """Move the folder to instances/.trash/. The gateway's copy goes at the next
+    rollout, which reads the trash as the record of intent."""
+    try:
+        return trash_instance(agent_id, AGENTS_DIR)
+    except StoreError as e:
+        raise _store_error(e)
 
 
 # Where llama.cpp answers. Same default as mora02_core.llm.models, and for the
@@ -217,7 +335,10 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     # How much a tool may hand back per call belongs to the agent, not to the
     # module: a limit cut for a 32k window forces a large-context model into
     # five calls where one would do, and every call is a round trip.
-    limits = _manifest(agent_id).get("limits")
+    # Resolved through the store so a `same_as` reference lands here as the
+    # other agent's numbers -- the coupling that keeps two comparable agents
+    # comparable.
+    limits = effective_limits(_manifest(agent_id), AGENTS_DIR)
     # The notebook needs to know which conversation it belongs to. Computed the
     # same way the gateway session is, so a follow-up question finds what the
     # previous one wrote down -- the thread held, the notes did not.
