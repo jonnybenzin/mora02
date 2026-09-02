@@ -1,0 +1,87 @@
+{
+  "label": "Recherche+",
+  "icon": "🛰",
+  "colour": "#f0abfc",
+  "description": "Dasselbe Verfahren wie Recherche, aber auf Sonnet — hinterlässt einen prüfbaren Nachweis (~4 Quellenprüfungen je Lauf statt 0,25). Kostet ~33 ct je Lauf, und die Anfragen verlassen das Haus.",
+  "opening": "Ich habe eine Frage zu recherchieren.",
+  "active": true,
+  "sort_order": 40,
+  "model": "anthropic/claude-sonnet-4-6",
+  "timeout": 1500,
+  "limits": {
+    "page_chars": 4000,
+    "max_urls": 8,
+    "max_queries": 8,
+    "snippet_chars": 300,
+    "results_per_query": 8,
+    "max_pages_total": 24,
+    "max_searches_total": 8
+  },
+  "skills": [
+    "recherche"
+  ],
+  "tools": {
+    "allow": [
+      "read",
+      "mora02__web_search",
+      "mora02__web_read",
+      "mora02__note",
+      "mora02__notes_review",
+      "mora02__verify"
+    ]
+  },
+  "_why_this_exists": [
+    "The question this settles was open for a day: local model or cloud model",
+    "for research. It was posed as a choice and it is not one. Since an agent",
+    "became a folder, two instances cost no code -- so the fork is offered to",
+    "whoever asks the question, at the moment they ask it, when they alone know",
+    "whether the subject may leave the house.",
+    "",
+    "Everything except `model`, `timeout` and `limits` is identical to",
+    "`recherche` BY CONSTRUCTION, not by care: SOUL.md is a symlink to the same",
+    "file, and the skill is the same folder. That is what makes a comparison",
+    "between the two measure the MODEL. Two copies of a prose file drift within",
+    "a week, and the drift is invisible in exactly the measurement it ruins.",
+    "",
+    "Nach dem Gleichziehen der Nutzlasten am 2026-09-02 ist es INHALTLICH nicht",
+    "mehr besser: 94 % gegen 94 % auf denselben sechs Fragen. Der Punktabstand",
+    "davor war die Konfiguration, nicht das Modell.",
+    "",
+    "Was bleibt, ist der Nachweis -- 4,2 Quellenpruefungen je Lauf gegen 0,25 --",
+    "und die Abwesenheit erfundener Zitate, die lokal in 3 von 14 Laeufen auftraten",
+    "(unter inhaltlich RICHTIGEN Antworten, was sie schwer erkennbar macht).",
+    "Deshalb bleibt der Agent: fuer Fragen, nach deren Antwort gehandelt wird, und",
+    "als zweite Meinung, wenn eine lokale Antwort bezweifelt wird. Der Blender-",
+    "Fehler wurde genau so gefunden -- zwei Laeufe widersprachen sich."
+  ],
+  "_why_model": [
+    "Cloud, permissible only because this agent reads and does not steer: no",
+    "flow tools, so it cannot direct the factory (ADR-004, and the standing rule",
+    "that the control plane stays local). The tool list is what makes the model",
+    "line a data field rather than a forbidden one.",
+    "",
+    "Queries and page contents leave the house. Fine for a coffee machine or a",
+    "container image, not for a client. That judgement belongs to whoever asks,",
+    "which is why this is a separate agent to pick rather than a setting to",
+    "forget."
+  ],
+  "_why_limits": [
+    "Sized for a 1M window. Measured 2026-09-01: with the payloads cut for a",
+    "small window, a Sonnet turn took 28 tool calls and eight minutes and never",
+    "finished, because five reads were forced where one would have done. A",
+    "narrow payload does not save time, it multiplies round trips.",
+    "",
+    "page_chars 4000 rather than 10000 after measuring where a five-minute turn",
+    "goes: reading eight pages costs 1.6 s, eight searches cost 20 s, and the",
+    "model costs the rest. Page text is resent with every later call of the same",
+    "turn -- paid once in latency and many times in tokens. The notes are what",
+    "makes the shorter excerpt affordable."
+  ],
+  "_why_timeout": [
+    "25 minutes. Measured: this model made 28 calls and read 15 pages in one",
+    "turn -- a 1M window removes every reason to hold back -- and ran into a",
+    "480 s ceiling set for a local profile, returning nothing after eight",
+    "minutes of real work. A ceiling sized for one model silently truncates",
+    "another."
+  ]
+}

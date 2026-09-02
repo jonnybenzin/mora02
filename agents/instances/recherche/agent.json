@@ -2,12 +2,12 @@
   "label": "Recherche",
   "icon": "🔦",
   "colour": "#a3e635",
-  "description": "Sucht breit, liest nach, bewertet — und sagt, worauf er sich stützt.",
+  "description": "Sucht breit, liest nach, bewertet — und sagt, worauf er sich stützt. Läuft lokal: nichts verlässt das Haus.",
   "opening": "Ich habe eine Frage zu recherchieren.",
   "active": true,
   "sort_order": 30,
-  "model": "anthropic/claude-sonnet-4-6",
-  "timeout": 1500,
+  "model": "llama-local/qwen3-14b",
+  "timeout": 900,
   "limits": {
     "page_chars": 4000,
     "max_urls": 8,
@@ -18,18 +18,31 @@
     "max_searches_total": 8
   },
   "_why_limits": [
-    "Sized for a 1M window, not for the 32k the local profile has.",
+    "IDENTICAL to recherche-plus, on purpose and since 2026-09-02.",
     "",
-    "Measured side by side, same question, same model: Claude's own harness",
-    "answered with Sonnet in under a minute and two search operations. This",
-    "agent, with Sonnet, took 28 tool calls and eight minutes and never",
-    "finished — because the defaults, cut for 32k, forced five read calls to",
-    "see what one could have carried. A narrow payload does not save time,",
-    "it multiplies round trips.",
+    "They were not, and that invalidated the first comparison between the two.",
+    "Six payload settings differed -- snippet_chars 200 vs 300, page_chars 3000 vs",
+    "4000, results_per_query 6 vs 8, max_urls 6 vs 8, max_queries 6 vs 8 -- so a",
+    "batch that scored 15/18 against 17/18 was measuring model PLUS payload and",
+    "could say nothing about either. Worse, the settings bear directly on the one",
+    "failure that made the whole difference: the local model picked the wrong page",
+    "at ComfyUI, and snippets are what a page is picked BY.",
     "",
-    "Lower these again if this agent is ever pointed back at a local model.",
+    "The difference had a good reason when it was made: the local window was",
+    "65536 against a million, and a payload cut for a million would have blown it.",
+    "When the window doubled the page COUNT was revised and the payload SIZES were",
+    "not -- and then the pair was turned into a test bench without anyone checking",
+    "that its two halves were comparable.",
     "",
-    "page_chars lowered from 10000 to 4000 after measuring where a five-minute turn actually goes: reading eight pages costs 1.6 seconds, searching eight queries costs 20, and the model costs the remaining four minutes. Page text is resent with every later call of the same turn, so it is paid for once in latency and many times in tokens. The notes are what makes the shorter excerpt affordable — twenty of them, each with its restriction, now survive the turn where the raw pages no longer have to."
+    "What cannot be equalised is the window itself, 131072 against 1M. That is a",
+    "property of the models, not a setting. It does not bind here: the local agent",
+    "used 12k of its 131k across a seven-question batch. 24 pages at 4000 chars is",
+    "about 27k tokens of page text per turn, comfortable in the ~111k usable after",
+    "reserving the reply.",
+    "",
+    "Keep them identical. A difference between these two agents is only readable",
+    "as a difference between the models while everything else is the same file or",
+    "the same number."
   ],
   "skills": [
     "recherche"
@@ -40,7 +53,8 @@
       "mora02__web_search",
       "mora02__web_read",
       "mora02__note",
-      "mora02__notes_review"
+      "mora02__notes_review",
+      "mora02__verify"
     ]
   },
   "_why_tools": [
@@ -52,37 +66,35 @@
     "tool would quietly move it across that line.",
     "",
     "`read` is for the workspace: its own method and, later, a briefing handed",
-    "to it as a file."
+    "to it as a file.",
+    "",
+    "`verify` was added after step 4 of the method was measured never to happen.",
+    "It writes nothing outside the turn and reaches nothing new -- it records the",
+    "outcome of a web_read that already had to occur, and is refused if that read",
+    "did not. So it widens the surface by nothing while making the one step that",
+    "was pure prose into an act with a record."
   ],
   "_why_model": [
-    "Cloud, and this is the one agent where that is allowed: reading only, no",
-    "pipeline tools, so it steers nothing (ADR-004 and the standing rule that the",
-    "control plane stays local). The tool list above is what makes it permissible.",
+    "Local, and this is the default for a reason that has nothing to do with",
+    "quality: the person asking does not have to decide anything before they",
+    "start. Whatever the subject turns out to be, it stays in the house.",
     "",
-    "Why it was switched: context was the binding constraint. The local profile ran",
-    "at 65,536 with 20,000 reserved for the reply, so a three-turn research",
-    "conversation reached 44.7k and stood at the wall; raw page text accumulates in",
-    "the history and never leaves. This model carries 1,024k — the same three turns",
-    "use four per cent of it.",
+    "Nominal string, not a measurement. The provider name points at a port and",
+    "the weights behind it are whatever llama-server currently holds -- read the",
+    "live profile from llm-switch/current.json, never from this line or from a",
+    "turn's answer JSON. OpenClaw reports qwen3-14b after any switch.",
     "",
-    "Queries and page contents leave the house. Fine for a coffee machine, not for",
-    "a client. That judgement belongs to whoever asks, and it is the reason this",
-    "line is a data field rather than a fixed default.",
-    "",
-    "Set for an experiment: the same question that three local runs answered three",
-    "different ways. Same skill, same tools, same payload limits — so a difference",
-    "measures the HARNESS, not the model. Loosening the payloads comes after, as a",
-    "separate question."
+    "It was on anthropic/claude-sonnet-4-6 from 2026-09-01 to 2026-09-02 for an",
+    "A/B, and that is now `recherche-plus`, a separate folder. The choice is",
+    "offered at the moment of asking instead of being buried in a config line",
+    "nobody re-reads -- which is exactly how a day of measurements came to be",
+    "taken on a cloud model while everyone believed they were local."
   ],
   "_why_timeout": [
-    "25 minutes, and that is not padding. Measured: on the local model a research",
-    "turn took three to four minutes with five to twelve tool calls. The same",
-    "agent on Sonnet made 28 calls and read 15 pages in a single turn -- a 1M",
-    "window removes every reason to hold back -- and ran into the 480s ceiling set",
-    "for the local profile, returning nothing after eight minutes of real work.",
-    "",
-    "A ceiling sized for one model silently truncates another. That is a property",
-    "of this agent and its model, which is why it lives here rather than in an",
-    "environment variable everyone shares."
+    "15 minutes. Measured on the old 65536 profile a research turn took three to",
+    "four minutes; a window twice as large removes a reason to stop early, so the",
+    "ceiling is raised with it rather than left to truncate silently. A ceiling",
+    "sized for one model quietly cuts another off mid-work -- measured in both",
+    "directions now."
   ]
 }

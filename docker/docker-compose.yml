@@ -75,7 +75,10 @@ services:
       - /opt/mora02/ai-models/llama-cpp:/models
     environment:
       - LLAMA_ARG_MODEL=/models/Qwen3.6-27B-UD-IQ3_XXS.gguf
-      - LLAMA_ARG_CTX_SIZE=65536
+      # 64 KiB KV pro Token (16 von 64 Schichten sind Attention,
+      # der Rest SSM mit fester Zustandsgroesse) -> 131072 = 8,0 GiB.
+      # Gemessener Anschlag lag bei 44,7k von 45,5k nutzbaren.
+      - LLAMA_ARG_CTX_SIZE=131072
       - LLAMA_ARG_N_GPU_LAYERS=-1
       - LLAMA_ARG_HOST=0.0.0.0
     deploy:
