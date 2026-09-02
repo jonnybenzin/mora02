@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "lib" / "mora02_core" / "src"))
 
 from mora02_core.agents import deploy  # noqa: E402
+from mora02_core.agents.store import roots  # noqa: E402
 
 
 def main() -> int:
@@ -33,8 +34,11 @@ def main() -> int:
     ap.add_argument("--agent", help="only this agent (the config list is still written whole)")
     args = ap.parse_args()
 
+    # Both roots as the checkout has them: the shipped agents/ and this
+    # installation's data/agents/ (absent on a fresh clone, and that is fine).
+    local = REPO / "data" / "agents"
     result = deploy.run(check=args.check, only=args.agent,
-                        agents_dir=REPO / "agents",
+                        rt=roots(REPO / "agents", local if local.is_dir() else None),
                         say=lambda line: print("  " + line))
 
     if result["error"] and not result["applied"]:

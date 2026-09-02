@@ -13,22 +13,27 @@ CLI and the socket but not ``scripts/``. Two doors, one mechanism -- the same
 shape as ``mora02_core.agents.cli`` for a turn. The script is now a wrapper
 around :func:`run`.
 
-The roster is READ BY LOOKING. One folder under ``instances/`` is one agent and
-its folder name is its id::
+The roster is READ BY LOOKING. One folder under ``data/agents/instances/`` is
+one agent and its folder name is its id::
 
-    agents/
+    agents/                         the platform (public repo)
       AGENTS.md                     house rules, rendered into every workspace
       mcp.json                      the servers to register
+      gateway.json                  the reception desk's tool list (main)
+      tools.json                    the gateway's tools, described
       skills/<name>/SKILL.md        skills, granted per agent
+    data/agents/                    this installation (gitignored)
       instances/<id>/agent.json     one agent
       instances/<id>/SOUL.md        its personality, prose in a prose file
+      skills/<name>/SKILL.md        skills of this machine's own
 
 Nothing enumerates the agents, so creating one means creating a directory and
 nothing else -- which is what lets a builder in the browser make one without a
 line of code changing. The plan had this data in Baserow; files won because the
 reason for Baserow was the free CRUD frontend, and increment 4 builds a frontend
 regardless. Files also answer the risk the plan itself named: a prompt in a
-database cell has no history, a prompt in a file has git.
+database cell has no history, a prompt in a file has git (make data/agents a
+private repo).
 
 Everything goes through ``docker exec`` into the gateway container, the path
 Phase 0 measured as reachable (P9). Two mechanisms do the writing:
@@ -41,14 +46,17 @@ Phase 0 measured as reachable (P9). Two mechanisms do the writing:
     ``cat`` through ``sh -c`` for the workspace files, which are root-owned
     inside the volume.
 
-WHY main IS IN THE ROSTER. An MCP server is registered globally. Measured on
+WHY main IS RENDERED TOO. An MCP server is registered globally. Measured on
 2026-09-01: a server projected with ``codex.agents: ["researcher"]`` still
 reached ``main``, and the only guard that held was an explicit per-agent
-``tools.allow``. An agent without one gets everything. So every agent gets one.
+``tools.allow``. An agent without one gets everything. ``main`` is not an
+agent anybody made -- it is the gateway's reception desk -- so its list is
+platform configuration (agents/gateway.json), rendered beside the agents
+because ``agents.list`` is replaced whole.
 
 Environment:
-  MORA02_AGENTS_DIR          the ``agents/`` folder; default is the repo's when
-                             run from a checkout, ``/data/agents`` in a container
+  MORA02_AGENTS_DIR          the shipped ``agents/`` folder
+  MORA02_AGENTS_LOCAL_DIR    this installation's root (the builder's)
   MORA02_OPENCLAW_CONTAINER  gateway container, default ``mora02-openclaw``
   MORA02_DOCKER_BIN          docker binary, default ``docker``
 """
@@ -63,10 +71,15 @@ from pathlib import Path
 from typing import Callable
 
 from mora02_core.agents.store import (
-    AGENTS_DIR as _STORE_DIR,
+    WORKSPACE_EXTRA,
+    Roots,
     StoreError,
+    find_skill,
     load_roster,
+    roots,
+    soul_source,
 )
+from mora02_core.agents.store import LETTERBOX_ID
 
 OC = os.environ.get("MORA02_OPENCLAW_CONTAINER", "mora02-openclaw")
 DOCKER = os.environ.get("MORA02_DOCKER_BIN", "docker")
@@ -75,7 +88,7 @@ DOCKER = os.environ.get("MORA02_DOCKER_BIN", "docker")
 # a stray file in an instance directory should not silently become part of a
 # prompt. AGENTS.md is deliberately NOT in this list -- the house rules are
 # shared and come from agents/AGENTS.md, the same text for every agent.
-WORKSPACE_FILES = ["SOUL.md", "TOOLS.md", "USER.md", "IDENTITY.md"]
+WORKSPACE_FILES = ["SOUL.md", *WORKSPACE_EXTRA]
 
 # The written opt-out. An agent may be unrestricted, but only if somebody typed
 # the word -- the same shape as .boundaryignore beside the boundary guard: the
@@ -121,7 +134,8 @@ def read_config() -> dict:
     rc, out = docker("openclaw", "config", "get", "agents", "--json")
     if rc != 0:
         raise DeployError(f"could not read the gateway config: {out.strip()[:300]}")
-    return {"agents": _config_key("agents"), "mcp": _config_key("mcp")}
+    return {"agents": _config_key("agents"), "mcp": _config_key("mcp"),
+            "models": _config_key("models")}
 
 
 def remote_file(path: str) -> str | None:
@@ -178,7 +192,10 @@ def check_tools(roster: dict) -> None:
     do: the atlas drift check spent months proving that a reminder which stops
     nothing stops nothing.
     """
-    for agent in roster.get("agents", []):
+    entries = list(roster.get("agents", []))
+    if roster.get("letterbox"):
+        entries.append(roster["letterbox"])
+    for agent in entries:
         aid = agent.get("id", "<unnamed>")
         tools = agent.get("tools")
 
@@ -224,13 +241,14 @@ def desired_agent_entry(agent: dict) -> dict:
     return strip_comments(entry)
 
 
-def desired_workspace_files(agent: dict, agents_dir: Path) -> dict[str, str]:
+def desired_workspace_files(agent: dict, rt: Roots) -> dict[str, str]:
     """{container path: contents} for the files this agent's workspace carries."""
     if not agent.get("manage_workspace"):
         return {}
     src = Path(agent["_dir"])
     ws = agent["workspace"]
     out: dict[str, str] = {}
+    agents_dir = rt.platform
 
     # The house rules are shared, not per-agent. agents/AGENTS.md carries no
     # instance's name -- every one of its rules exists because a model was
@@ -241,18 +259,24 @@ def desired_workspace_files(agent: dict, agents_dir: Path) -> dict[str, str]:
     if house_rules.is_file():
         out[f"{ws}/AGENTS.md"] = house_rules.read_text(encoding="utf-8")
 
-    for name in WORKSPACE_FILES:
+    # SOUL.md may be the agent's own, a legacy symlink, or borrowed by
+    # reference from another agent (possibly in the other root). The store
+    # resolves all three; the gateway only ever sees text.
+    _, soul_path = soul_source(agent["id"], rt)
+    if soul_path is not None:
+        out[f"{ws}/SOUL.md"] = soul_path.read_text(encoding="utf-8")
+    for name in WORKSPACE_EXTRA:
         p = src / name
-        if p.is_file():  # follows a symlink: a shared SOUL.md renders as text
+        if p.is_file():
             out[f"{ws}/{name}"] = p.read_text(encoding="utf-8")
     for skill in agent.get("skills", []):
-        folder = agents_dir / "skills" / skill
-        sp = folder / "SKILL.md"
-        if not sp.is_file():
+        hit = find_skill(skill, rt)
+        if hit is None:
             raise DeployError(
                 f"agent {agent['id']!r} wants skill {skill!r}, but "
-                f"skills/{skill}/SKILL.md does not exist"
+                f"skills/{skill}/SKILL.md does not exist in either root"
             )
+        folder = hit[1]
         # The whole folder, not only SKILL.md. A skill may carry material the
         # agent reads at the moment it needs it -- a question catalogue, a
         # template, an example -- and keeping that beside the method is what
@@ -266,11 +290,61 @@ def desired_workspace_files(agent: dict, agents_dir: Path) -> dict[str, str]:
     return out
 
 
+# The gateway's marker for a secret it will not print. A catalog rendered from
+# a redacted read must not carry the marker as if it were the key.
+_REDACTED = "__OPENCLAW_REDACTED__"
+
+
+def desired_catalog(models_config: dict, existing: dict | None) -> dict:
+    """The per-agent model catalog, derived from the gateway's model config.
+
+    Measured 2026-09-02: OpenClaw writes ``<agentDir>/agent/models.json`` once,
+    when the agent is created, from the config of that moment -- and never
+    again. After the local model's id was renamed and its context window
+    raised, every agent still carried the catalog it was born with: main with
+    128000 and the old id, recherche with 65536. ``models list`` merged them
+    all and offered a model that no longer existed. The catalog is exactly the
+    kind of file this rollout exists for: an impression that must follow the
+    source, not a source.
+
+    Only what a catalog carries is rendered: providers with baseUrl, api,
+    apiKey and models. The apiKey is redacted on read; where the config shows
+    the marker, the existing catalog's key is kept (it was written unredacted
+    at creation) and otherwise the field is left out rather than filled with
+    the marker.
+    """
+    providers = (models_config or {}).get("providers") or {}
+    have = ((existing or {}).get("providers") or {})
+    out: dict = {"providers": {}}
+    for name, prov in providers.items():
+        entry: dict = {}
+        for key in ("baseUrl", "api"):
+            if key in prov:
+                entry[key] = prov[key]
+        key = prov.get("apiKey")
+        if key and key != _REDACTED:
+            entry["apiKey"] = key
+        elif have.get(name, {}).get("apiKey"):
+            entry["apiKey"] = have[name]["apiKey"]
+        entry["models"] = [dict(m) for m in (prov.get("models") or [])]
+        out["providers"][name] = entry
+    return out
+
+
+def _agent_dir(entry: dict, live: dict | None) -> str:
+    """Where the gateway keeps an agent's own files (not its workspace)."""
+    if live and live.get("agentDir"):
+        return str(live["agentDir"])
+    if entry.get("agentDir"):
+        return str(entry["agentDir"])
+    return f"/data/openclaw/agents/{entry['id']}/agent"
+
+
 # ---------------------------------------------------------------------------
 # comparing, and closing the gap
 # ---------------------------------------------------------------------------
 
-def plan(roster: dict, only: str | None, agents_dir: Path) -> tuple[list[str], dict, dict, list[str]]:
+def plan(roster: dict, only: str | None, rt: Roots) -> tuple[list[str], dict, dict, list[str]]:
     """Work out the difference without touching anything.
 
     Returns (human-readable drift lines, the agents.list to write, the files
@@ -284,7 +358,7 @@ def plan(roster: dict, only: str | None, agents_dir: Path) -> tuple[list[str], d
     drift: list[str] = []
     agents = [a for a in roster["agents"] if only is None or a["id"] == only]
     if only and not agents:
-        raise DeployError(f"no agent {only!r} under {agents_dir / 'instances'}")
+        raise DeployError(f"no agent {only!r} in either root")
 
     # --- the MCP servers ---------------------------------------------------
     want_mcp = strip_comments(roster.get("mcp") or {})
@@ -300,8 +374,11 @@ def plan(roster: dict, only: str | None, agents_dir: Path) -> tuple[list[str], d
     # --- the agent entries -------------------------------------------------
     # The whole list is rendered, not only the agents asked for: config patch
     # replaces arrays wholesale, so writing a subset would delete the rest.
+    # The reception desk goes first: it is the gateway's default and the
+    # entry every other one is measured against.
     rendered: list[dict] = []
-    for a in roster["agents"]:
+    entries = ([roster["letterbox"]] if roster.get("letterbox") else []) + list(roster["agents"])
+    for a in entries:
         want = desired_agent_entry(a)
         have = live_agents.get(a["id"])
         if have is None:
@@ -326,9 +403,9 @@ def plan(roster: dict, only: str | None, agents_dir: Path) -> tuple[list[str], d
     # gateway would keep a tool surface alive that nobody can see any more --
     # the exact thing the allow-list discipline exists to prevent. The trash
     # folder is what tells the two apart: it is the written record of intent.
-    trashed = trashed_ids(agents_dir)
+    trashed = trashed_ids(rt)
     remove: list[str] = []
-    wanted = {a["id"] for a in roster["agents"]}
+    wanted = {a["id"] for a in entries}
     for stray in live_agents:
         if stray in wanted:
             continue
@@ -346,7 +423,7 @@ def plan(roster: dict, only: str | None, agents_dir: Path) -> tuple[list[str], d
     # did is a log nobody can use to tell a real change from a no-op.
     files: dict[str, str] = {}
     for a in agents:
-        for path, body in desired_workspace_files(a, agents_dir).items():
+        for path, body in desired_workspace_files(a, rt).items():
             have = remote_file(path)
             if have is None:
                 drift.append(f"file/{path}: missing")
@@ -355,24 +432,47 @@ def plan(roster: dict, only: str | None, agents_dir: Path) -> tuple[list[str], d
                 drift.append(f"file/{path}: differs ({digest(have)} -> {digest(body)})")
                 files[path] = body
 
+    # --- the per-agent model catalogs --------------------------------------
+    # Compared as JSON, not as text: the gateway wrote these with its own key
+    # order, and a byte diff would report drift where the content is the same.
+    # Rendered for every agent, including one the gateway does not have yet:
+    # measured on the first live T6, `agents add` does NOT write a catalog, so
+    # skipping the new ones left them "missing" right after the apply.
+    models_cfg = config.get("models") or {}
+    if models_cfg.get("providers"):
+        for a in ([roster["letterbox"]] if roster.get("letterbox") else []) + agents:
+            live = live_agents.get(a["id"])
+            path = f"{_agent_dir(a, live)}/models.json"
+            raw = remote_file(path)
+            try:
+                existing = json.loads(raw) if raw else None
+            except ValueError:
+                existing = None
+            want = desired_catalog(models_cfg, existing)
+            if existing != want:
+                what = "missing" if existing is None else "stale (written when the agent was created)"
+                drift.append(f"catalog/{a['id']}: {what}")
+                files[path] = json.dumps(want, ensure_ascii=False, indent=2) + "\n"
+
     return drift, {"list": rendered}, files, remove
 
 
-def trashed_ids(agents_dir: Path) -> set[str]:
-    """Ids of agents the builder deleted: folders under instances/.trash/.
+def trashed_ids(rt: Roots) -> set[str]:
+    """Ids of agents the builder deleted: folders under instances/.trash/ in
+    either root.
 
     A trashed folder is named ``<id>-<stamp>`` so two deletions of the same id
     can coexist; the id is everything before the last ``-<14 digits>``.
     """
-    trash = agents_dir / "instances" / ".trash"
-    if not trash.is_dir():
-        return set()
     ids: set[str] = set()
-    for f in trash.iterdir():
-        if not f.is_dir():
+    for trash in [r / "instances" / ".trash" for r in (rt.local, rt.platform) if r is not None]:
+        if not trash.is_dir():
             continue
-        head, _, tail = f.name.rpartition("-")
-        ids.add(head if head and tail.isdigit() and len(tail) == 14 else f.name)
+        for f in trash.iterdir():
+            if not f.is_dir():
+                continue
+            head, _, tail = f.name.rpartition("-")
+            ids.add(head if head and tail.isdigit() and len(tail) == 14 else f.name)
     return ids
 
 
@@ -383,7 +483,7 @@ def apply(roster: dict, agents_block: dict, files: dict[str, str],
     for a in roster["agents"]:
         if only is not None and a["id"] != only:
             continue
-        if a["id"] == "main" or a["id"] in existing:
+        if a["id"] == LETTERBOX_ID or a["id"] in existing:
             continue
         say(f"creating agent {a['id']}")
         # --non-interactive is not optional: without it `agents add` PROMPTS for
@@ -447,7 +547,7 @@ def apply(roster: dict, agents_block: dict, files: dict[str, str],
 # ---------------------------------------------------------------------------
 
 def run(*, check: bool = False, only: str | None = None,
-        agents_dir: Path | None = None,
+        rt: Roots | None = None,
         say: Callable[[str], None] | None = None) -> dict:
     """Check or apply, and say what happened in a shape both a shell and a
     browser can show.
@@ -462,7 +562,7 @@ def run(*, check: bool = False, only: str | None = None,
     HTTP layer can turn it into a status code and the CLI into an exit code
     without either re-deriving what went wrong.
     """
-    agents_dir = Path(agents_dir or _STORE_DIR)
+    rt = rt if rt is not None else roots()
     log: list[str] = []
 
     def _say(line: str) -> None:
@@ -473,12 +573,12 @@ def run(*, check: bool = False, only: str | None = None,
     result = {"ok": False, "in_sync": False, "applied": False,
               "drift": [], "left": [], "log": log, "error": None}
     try:
-        roster = load_roster(agents_dir)
+        roster = load_roster(rt)
         # Before anything is read from the gateway: a roster that leaves a tool
         # surface unsaid is refused, check mode included. Checking a roster that
         # cannot be applied would report drift nobody may close.
         check_tools(roster)
-        drift, agents_block, files, remove = plan(roster, only, agents_dir)
+        drift, agents_block, files, remove = plan(roster, only, rt)
     except (StoreError, DeployError) as e:
         result["error"] = str(e)
         return result
@@ -500,7 +600,7 @@ def run(*, check: bool = False, only: str | None = None,
 
     # Say whether it actually took, rather than assuming the writes landed.
     try:
-        left, _, _, _ = plan(roster, only, agents_dir)
+        left, _, _, _ = plan(roster, only, rt)
     except (StoreError, DeployError) as e:
         result["error"] = f"applied, but could not verify: {e}"
         return result

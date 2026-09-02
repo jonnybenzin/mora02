@@ -32,7 +32,8 @@ from mora02_core.agents import AgentError, ask, listing, session_key
 from mora02_core.agents import models as gateway_models
 from mora02_core.agents import deploy as deploy_mod
 from mora02_core.agents.store import (StoreError, builtin_tools, effective_limits,
-                                      instance_detail, load_manifest, save_instance,
+                                      instance_detail, iter_instances, load_manifest,
+                                      roots, save_instance, skill_detail,
                                       skills_catalog, trash_instance)
 from mora02_core._common import get_logger
 
@@ -43,10 +44,14 @@ log = get_logger("agents")
 # been told; with a third route arriving it stops being worth the cleverness.
 router = APIRouter(tags=["agents"])
 
-# The roster as the repo holds it, seen through the mount. The gateway has its
-# own idea of which agents exist (see /agents); this is the other half -- the
-# label, icon and description a person needs, which the gateway never stores.
-AGENTS_DIR = Path(os.environ.get("MORA02_AGENTS_DIR", "/data/agents"))
+# The roster as the mounts hold it: the platform root (agents/ in the repo:
+# skills, tools, the reception desk) and this installation's root (data/agents/:
+# every agent). The gateway has its own idea of which agents exist (see
+# /agents); this is the other half -- the label, icon and description a person
+# needs, which the gateway never stores. Both roots come from the environment
+# (MORA02_AGENTS_DIR, MORA02_AGENTS_LOCAL_DIR).
+ROOTS = roots()
+AGENTS_DIR = ROOTS.platform
 
 # How long a turn may take, when the caller does not say and the agent's own
 # manifest does not either. The bridge's own default was set when a turn was a
@@ -76,7 +81,7 @@ _RATES = {
 
 
 def _manifest(agent_id: str) -> dict:
-    return load_manifest(agent_id, AGENTS_DIR)
+    return load_manifest(agent_id, ROOTS)
 
 
 def agent_timeout(agent_id: str) -> int:
@@ -116,25 +121,23 @@ async def get_roster(include_inactive: bool = False):
     anything else being edited. That is the whole of increment 3.
 
     Only ``active`` agents are returned unless ``include_inactive`` is set --
-    the builder asks for all of them, the chat never does. ``main`` is a
-    letterbox rather than someone to talk to, and offering it in a chat would
-    invite exactly the turn its narrow tool list exists to make harmless.
+    the builder asks for all of them, the chat never does. ``main`` never
+    appears: it is the gateway's reception desk, not an agent (agents/gateway.json).
     """
-    instances = AGENTS_DIR / "instances"
-    if not instances.is_dir():
+    if ROOTS.local is None:
         # A 503 naming the mount rather than an empty list: "no agents" and
         # "the directory was never mounted" look identical to a UI, and only
         # one of them is something an operator can fix.
         raise HTTPException(
             status_code=503,
-            detail=f"no agent instances at {instances} — is /opt/mora02/agents "
-                   f"mounted into this container?",
+            detail="no installation root — is /opt/mora02/data/agents mounted and "
+                   "MORA02_AGENTS_LOCAL_DIR set for this container?",
         )
 
     agents = []
-    for folder in sorted(instances.iterdir()):
+    for folder in iter_instances(ROOTS):
         manifest = folder / "agent.json"
-        if not folder.is_dir() or folder.name.startswith(".") or not manifest.is_file():
+        if not manifest.is_file():
             continue
         try:
             data = json.loads(manifest.read_text(encoding="utf-8"))
@@ -178,14 +181,43 @@ def _store_error(e: StoreError) -> HTTPException:
 async def get_models():
     """The models the gateway will accept in an agent's `model` field."""
     try:
-        return {"models": await gateway_models()}
+        models = await gateway_models()
     except (AgentError, Exception) as e:
         raise HTTPException(status_code=502, detail=f"gateway model list unavailable: {e}")
+    # The local entry's id is a port, not a weight (see _loaded_weights). What
+    # a person choosing "local" is choosing is whatever llama-server has loaded
+    # right now -- so that is what stands beside the entry, asked of the server.
+    loaded = await _loaded_weights()
+    for m in models:
+        if m.get("local"):
+            m["loaded"] = loaded
+    return {"models": models}
+
+
+@router.get("/agents/roots")
+async def get_roots():
+    """Where things live, so the builder can say where an agent goes -- and say
+    plainly when there is nowhere (no installation root mounted)."""
+    return {"platform": str(ROOTS.platform),
+            "local": str(ROOTS.local) if ROOTS.local else None,
+            "can_create": ROOTS.local is not None}
 
 
 @router.get("/agents/skills")
 async def get_skills():
-    return {"skills": skills_catalog(AGENTS_DIR)}
+    try:
+        return {"skills": skills_catalog(ROOTS)}
+    except StoreError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/agents/skills/{name}")
+async def get_skill(name: str):
+    """One skill with its files, readable. What the agent reads, a person can."""
+    try:
+        return skill_detail(name, ROOTS)
+    except StoreError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/agents/tools")
@@ -213,14 +245,14 @@ async def get_tools():
         "what": t.get("description", "")[:220],
         "source": "mcp",
     } for t in _MCP_TOOLS]
-    builtin = [{**t, "source": "gateway"} for t in builtin_tools(AGENTS_DIR)]
+    builtin = [{**t, "source": "gateway"} for t in builtin_tools(ROOTS)]
     return {"tools": mcp + builtin}
 
 
 @router.get("/agents/drift")
 async def get_drift():
     """`agents-deploy.py --check` as a GET: what the rollout would change."""
-    res = await asyncio.to_thread(deploy_mod.run, check=True, agents_dir=AGENTS_DIR)
+    res = await asyncio.to_thread(deploy_mod.run, check=True, rt=ROOTS)
     if res["error"]:
         raise HTTPException(status_code=422, detail=res["error"])
     return res
@@ -230,7 +262,7 @@ async def get_drift():
 async def post_deploy(agent: Optional[str] = None):
     """Render the roster into the gateway. Returns what changed and whether it
     took; 502 when the gateway refused, 422 when the roster itself is unfit."""
-    res = await asyncio.to_thread(deploy_mod.run, check=False, only=agent, agents_dir=AGENTS_DIR)
+    res = await asyncio.to_thread(deploy_mod.run, check=False, only=agent, rt=ROOTS)
     if res["error"]:
         raise HTTPException(status_code=502 if res["applied"] or res["drift"] else 422,
                             detail=res["error"])
@@ -240,7 +272,7 @@ async def post_deploy(agent: Optional[str] = None):
 @router.get("/agents/{agent_id}/detail")
 async def get_detail(agent_id: str):
     try:
-        return instance_detail(agent_id, AGENTS_DIR)
+        return instance_detail(agent_id, ROOTS)
     except StoreError as e:
         raise _store_error(e)
 
@@ -249,6 +281,8 @@ class AgentSave(BaseModel):
     manifest: dict
     soul: Optional[str] = None
     soul_shared_with: Optional[str] = None
+    # TOOLS.md / USER.md / IDENTITY.md: absent = untouched, "" = removed
+    files: Optional[dict] = None
 
 
 @router.put("/agents/{agent_id}")
@@ -259,7 +293,8 @@ async def put_agent(agent_id: str, req: AgentSave):
     cannot be used to prepare anything."""
     try:
         return save_instance(agent_id, req.manifest, soul=req.soul,
-                             soul_shared_with=req.soul_shared_with, agents_dir=AGENTS_DIR)
+                             soul_shared_with=req.soul_shared_with, files=req.files,
+                             rt=ROOTS)
     except StoreError as e:
         raise _store_error(e)
 
@@ -269,7 +304,7 @@ async def delete_agent(agent_id: str):
     """Move the folder to instances/.trash/. The gateway's copy goes at the next
     rollout, which reads the trash as the record of intent."""
     try:
-        return trash_instance(agent_id, AGENTS_DIR)
+        return trash_instance(agent_id, ROOTS)
     except StoreError as e:
         raise _store_error(e)
 
@@ -283,7 +318,7 @@ async def _loaded_weights() -> str:
     """Which model file is actually loaded, asked of the server itself.
 
     Why this exists at all. A local agent's `model` line reads
-    "llama-local/qwen3-14b" and cannot say anything else: that is the id
+    "llama-local/current" and cannot say anything else: that is the id
     configured in the gateway's provider block, and an unconfigured one makes
     the agent fail to resolve. Meanwhile llama-server serves whatever GGUF is
     loaded and ignores the id in the request -- so the name in the manifest is
@@ -338,7 +373,7 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     # Resolved through the store so a `same_as` reference lands here as the
     # other agent's numbers -- the coupling that keeps two comparable agents
     # comparable.
-    limits = effective_limits(_manifest(agent_id), AGENTS_DIR)
+    limits = effective_limits(_manifest(agent_id), ROOTS)
     # The notebook needs to know which conversation it belongs to. Computed the
     # same way the gateway session is, so a follow-up question finds what the
     # previous one wrote down -- the thread held, the notes did not.

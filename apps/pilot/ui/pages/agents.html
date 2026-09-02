@@ -1,7 +1,7 @@
 <!-- AGENTS page — the agent builder (agent-layer increment 4).
      Rendered by navigate('agents') → initAgents() in js/agents.js.
 
-     Left: every instance folder under agents/instances/ (GET /agents/roster?include_inactive=1).
+     Left: every instance folder under data/agents/instances/ (GET /agents/roster?include_inactive=1).
      Right: one agent as a form — identity, model, limits, skills, tool rights, SOUL —
      saved with PUT /agents/<id>, checked with GET /agents/drift, rolled out with
      POST /agents/deploy, tried with POST /agent/<id>/message.
@@ -73,6 +73,23 @@
   .agb-ck.write .agb-ck-n{color:#eb4}
   .agb-risk{font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;padding:1px 5px;border-radius:4px;border:1px solid currentColor;font-weight:400}
   .agb-sub{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx-muted,#666);margin:10px 0 4px}
+
+  /* skill files viewer + folded workspace files */
+  .agb-files-tg{cursor:pointer;text-decoration:none}
+  .agb-files-tg:hover{color:var(--accent,#2b7);border-color:var(--accent,#2b7)}
+  .agb-skbox{margin-top:10px;border-top:1px dashed var(--bd,#2a2a2a);padding-top:6px}
+  .agb-skfiles-l{display:flex;flex-wrap:wrap;gap:4px 10px;margin:4px 0 8px}
+  .agb-skfile{font-size:11px;color:var(--tx-muted,#999);cursor:pointer;padding:2px 6px;border-radius:4px;border:1px solid transparent}
+  .agb-skfile:hover{color:var(--tx-primary,#eee)}
+  .agb-skfile.sel{color:var(--tx-primary,#eee);border-color:var(--accent,#2b7)}
+  .agb-skfile .dim{color:var(--tx-muted,#666);font-size:9.5px}
+  .agb-skpre{max-height:420px;font-size:11px}
+  .agb-det summary{cursor:pointer;font-size:11.5px;font-weight:700;color:var(--tx-primary,#eee);padding:6px 0;list-style:none;display:flex;gap:8px;align-items:center}
+  .agb-det summary::-webkit-details-marker{display:none}
+  .agb-det summary::before{content:"▸";color:var(--tx-muted,#777);font-size:10px}
+  .agb-det[open] summary::before{content:"▾"}
+  .agb-det{border-top:1px solid var(--bd,#242424)}
+  .agb-det:first-of-type{border-top:none}
 
   /* action bar */
   .agb-bar{display:flex;align-items:center;gap:9px;margin:12px 0;flex-wrap:wrap}

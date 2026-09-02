@@ -141,3 +141,7 @@ docker/searxng/settings.yml.bak-*
 # agents deleted in the builder are moved here, not removed. Local history of
 # this machine, never part of the roster and never something to publish.
 agents/instances/.trash/
+
+# this installation's content: agents made in the builder, later flows and
+# skills of this machine. Never the platform's -- see data/agents/README.txt
+/data/

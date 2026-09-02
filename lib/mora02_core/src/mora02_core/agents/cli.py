@@ -235,7 +235,7 @@ async def models() -> list[dict]:
 
     The Pilot has its own model registry, but that one speaks Pilot keys
     ("qwen", "sonnet") and the gateway wants provider-prefixed ids
-    ("llama-local/qwen3-14b", "anthropic/claude-sonnet-4-6"). Asking the gateway
+    ("llama-local/current", "anthropic/claude-sonnet-4-6"). Asking the gateway
     is the only way to offer exactly the ids it will accept.
 
     ``local`` is decided HERE by the provider prefix and not taken from the

@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Does the builder's store keep the promises the rollout relies on?
 
-Increment 4 lets a browser write agents/instances/<id>/. Everything the
-rollout refuses at deploy time -- a missing tool list, an empty one, a skill
-that does not exist -- must be refused at SAVE time too, or the form becomes a
-way to prepare a rollout that cannot run. And two guarantees are new here:
+Increment 4 lets a browser write an agent folder. Everything the rollout
+refuses at deploy time -- a missing tool list, an empty one, a skill that does
+not exist -- must be refused at SAVE time too, or the form becomes a way to
+prepare a rollout that cannot run. What this suite pins down:
 
-  * limits borrowed with `same_as` resolve to the other agent's numbers, and a
-    dangling or self-referential borrow is refused (the drift that once made a
-    whole day's comparison unreadable)
-  * deletion MOVES to .trash/, the roster no longer sees it, the rollout's plan
-    reads the trash as intent, and an agent whose SOUL others link to cannot go
+  * one kind of agent, one place: data/agents/instances/. The platform root
+    (agents/) ships skills, tools and the reception desk -- and no agents.
+  * `main` is the reception desk, not an agent: configured in gateway.json,
+    rendered by the rollout, refused as an agent id.
+  * limits and SOUL may be borrowed by reference (`same_as`,
+    `soul_shared_with`); a dangling or self-referential borrow is refused
+  * deletion MOVES to .trash/; the rollout reads the trash as intent
 
-Offline and free: works on a temporary copy of agents/, touches no gateway.
+Offline and free: builds its own fixtures in a temp directory, touches no
+gateway and none of the machine's real agents.
 
 Usage:
     PYTHONPATH=lib/mora02_core/src python3 tests/agents/test_builder_store.py
@@ -49,111 +52,185 @@ def refuses(fn, subject: str, needle: str = "") -> None:
     record(False, subject, "was accepted")
 
 
+BASE = {
+    "label": "Probe", "icon": "x", "description": "d", "active": True,
+    "model": "llama-local/current", "timeout": 60, "skills": ["recherche"],
+    "tools": {"allow": ["read"]},
+}
+OWN_LIMITS = {"page_chars": 4000, "max_urls": 8, "max_queries": 8, "snippet_chars": 300,
+              "results_per_query": 8, "max_pages_total": 24, "max_searches_total": 8}
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="agents-store-"))
     try:
-        # Without the real .trash/: the API suite leaves its probe there, and a
-        # copy that carries it would make the trash assertions below depend on
-        # what some other suite did last.
+        # platform = the repo's agents/ as shipped (no instances); local = empty
         shutil.copytree(ROOT / "agents", tmp / "agents", symlinks=True,
                         ignore=shutil.ignore_patterns(".trash"))
-        A = tmp / "agents"
+        (tmp / "data" / "agents" / "instances").mkdir(parents=True)
+        (tmp / "data" / "agents" / "skills").mkdir(parents=True)
+        P, L = tmp / "agents", tmp / "data" / "agents"
+        RT = store.roots(P, L)
+        NOLOCAL = store.roots(P)
 
-        # --- reading the real roster through the copy ----------------------
-        roster = store.load_roster(A)
-        ids = [a["id"] for a in roster["agents"]]
-        record("recherche" in ids and "main" in ids, "load_roster", ", ".join(ids))
-        deploy.check_tools(roster)
-        record(True, "check_tools accepts the shipped roster")
+        # --- the platform ships no agents, and a reception desk --------------
+        record(not any((P / "instances").iterdir()) if (P / "instances").is_dir() else True,
+               "agents/instances ships empty")
+        r = store.load_roster(RT)
+        record(r["agents"] == [], "empty roster is a legitimate state (fresh clone)")
+        lb = r["letterbox"]
+        record(bool(lb) and lb["id"] == "main" and lb["tools"]["allow"] and lb["manage_workspace"] is False,
+               "reception desk read from gateway.json", str(lb and lb["tools"]["allow"]))
+        deploy.check_tools(r)
+        record(True, "check_tools covers the reception desk")
 
-        d = store.instance_detail("recherche-plus", A)
-        record(d["soul_shared_with"] == "recherche", "shared SOUL is read as a link", str(d["soul_shared_with"]))
-        record(bool(d["soul"]), "shared SOUL text comes through the link")
+        sk = {s["name"]: s["root"] for s in store.skills_catalog(RT)}
+        record(sk.get("recherche") == "platform" and sk.get("briefing") == "platform", "skills come from the platform", ", ".join(sorted(sk)))
+        record(len(store.builtin_tools(RT)) >= 10, "builtin_tools from tools.json", str(len(store.builtin_tools(RT))))
 
-        sk = {s["name"] for s in store.skills_catalog(A)}
-        record("recherche" in sk, "skills_catalog", ", ".join(sorted(sk)))
-        record(len(store.builtin_tools(A)) >= 10, "builtin_tools from tools.json", str(len(store.builtin_tools(A))))
+        # --- main is not an agent -------------------------------------------------
+        refuses(lambda: store.save_instance("main", dict(BASE), soul="x", rt=RT), "main refused as an agent id", "reception desk")
+        (L / "instances/main").mkdir()
+        (L / "instances/main/agent.json").write_text("{}")
+        refuses(lambda: store.load_roster(RT), "an instances/main folder is refused", "not an agent")
+        shutil.rmtree(L / "instances/main")
+        refuses(lambda: store.save_instance("zz", dict(BASE), soul="x", rt=NOLOCAL), "no installation root -> cannot create", "no installation root")
 
-        # --- creating one --------------------------------------------------
-        base = {
-            "label": "Probe", "icon": "x", "description": "d", "active": True,
-            "model": "llama-local/qwen3-14b", "timeout": 60, "skills": ["recherche"],
-            "tools": {"allow": ["read"]},
-        }
-        r = store.save_instance("zz-probe", dict(base), soul="# Probe\n", agents_dir=A)
-        record(r["created"] and (A / "instances/zz-probe/agent.json").is_file()
-               and (A / "instances/zz-probe/SOUL.md").read_text() == "# Probe\n",
-               "save_instance creates folder, manifest and SOUL")
-        saved = json.loads((A / "instances/zz-probe/agent.json").read_text())
+        # --- creating agents --------------------------------------------------------
+        r1 = store.save_instance("base-a", {**BASE, "limits": OWN_LIMITS}, soul="# Base A\n", rt=RT)
+        record(r1["created"] and (L / "instances/base-a/agent.json").is_file()
+               and (L / "instances/base-a/SOUL.md").read_text() == "# Base A\n",
+               "save_instance creates folder, manifest and SOUL under data/agents/")
+        saved = json.loads((L / "instances/base-a/agent.json").read_text())
         record("id" not in saved and "_dir" not in saved, "runtime fields never written to the file")
+        before = (L / "instances/base-a/agent.json").read_bytes()
+        store.save_instance("base-a", {**BASE, "limits": OWN_LIMITS}, soul="# Base A\n", rt=RT)
+        record(before == (L / "instances/base-a/agent.json").read_bytes(), "saving twice is byte-identical (idempotent)")
+        record([a["id"] for a in store.load_roster(RT)["agents"]] == ["base-a"], "roster sees it by existing")
 
-        before = (A / "instances/zz-probe/agent.json").read_bytes()
-        store.save_instance("zz-probe", dict(base), soul="# Probe\n", agents_dir=A)
-        record(before == (A / "instances/zz-probe/agent.json").read_bytes(), "saving twice is byte-identical (idempotent)")
+        # --- what must be refused at save time ------------------------------
+        refuses(lambda: store.save_instance("Bad Id", dict(BASE), rt=RT), "id with space refused", "id")
+        refuses(lambda: store.save_instance("zz-p2", {**BASE, "tools": {"allow": []}}, rt=RT), "empty tool list refused", "empty")
+        refuses(lambda: store.save_instance("zz-p2", {k: v for k, v in BASE.items() if k != "tools"}, rt=RT), "missing tool list refused", "tools.allow")
+        refuses(lambda: store.save_instance("zz-p2", {**BASE, "skils": []}, rt=RT), "typo'd key refused", "unknown field")
+        refuses(lambda: store.save_instance("zz-p2", {**BASE, "skills": ["nope"]}, rt=RT), "unknown skill refused", "does not exist")
+        refuses(lambda: store.save_instance("zz-p2", {**BASE, "limits": {"page_chars": -1}}, rt=RT), "negative limit refused", "positive")
+        refuses(lambda: store.save_instance("zz-p2", {**BASE, "limits": {"same_as": "zz-p2"}}, rt=RT), "same_as itself refused", "itself")
+        refuses(lambda: store.save_instance("zz-p2", {**BASE, "limits": {"same_as": "ghost"}}, rt=RT), "same_as dangling refused", "does not exist")
+        refuses(lambda: store.save_instance("zz-p2", {**BASE, "limits": {"same_as": "base-a", "page_chars": 1}}, rt=RT), "same_as plus own values refused", "drift")
+        record(not (L / "instances/zz-p2").exists(), "a refused save leaves no folder behind")
 
-        # --- what must be refused at save time ----------------------------
-        refuses(lambda: store.save_instance("Bad Id", dict(base), agents_dir=A), "id with space refused", "id")
-        refuses(lambda: store.save_instance("zz-p2", {**base, "tools": {"allow": []}}, agents_dir=A), "empty tool list refused", "empty")
-        refuses(lambda: store.save_instance("zz-p2", {k: v for k, v in base.items() if k != "tools"}, agents_dir=A), "missing tool list refused", "tools.allow")
-        refuses(lambda: store.save_instance("zz-p2", {**base, "skils": []}, agents_dir=A), "typo'd key refused", "unknown field")
-        refuses(lambda: store.save_instance("zz-p2", {**base, "skills": ["nope"]}, agents_dir=A), "unknown skill refused", "does not exist")
-        refuses(lambda: store.save_instance("zz-p2", {**base, "limits": {"page_chars": -1}}, agents_dir=A), "negative limit refused", "positive")
-        refuses(lambda: store.save_instance("zz-p2", {**base, "limits": {"same_as": "zz-p2"}}, agents_dir=A), "same_as itself refused", "itself")
-        refuses(lambda: store.save_instance("zz-p2", {**base, "limits": {"same_as": "ghost"}}, agents_dir=A), "same_as dangling refused", "does not exist")
-        refuses(lambda: store.save_instance("zz-p2", {**base, "limits": {"same_as": "recherche", "page_chars": 1}}, agents_dir=A), "same_as plus own values refused", "drift")
-        refuses(lambda: store.save_instance("main", {**base, "active": True}, agents_dir=A), "main cannot be made active", "letterbox")
-        record(not (A / "instances/zz-p2").exists(), "a refused save leaves no folder behind")
+        # --- borrowed limits ------------------------------------------------------------
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, soul="# T\n", rt=RT)
+        eff = store.effective_limits(store.load_manifest("twin", RT), RT)
+        record(eff == OWN_LIMITS, "same_as resolves to the other agent's limits", f"{len(eff or {})} values")
+        twin = [a for a in store.load_roster(RT)["agents"] if a["id"] == "twin"][0]
+        entry = deploy.desired_agent_entry(twin)
+        record("limits" not in entry and "timeout" not in entry and "soul_shared_with" not in entry,
+               "limits, timeout and soul reference stay out of the gateway entry")
+        (L / "instances/twin/agent.json").write_text(json.dumps({**BASE, "limits": {"same_as": "ghost"}}))
+        refuses(lambda: store.load_roster(RT), "load_roster refuses a dangling same_as", "does not exist")
 
-        # --- borrowed limits -----------------------------------------------
-        store.save_instance("zz-twin", {**base, "limits": {"same_as": "recherche"}}, soul="# T\n", agents_dir=A)
-        eff = store.effective_limits(store.load_manifest("zz-twin", A), A)
-        want = store.load_manifest("recherche", A)["limits"]
-        record(eff == want, "same_as resolves to the other agent's limits", f"{len(eff or {})} values")
-        entry = deploy.desired_agent_entry(store.load_roster(A)["agents"][[a["id"] for a in store.load_roster(A)["agents"]].index("zz-twin")])
-        record("limits" not in entry and "timeout" not in entry, "limits and timeout stay out of the gateway entry")
+        # --- borrowed SOUL by reference -------------------------------------------------
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, soul_shared_with="base-a", rt=RT)
+        m = store.load_manifest("twin", RT)
+        record(m.get("soul_shared_with") == "base-a" and not (L / "instances/twin/SOUL.md").exists(),
+               "SOUL borrowed as a manifest reference, own file removed")
+        d = store.instance_detail("twin", RT)
+        record(d["soul_shared_with"] == "base-a" and d["soul"] == "# Base A\n", "detail resolves the borrowed SOUL text")
+        files = deploy.desired_workspace_files([a for a in store.load_roster(RT)["agents"] if a["id"] == "twin"][0], RT)
+        soul_key = [k for k in files if k.endswith("/SOUL.md")]
+        record(bool(soul_key) and files[soul_key[0]] == "# Base A\n" and any("/skills/recherche/" in k for k in files),
+               "rollout renders the borrowed SOUL and the platform skill", f"{len(files)} files")
+        refuses(lambda: store.save_instance("zz-p3", dict(BASE), soul_shared_with="twin", rt=RT), "borrowing from a borrower refused", "original")
+        refuses(lambda: store.save_instance("zz-p3", dict(BASE), soul_shared_with="zz-p3", rt=RT), "borrowing from itself refused", "itself")
+        refuses(lambda: store.save_instance("zz-p3", dict(BASE), soul="x", soul_shared_with="base-a", rt=RT), "soul and share together refused", "not both")
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, soul="# own\n", rt=RT)
+        m = store.load_manifest("twin", RT)
+        record("soul_shared_with" not in m and (L / "instances/twin/SOUL.md").read_text() == "# own\n"
+               and (L / "instances/base-a/SOUL.md").read_text() == "# Base A\n",
+               "giving an own SOUL drops the reference without touching the original")
 
-        # a borrow that goes dangling later is caught on the next roster read
-        (A / "instances/zz-twin/agent.json").write_text(json.dumps({**base, "limits": {"same_as": "ghost"}}))
-        refuses(lambda: store.load_roster(A), "load_roster refuses a dangling same_as", "does not exist")
-        (A / "instances/zz-twin/agent.json").write_text(json.dumps({**base, "limits": {"same_as": "recherche"}}))
+        # the legacy form: a symlink SOUL is still read as a borrow
+        (L / "instances/twin/SOUL.md").unlink()
+        os.symlink("../base-a/SOUL.md", L / "instances/twin/SOUL.md")
+        d = store.instance_detail("twin", RT)
+        record(d["soul_shared_with"] == "base-a" and d["soul"] == "# Base A\n", "legacy symlink SOUL is read as a borrow")
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, soul="# own\n", rt=RT)
+        record(not (L / "instances/twin/SOUL.md").is_symlink() and (L / "instances/base-a/SOUL.md").read_text() == "# Base A\n",
+               "writing over a legacy symlink breaks it instead of writing through")
 
-        # --- shared SOUL ---------------------------------------------------
-        store.save_instance("zz-twin", {**base, "limits": {"same_as": "recherche"}}, soul_shared_with="zz-probe", agents_dir=A)
-        sp = A / "instances/zz-twin/SOUL.md"
-        record(sp.is_symlink() and os.readlink(sp) == "../zz-probe/SOUL.md", "SOUL can be shared as a relative symlink")
-        refuses(lambda: store.save_instance("zz-p3", dict(base), soul_shared_with="zz-twin", agents_dir=A), "sharing a shared SOUL refused", "original")
-        refuses(lambda: store.save_instance("zz-p3", dict(base), soul="x", soul_shared_with="zz-probe", agents_dir=A), "soul and share together refused", "not both")
-        store.save_instance("zz-twin", {**base, "limits": {"same_as": "recherche"}}, soul="# own\n", agents_dir=A)
-        record(not sp.is_symlink() and sp.read_text() == "# own\n"
-               and (A / "instances/zz-probe/SOUL.md").read_text() == "# Probe\n",
-               "giving an own SOUL breaks the link without writing through it")
+        # --- the other workspace files + reading a skill -------------------------
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, files={"USER.md": "likes short answers"}, rt=RT)
+        record((L / "instances/twin/USER.md").read_text() == "likes short answers\n"
+               and store.instance_detail("twin", RT)["files"] == {"USER.md": "likes short answers\n"},
+               "extra workspace file written and read back")
+        files = deploy.desired_workspace_files([a for a in store.load_roster(RT)["agents"] if a["id"] == "twin"][0], RT)
+        record(any(p.endswith("/USER.md") for p in files), "the rollout renders it (one list, two readers)")
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, files={"USER.md": ""}, rt=RT)
+        record(not (L / "instances/twin/USER.md").exists(), "empty string removes the file")
+        refuses(lambda: store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, files={"EVIL.md": "x"}, rt=RT),
+                "a file outside the allowed set is refused", "not a workspace file")
 
-        files = deploy.desired_workspace_files(
-            [a for a in store.load_roster(A)["agents"] if a["id"] == "zz-twin"][0], A)
-        record(any(p.endswith("/SOUL.md") for p in files) and any("/skills/recherche/" in p for p in files),
-               "workspace render carries SOUL and the granted skill", f"{len(files)} files")
+        sd = store.skill_detail("briefing", RT)
+        paths = [f["path"] for f in sd["files"]]
+        record("recherche/FRAGEN.md" in paths and all("content" in f for f in sd["files"]) and sd["root"] == "platform",
+               "skill_detail lists the catalogue with content", ", ".join(paths))
+        record(sd["used_by"] == [], "skill_detail names who uses it (nobody here)")
+        refuses(lambda: store.skill_detail("../instances", RT), "skill_detail refuses a path", "no skill")
+        refuses(lambda: store.skill_detail("nope", RT), "skill_detail unknown", "no skill")
 
-        # --- deletion ------------------------------------------------------
-        store.save_instance("zz-twin", {**base, "limits": {"same_as": "recherche"}}, soul_shared_with="zz-probe", agents_dir=A)
-        refuses(lambda: store.trash_instance("zz-probe", A), "an agent lending its SOUL cannot be trashed", "lends")
-        refuses(lambda: store.trash_instance("main", A), "main cannot be trashed", "cannot be deleted")
-        mv = store.trash_instance("zz-twin", A)
-        record(".trash/zz-twin-" in mv["moved_to"] and Path(mv["moved_to"]).is_dir(), "trash moves the folder", mv["moved_to"].rsplit("/", 1)[-1])
-        record("zz-twin" not in [a["id"] for a in store.load_roster(A)["agents"]], "roster no longer sees a trashed agent")
-        record(deploy.trashed_ids(A) == {"zz-twin"}, "trashed_ids reads the intent", str(deploy.trashed_ids(A)))
-        mv2 = store.trash_instance("zz-probe", A)  # dependant is gone now
-        record(deploy.trashed_ids(A) == {"zz-twin", "zz-probe"}, "two trashed agents, both read back")
-        refuses(lambda: store.trash_instance("zz-probe", A), "trashing twice is a 'no agent'", "no agent")
+        # a skill of the installation's own: found, usable, marked, no clash allowed
+        (L / "skills/haus").mkdir()
+        (L / "skills/haus/SKILL.md").write_text("---\nname: haus\ndescription: Use this when asked about the house.\n---\n# Haus\n")
+        record({s["name"]: s["root"] for s in store.skills_catalog(RT)}.get("haus") == "local", "own skill appears in the catalogue")
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}, "skills": ["recherche", "haus"]}, rt=RT)
+        files = deploy.desired_workspace_files([a for a in store.load_roster(RT)["agents"] if a["id"] == "twin"][0], RT)
+        record(any("/skills/haus/SKILL.md" in p for p in files) and any("/skills/recherche/" in p for p in files),
+               "rollout renders skills from both roots")
+        (P / "skills/haus").mkdir()
+        (P / "skills/haus/SKILL.md").write_text("---\nname: haus\n---\n")
+        refuses(lambda: store.skills_catalog(RT), "same skill in both roots refused", "both")
+        shutil.rmtree(P / "skills/haus")
 
-        # --- a folder without a manifest is an error, not a skip ----------
-        (A / "instances/zz-half").mkdir()
-        refuses(lambda: store.load_roster(A), "instance folder without agent.json refused", "no agent.json")
-        shutil.rmtree(A / "instances/zz-half")
+        # --- deletion ----------------------------------------------------------
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, soul_shared_with="base-a", rt=RT)
+        refuses(lambda: store.trash_instance("base-a", RT), "an agent lending its SOUL cannot be trashed", "lends")
+        refuses(lambda: store.trash_instance("main", RT), "main cannot be trashed (it is not an agent)", "no agent")
+        mv = store.trash_instance("twin", RT)
+        record("/instances/.trash/twin-" in mv["moved_to"] and Path(mv["moved_to"]).is_dir(), "trash moves the folder", mv["moved_to"].rsplit("/", 1)[-1])
+        record([a["id"] for a in store.load_roster(RT)["agents"]] == ["base-a"], "roster no longer sees a trashed agent")
+        record(deploy.trashed_ids(RT) == {"twin"}, "trashed_ids reads the intent", str(deploy.trashed_ids(RT)))
+        store.trash_instance("base-a", RT)
+        record(deploy.trashed_ids(RT) == {"twin", "base-a"}, "two trashed agents, both read back")
+        refuses(lambda: store.trash_instance("twin", RT), "trashing twice is a 'no agent'", "no agent")
 
-        # --- a stale reference to a trashed agent surfaces ------------------
-        (A / "instances/zz-p9").mkdir()
-        (A / "instances/zz-p9/agent.json").write_text(json.dumps({**base, "limits": {"same_as": "zz-probe"}}))
-        refuses(lambda: store.load_roster(A), "same_as to a trashed agent refused on read", "does not exist")
+        # --- the per-agent model catalog follows the config -----------------------
+        cfg = {"providers": {"llama-local": {"baseUrl": "http://llama-server:8080/v1", "api": "openai-completions",
+                                             "apiKey": "__OPENCLAW_REDACTED__",
+                                             "models": [{"id": "current", "contextWindow": 131072}]}}}
+        stale = {"providers": {"llama-local": {"baseUrl": "x", "apiKey": "sk-dummy",
+                                               "models": [{"id": "qwen3-14b", "contextWindow": 128000}]}}}
+        want = deploy.desired_catalog(cfg, stale)
+        m = want["providers"]["llama-local"]
+        record(m["models"] == [{"id": "current", "contextWindow": 131072}] and m["baseUrl"].endswith("/v1"),
+               "catalog takes models and baseUrl from the config")
+        record(m["apiKey"] == "sk-dummy", "redacted key: the existing catalog's key is kept")
+        record("apiKey" not in deploy.desired_catalog(cfg, None)["providers"]["llama-local"],
+               "redacted key and no catalog: the field is left out, never the marker")
+        record(deploy.desired_catalog(cfg, want) == want, "rendering is idempotent")
+
+        # --- a folder without a manifest is an error, not a skip --------------
+        (L / "instances/zz-half").mkdir()
+        refuses(lambda: store.load_roster(RT), "instance folder without agent.json refused", "no agent.json")
+        shutil.rmtree(L / "instances/zz-half")
+
+        # --- stale references to a trashed agent surface -----------------------
+        (L / "instances/zz-p9").mkdir()
+        (L / "instances/zz-p9/agent.json").write_text(json.dumps({**BASE, "limits": {"same_as": "base-a"}}))
+        refuses(lambda: store.load_roster(RT), "same_as to a trashed agent refused on read", "does not exist")
+        (L / "instances/zz-p9/agent.json").write_text(json.dumps({**BASE, "soul_shared_with": "twin"}))
+        refuses(lambda: store.load_roster(RT), "soul_shared_with to a trashed agent refused on read", "no soul.md")
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

@@ -322,7 +322,7 @@ def test_progress_is_visible_while_running() -> None:
 def test_reported_weights() -> None:
     """The answer says which weights answered, not which name was written down.
 
-    A local agent's manifest can only carry "llama-local/qwen3-14b": that is the
+    A local agent's manifest can only carry "llama-local/current": that is the
     id configured in the gateway's provider block, and an unconfigured one makes
     the agent fail to resolve. llama-server meanwhile serves whatever GGUF is
     loaded and ignores the id. Measured 2026-09-02: manifest said qwen3-14b,

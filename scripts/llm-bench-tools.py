@@ -23,7 +23,7 @@ Switching profiles needs no docker command: script-runner's /llm/switch writes
 into the file mailbox that a root host unit watches (~10-20s per swap).
 
 CAREFUL, the trap this script exists to avoid: OpenClaw always reports
-"llama-local/qwen3-14b", because the provider name points at a port, not at
+"llama-local/current", because the provider name points at a port, not at
 weights. After a swap every answer still claims qwen3-14b while Magistral is
 answering. The active profile is therefore read back from /llm/current, never
 from the turn JSON.
@@ -545,7 +545,7 @@ def write_fixtures() -> None:
         raise RuntimeError(f"could not write fixtures: {out.strip()[:300]}")
 
 
-def create_agent(model: str = "llama-local/qwen3-14b") -> None:
+def create_agent(model: str = "llama-local/current") -> None:
     docker("openclaw", "agents", "delete", AGENT, "--force", "--json")
     rc, out = docker("openclaw", "agents", "add", AGENT, "--non-interactive",
                      "--workspace", WS, "--model", model, "--json")
@@ -731,7 +731,7 @@ def run_profile(profile: str, checks: list[dict], reps: int,
                 allow: list[str] | None = None) -> list[dict]:
     rows = []
     if model is None:                      # a local profile: swap the weights
-        model = "llama-local/qwen3-14b"
+        model = "llama-local/current"
         switch_to(profile)
         wait_for_llama()
     write_fixtures()

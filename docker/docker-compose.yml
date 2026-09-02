@@ -849,6 +849,7 @@ services:
       - /opt/mora02-material/library:/library:ro
       # agents
       - /opt/mora02/agents:/data/agents
+      - /opt/mora02/data/agents:/data/agents-local
 
     environment:
       - PEXELS_API_KEY=${PEXELS_API_KEY}
@@ -864,7 +865,7 @@ services:
       - MORA02_SIGNAL_TARGET=${MORA02_SIGNAL_TARGET}
       - MORA02_ASSET_STORE_LIBRARY=/library
       - MORA02_ASSET_URLPATH_LIBRARY=/library-assets
-      
+      - MORA02_AGENTS_LOCAL_DIR=/data/agents-local
     networks:
       - mora02-net
     healthcheck:

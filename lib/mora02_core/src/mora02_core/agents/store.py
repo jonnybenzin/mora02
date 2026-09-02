@@ -1,37 +1,66 @@
 """The agent roster as files: reading it by looking, and writing it back.
 
-One folder under ``agents/instances/`` is one agent; its folder name is its id.
-This module is the only place that knows the folder layout, so the rollout
-(:mod:`mora02_core.agents.deploy`), the HTTP layer in script-runner and the
-tests all read and write the same shape without each carrying a copy of it.
+One folder under ``data/agents/instances/`` is one agent; its folder name is
+its id. This module is the only place that knows the folder layout, so the
+rollout (:mod:`mora02_core.agents.deploy`), the HTTP layer in script-runner and
+the tests all read and write the same shape without each carrying a copy of it.
+
+WHAT IS PLATFORM AND WHAT IS CONTENT. Two roots with different jobs:
+
+    agents/         the PLATFORM's: skills (how mora02 works), tools.json,
+                    mcp.json, AGENTS.md (house rules) and gateway.json (the
+                    reception desk, see below). In the public repo, changed
+                    through git. Ships NO agents.
+    data/agents/    this INSTALLATION's: every agent, and any skill of its own.
+                    Gitignored; content of this machine, never of the platform.
+                    Make it a private git repo of its own for history.
+
+There is one kind of agent, and it lives in one place. The first builder
+session had shipped agents in the repo beside the platform, then two roots for
+agents, then two labels in the UI -- and the person asked what the second kind
+was for. Nothing: a storage location is not a property of an agent. So the
+agents moved out of the repo entirely. What stayed is what a fresh clone
+needs -- the methods, the builder, and a tamed reception desk.
+
+THE RECEPTION DESK. ``agents/gateway.json`` describes ``main``, the gateway's
+own default agent that an inbound Signal message lands on. Nobody authored it
+and nobody talks to it; it is listed nowhere in the builder. It is in the
+rollout for one reason: an agent WITHOUT an explicit tool allow list gets every
+tool the gateway has (measured 2026-09-01), so its list is platform
+configuration, rendered into ``agents.list`` beside the real agents. The id
+``main`` is reserved and refused for agents.
 
 What an instance folder holds::
 
-    instances/<id>/agent.json   the manifest: label, model, tools, skills, limits
-    instances/<id>/SOUL.md      its personality -- a file, or a symlink to
-                                another instance's, which is how two agents
-                                share one identity by construction
+    data/agents/instances/<id>/agent.json   the manifest
+    data/agents/instances/<id>/SOUL.md      its personality -- or none, when the
+                                            manifest says "soul_shared_with"
 
-Two rules enforced here rather than in a UI, because a UI is one door of two:
+Three rules enforced here rather than in a UI, because a UI is one door of two:
 
 * **Limits may be borrowed.** ``"limits": {"same_as": "<id>"}`` resolves to the
   other agent's limits at read time. Measured 2026-09-02: six payload values
   that differed between two instances invalidated a whole day's comparison of
   the models behind them. A reference cannot drift; a copy does within a week.
+* **A SOUL may be borrowed the same way.** ``"soul_shared_with": "<id>"`` in
+  the manifest; the rollout renders the other agent's text. The one symlink
+  made before this existed (recherche-plus -> recherche) is still read.
 * **Deletion moves, it does not remove.** A deleted instance goes to
   ``instances/.trash/<id>-<stamp>`` -- invisible to roster and rollout (dot
   folder), recoverable by moving it back, and the record the rollout reads to
   know the gateway's copy should go too.
 
-Ownership: script-runner runs as root inside its container, and the folder is a
-bind mount of a git checkout. A file written here would otherwise belong to
-root on the host, and the next ``git add`` by the person would fail. So every
-file and folder this module creates inherits uid/gid from the directory above
-it -- the folder decides who owns what is in it.
+Ownership: script-runner runs as root inside its container, and both roots are
+bind mounts of directories a person owns. Every file and folder this module
+creates inherits uid, gid and mode from the directory above it.
 
 Environment:
-  MORA02_AGENTS_DIR  the ``agents/`` folder; default ``/data/agents`` when that
-                     exists (the container mount), else the repo's own
+  MORA02_AGENTS_DIR        the platform root; default ``/data/agents`` when that
+                           exists (the container mount), else the repo's own
+  MORA02_AGENTS_LOCAL_DIR  the installation root; default ``/data/agents-local``
+                           when that exists, else ``<repo>/data/agents`` when
+                           that exists, else none (then there are no agents
+                           and the builder refuses to create one)
 """
 
 from __future__ import annotations
@@ -41,20 +70,54 @@ import os
 import re
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
+_REPO = Path(__file__).resolve().parents[5]
 
-def _default_agents_dir() -> Path:
+LETTERBOX_ID = "main"
+
+
+def _default_platform() -> Path:
     env = os.environ.get("MORA02_AGENTS_DIR")
     if env:
         return Path(env)
     mount = Path("/data/agents")
-    if mount.is_dir():
-        return mount
-    return Path(__file__).resolve().parents[5] / "agents"
+    return mount if mount.is_dir() else _REPO / "agents"
 
 
-AGENTS_DIR = _default_agents_dir()
+def _default_local() -> Path | None:
+    env = os.environ.get("MORA02_AGENTS_LOCAL_DIR")
+    if env:
+        return Path(env)
+    for cand in (Path("/data/agents-local"), _REPO / "data" / "agents"):
+        if cand.is_dir():
+            return cand
+    return None
+
+
+@dataclass(frozen=True)
+class Roots:
+    """``platform`` always; ``local`` when configured (it holds the agents)."""
+    platform: Path
+    local: Path | None = None
+
+    def skill_roots(self) -> list[tuple[str, Path]]:
+        out = [("platform", self.platform)]
+        if self.local is not None:
+            out.append(("local", self.local))
+        return out
+
+
+def roots(platform: Path | str | None = None, local: Path | str | None = None) -> Roots:
+    """The roots to use: what was passed, else what the environment says."""
+    return Roots(
+        Path(platform) if platform else _default_platform(),
+        Path(local) if local else (None if platform else _default_local()),
+    )
+
+
+AGENTS_DIR = _default_platform()
 
 # An id is a folder name, a config key, half a session key and part of a URL.
 # The same alphabet the flow names use, for the same reasons.
@@ -67,7 +130,7 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 MANIFEST_KEYS = {
     "label", "icon", "colour", "description", "opening", "active", "sort_order",
     "model", "timeout", "limits", "skills", "tools", "workspace",
-    "manage_workspace", "name",
+    "manage_workspace", "name", "soul_shared_with",
 }
 
 LIMIT_KEYS = {
@@ -75,36 +138,85 @@ LIMIT_KEYS = {
     "results_per_query", "max_pages_total", "max_searches_total",
 }
 
+# Per-agent workspace files besides SOUL.md. The rollout renders exactly these
+# (deploy.WORKSPACE_FILES); the builder edits exactly these. One list, two
+# readers -- a fifth file added here alone would be edited and never rendered.
+WORKSPACE_EXTRA = ["TOOLS.md", "USER.md", "IDENTITY.md"]
+
+# Skill files the browser may preview. Text only: a skill may carry a template
+# image one day, and a binary shown as text is noise, not information.
+_TEXT_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".csv"}
+_PREVIEW_MAX = 200_000
+
 
 class StoreError(RuntimeError):
     pass
+
+
+def _r(rt: Roots | None) -> Roots:
+    return rt if rt is not None else roots()
+
+
+# ---------------------------------------------------------------------------
+# finding things
+# ---------------------------------------------------------------------------
+
+def instances_dir(rt: Roots | None = None) -> Path | None:
+    """Where the agents live, or None when no installation root is configured."""
+    rt = _r(rt)
+    return None if rt.local is None else rt.local / "instances"
+
+
+def iter_instances(rt: Roots | None = None) -> list[Path]:
+    """Every instance folder. Tolerant: does not read manifests, does not judge
+    them. Dot folders (.trash) skipped."""
+    inst = instances_dir(rt)
+    if inst is None or not inst.is_dir():
+        return []
+    return [f for f in sorted(inst.iterdir()) if f.is_dir() and not f.name.startswith(".")]
+
+
+def find_instance(agent_id: str, rt: Roots | None = None) -> Path | None:
+    inst = instances_dir(rt)
+    if inst is None or not ID_RE.match(agent_id):
+        return None
+    folder = inst / agent_id
+    return folder if folder.is_dir() else None
+
+
+def find_skill(name: str, rt: Roots | None = None) -> tuple[str, Path] | None:
+    """(root name, folder) of a skill, or None. Raises when it is in both."""
+    if not ID_RE.match(name):
+        return None
+    hits = [(n, root / "skills" / name) for n, root in _r(rt).skill_roots()
+            if (root / "skills" / name / "SKILL.md").is_file()]
+    if len(hits) > 1:
+        raise StoreError(f"skill {name!r} exists in both agents/skills and data/agents/skills — rename or remove one")
+    return hits[0] if hits else None
 
 
 # ---------------------------------------------------------------------------
 # reading
 # ---------------------------------------------------------------------------
 
-def instances_dir(agents_dir: Path | None = None) -> Path:
-    return Path(agents_dir or AGENTS_DIR) / "instances"
-
-
-def load_manifest(agent_id: str, agents_dir: Path | None = None) -> dict:
+def load_manifest(agent_id: str, rt: Roots | None = None) -> dict:
     """One agent's manifest, or {} when there is none. Never raises: a broken
     manifest must hide itself and not the others."""
-    path = instances_dir(agents_dir) / agent_id / "agent.json"
+    folder = find_instance(agent_id, rt)
+    if folder is None:
+        return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads((folder / "agent.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
 
 
-def effective_limits(manifest: dict, agents_dir: Path | None = None,
-                     _depth: int = 0) -> dict | None:
+def effective_limits(manifest: dict, rt: Roots | None = None, _depth: int = 0) -> dict | None:
     """The payload limits an agent runs with, following ``same_as``.
 
     Returns the dict of limits, or None when the manifest has none. A reference
     to an agent that does not exist or has no limits resolves to None as well --
-    and the rollout's validation reports it, so the silence here is not the
+    and the roster's validation reports it, so the silence here is not the
     last word.
     """
     limits = manifest.get("limits")
@@ -115,27 +227,75 @@ def effective_limits(manifest: dict, agents_dir: Path | None = None,
         return limits
     if _depth > 3:  # a cycle, or someone being clever
         return None
-    return effective_limits(load_manifest(str(ref), agents_dir), agents_dir, _depth + 1)
+    return effective_limits(load_manifest(str(ref), rt), rt, _depth + 1)
 
 
-def load_roster(agents_dir: Path | None = None) -> dict:
+def soul_source(agent_id: str, rt: Roots | None = None) -> tuple[str | None, Path | None]:
+    """(id whose SOUL this agent uses, path of that SOUL file).
+
+    Own file -> (None, path). Borrowed by manifest -> (other, other's path).
+    Borrowed by the one legacy symlink -> (other, path through the link).
+    Nothing -> (None, None).
+    """
+    folder = find_instance(agent_id, rt)
+    if folder is None:
+        return None, None
+    ref = load_manifest(agent_id, rt).get("soul_shared_with")
+    if ref:
+        other = find_instance(str(ref), rt)
+        if other is None or not (other / "SOUL.md").is_file():
+            return str(ref), None
+        return str(ref), other / "SOUL.md"
+    sp = folder / "SOUL.md"
+    if sp.is_symlink():
+        target = Path(os.readlink(sp))
+        other = target.parent.name if target.name == "SOUL.md" else str(target)
+        return other, (sp if sp.exists() else None)
+    return None, (sp if sp.is_file() else None)
+
+
+def load_letterbox(rt: Roots | None = None) -> dict | None:
+    """The reception desk's entry from <platform>/gateway.json, or None."""
+    path = _r(rt).platform / "gateway.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise StoreError(f"cannot read gateway.json: {e}") from e
+    entry = data.get("letterbox")
+    if not isinstance(entry, dict):
+        raise StoreError("gateway.json has no 'letterbox' object")
+    entry = dict(entry)
+    entry.setdefault("id", LETTERBOX_ID)
+    entry["manage_workspace"] = False
+    entry["active"] = False
+    entry["_platform"] = True
+    return entry
+
+
+def load_roster(rt: Roots | None = None) -> dict:
     """Read the roster by LOOKING, not by consulting a list of names.
 
-    One folder under agents/instances/ is one agent, and its folder name is its
-    id. That is the whole point of increment 3: a new agent comes into being by
-    being written down somewhere, and nothing else has to be edited to admit it
-    -- no list, no registry, no line of code. The builder therefore only ever
-    has to create a directory.
+    One folder under data/agents/instances/ is one agent, and its folder name
+    is its id. That is the whole point of increment 3: a new agent comes into
+    being by being written down somewhere, and nothing else has to be edited to
+    admit it -- no list, no registry, no line of code.
+
+    Returns {"agents": [...], "letterbox": {...}|None, "mcp": {...}}. An empty
+    agents list is a legitimate state -- a fresh clone has none.
     """
-    base = Path(agents_dir or AGENTS_DIR)
-    inst = base / "instances"
-    if not inst.is_dir():
-        raise StoreError(f"no instance directory at {inst}")
+    rt = _r(rt)
+    if not rt.platform.is_dir():
+        raise StoreError(f"no platform root at {rt.platform}")
 
     agents: list[dict] = []
-    for folder in sorted(inst.iterdir()):
-        if not folder.is_dir() or folder.name.startswith("."):
-            continue
+    for folder in iter_instances(rt):
+        if folder.name == LETTERBOX_ID:
+            raise StoreError(
+                f"instances/{LETTERBOX_ID} is not an agent — the reception desk is "
+                f"configured in agents/gateway.json. Remove the folder."
+            )
         manifest = folder / "agent.json"
         if not manifest.is_file():
             # Named rather than skipped: a folder without a manifest is far more
@@ -143,9 +303,8 @@ def load_roster(agents_dir: Path | None = None) -> dict:
             # silently ignored agent is the failure this layer keeps guarding
             # against.
             raise StoreError(
-                f"instances/{folder.name} has no agent.json — an instance "
-                f"folder without one cannot be deployed. Remove the folder or "
-                f"give it a manifest."
+                f"instances/{folder.name} has no agent.json — an instance folder "
+                f"without one cannot be deployed. Remove the folder or give it a manifest."
             )
         try:
             agent = json.loads(manifest.read_text(encoding="utf-8"))
@@ -159,58 +318,72 @@ def load_roster(agents_dir: Path | None = None) -> dict:
         agent.setdefault("workspace", f"/data/openclaw/agents/{folder.name}/workspace")
         agent.setdefault("manage_workspace", True)
         agent["_dir"] = str(folder)
+        agents.append(agent)
 
-        # A borrowed limits block must point somewhere. Checked here, on every
-        # read of the roster, so a rollout refuses a dangling reference instead
-        # of quietly running the agent on defaults sized for a different model.
+    # References must point somewhere. Checked on every read of the roster, so
+    # a rollout refuses a dangling borrow instead of quietly running the agent
+    # on defaults sized for a different model, or without a personality.
+    for agent in agents:
+        aid = agent["id"]
         lim = agent.get("limits")
         if isinstance(lim, dict) and lim.get("same_as"):
             ref = str(lim["same_as"])
-            if ref == folder.name:
-                raise StoreError(f"instances/{folder.name}: limits.same_as points at itself")
-            if effective_limits(agent, base) is None:
+            if ref == aid:
+                raise StoreError(f"instances/{aid}: limits.same_as points at itself")
+            if effective_limits(agent, rt) is None:
                 raise StoreError(
-                    f"instances/{folder.name}: limits.same_as = {ref!r}, but that "
+                    f"instances/{aid}: limits.same_as = {ref!r}, but that "
                     f"agent does not exist or has no limits of its own"
                 )
-        agents.append(agent)
-
-    if not agents:
-        raise StoreError(f"no agents found under {inst}")
+        ref = agent.get("soul_shared_with")
+        if ref:
+            if str(ref) == aid:
+                raise StoreError(f"instances/{aid}: soul_shared_with points at itself")
+            _, path = soul_source(aid, rt)
+            if path is None:
+                raise StoreError(
+                    f"instances/{aid}: soul_shared_with = {ref!r}, but that agent "
+                    f"does not exist or has no SOUL.md of its own"
+                )
 
     mcp: dict = {}
-    mcp_file = base / "mcp.json"
+    mcp_file = rt.platform / "mcp.json"
     if mcp_file.is_file():
         try:
             mcp = json.loads(mcp_file.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             raise StoreError(f"cannot read mcp.json: {e}") from e
 
-    return {"agents": agents, "mcp": mcp}
+    return {"agents": agents, "letterbox": load_letterbox(rt), "mcp": mcp}
 
 
-def skills_catalog(agents_dir: Path | None = None) -> list[dict]:
-    """The skills the repo offers, read from each SKILL.md's front matter.
+def skills_catalog(rt: Roots | None = None) -> list[dict]:
+    """The skills both roots offer, read from each SKILL.md's front matter.
 
     Only ``name`` and ``description`` are read -- the description is the part
     that reaches a prompt, so it is the part a person choosing a skill needs
-    to see. Files that carry no front matter are listed by folder name with an
-    empty description, which the builder shows as the warning it is.
+    to see. A skill present in both roots is an error.
     """
-    skills_root = Path(agents_dir or AGENTS_DIR) / "skills"
     out: list[dict] = []
-    if not skills_root.is_dir():
-        return out
-    for folder in sorted(skills_root.iterdir()):
-        sk = folder / "SKILL.md"
-        if not folder.is_dir() or folder.name.startswith(".") or not sk.is_file():
+    seen: dict[str, str] = {}
+    for root_name, root in _r(rt).skill_roots():
+        skills_root = root / "skills"
+        if not skills_root.is_dir():
             continue
-        meta = _front_matter(sk.read_text(encoding="utf-8", errors="replace"))
-        out.append({
-            "name": folder.name,
-            "description": meta.get("description", ""),
-            "files": sum(1 for f in folder.rglob("*") if f.is_file()),
-        })
+        for folder in sorted(skills_root.iterdir()):
+            sk = folder / "SKILL.md"
+            if not folder.is_dir() or folder.name.startswith(".") or not sk.is_file():
+                continue
+            if folder.name in seen:
+                raise StoreError(f"skill {folder.name!r} exists in both agents/skills and data/agents/skills — rename or remove one")
+            seen[folder.name] = root_name
+            meta = _front_matter(sk.read_text(encoding="utf-8", errors="replace"))
+            out.append({
+                "name": folder.name,
+                "root": root_name,
+                "description": meta.get("description", ""),
+                "files": sum(1 for f in folder.rglob("*") if f.is_file()),
+            })
     return out
 
 
@@ -228,8 +401,8 @@ def _front_matter(text: str) -> dict:
     return meta
 
 
-def builtin_tools(agents_dir: Path | None = None) -> list[dict]:
-    """The gateway's own tools, as curated in agents/tools.json.
+def builtin_tools(rt: Roots | None = None) -> list[dict]:
+    """The gateway's own tools, as curated in <platform>/tools.json.
 
     A list in the repo, and knowingly so -- the plan preferred asking the
     gateway, but the gateway has no command that lists its tool ids with what
@@ -239,7 +412,7 @@ def builtin_tools(agents_dir: Path | None = None) -> list[dict]:
     caught where it would matter: an id the gateway does not know is refused
     by ``config patch`` at rollout.
     """
-    path = Path(agents_dir or AGENTS_DIR) / "tools.json"
+    path = _r(rt).platform / "tools.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -247,28 +420,60 @@ def builtin_tools(agents_dir: Path | None = None) -> list[dict]:
     return [t for t in data.get("tools", []) if isinstance(t, dict) and t.get("id")]
 
 
-def instance_detail(agent_id: str, agents_dir: Path | None = None) -> dict:
-    """Everything the builder shows for one agent: manifest, SOUL text, and
-    whether the SOUL is its own or shared."""
-    folder = instances_dir(agents_dir) / agent_id
-    if not (folder / "agent.json").is_file():
+def instance_detail(agent_id: str, rt: Roots | None = None) -> dict:
+    """Everything the builder shows for one agent: manifest, SOUL text, whose
+    SOUL it is, the other workspace files."""
+    folder = find_instance(agent_id, rt)
+    if folder is None or not (folder / "agent.json").is_file():
         raise StoreError(f"no agent {agent_id!r}")
-    manifest = load_manifest(agent_id, agents_dir)
-    soul_path = folder / "SOUL.md"
-    soul, shared = "", None
-    if soul_path.is_symlink():
-        # "../recherche/SOUL.md" -> "recherche"
-        target = Path(os.readlink(soul_path))
-        shared = target.parent.name if target.name == "SOUL.md" else str(target)
-    if soul_path.exists():
-        soul = soul_path.read_text(encoding="utf-8", errors="replace")
+    manifest = load_manifest(agent_id, rt)
+    shared, soul_path = soul_source(agent_id, rt)
+    soul = soul_path.read_text(encoding="utf-8", errors="replace") if soul_path else ""
+    files: dict[str, str] = {}
+    for name in WORKSPACE_EXTRA:
+        fp = folder / name
+        if fp.is_file():
+            files[name] = fp.read_text(encoding="utf-8", errors="replace")
     return {
         "id": agent_id,
         "manifest": manifest,
         "soul": soul,
         "soul_shared_with": shared,
-        "limits_effective": effective_limits(manifest, agents_dir),
+        "files": files,
+        "limits_effective": effective_limits(manifest, rt),
     }
+
+
+def skill_detail(name: str, rt: Roots | None = None) -> dict:
+    """One skill with every file it carries, for reading in the browser.
+
+    Why this exists: the builder showed a skill as a name, a description and
+    "5 Datei(en)", and the first person to use it asked where the eight
+    questions were. They were in FRAGEN.md, two folders down, visible to the
+    agent and to nobody else. A skill's files are the part of an agent that is
+    most worth reading and were the only part that could not be.
+
+    Read-only on purpose. Writing skill files is a different decision: skills
+    are shared between agents and come in three tiers with three homes
+    (ADR-029).
+    """
+    hit = find_skill(name, rt)
+    if hit is None:
+        raise StoreError(f"no skill {name!r}")
+    root_name, folder = hit
+    meta = _front_matter((folder / "SKILL.md").read_text(encoding="utf-8", errors="replace"))
+    files = []
+    for f in sorted(folder.rglob("*")):
+        if not f.is_file() or f.name.startswith("."):
+            continue
+        entry: dict = {"path": str(f.relative_to(folder)), "size": f.stat().st_size}
+        if f.suffix.lower() in _TEXT_SUFFIXES and entry["size"] <= _PREVIEW_MAX:
+            entry["content"] = f.read_text(encoding="utf-8", errors="replace")
+        files.append(entry)
+    used_by = sorted(f.name for f in iter_instances(rt)
+                     if name in (load_manifest(f.name, rt).get("skills") or []))
+    return {"name": name, "root": root_name, "description": meta.get("description", ""),
+            "files": files, "used_by": used_by}
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +504,7 @@ def _inherit_owner(path: Path) -> None:
         pass
 
 
-def validate_manifest(manifest: dict, agent_id: str, agents_dir: Path | None = None) -> list[str]:
+def validate_manifest(manifest: dict, agent_id: str, rt: Roots | None = None) -> list[str]:
     """Reasons a manifest cannot be saved. Empty means it can.
 
     Refuses the same things the rollout would refuse, so the builder fails at
@@ -312,7 +517,7 @@ def validate_manifest(manifest: dict, agent_id: str, agents_dir: Path | None = N
         problems.append(f"unknown field(s): {', '.join(sorted(unknown))}")
     if not str(manifest.get("label") or "").strip():
         problems.append("label is required")
-    if not str(manifest.get("model") or "").strip() and agent_id != "main":
+    if not str(manifest.get("model") or "").strip():
         problems.append("model is required")
     tools = manifest.get("tools")
     if tools != "unrestricted":
@@ -324,10 +529,13 @@ def validate_manifest(manifest: dict, agent_id: str, agents_dir: Path | None = N
     if not isinstance(skills, list):
         problems.append("skills must be a list")
     else:
-        known = {s["name"] for s in skills_catalog(agents_dir)}
+        try:
+            known = {s["name"] for s in skills_catalog(rt)}
+        except StoreError as e:
+            known, problems = set(), problems + [str(e)]
         for s in skills:
             if s not in known:
-                problems.append(f"skill {s!r} does not exist under agents/skills/")
+                problems.append(f"skill {s!r} does not exist under agents/skills or data/agents/skills")
     lim = manifest.get("limits")
     if lim is not None:
         if not isinstance(lim, dict):
@@ -336,7 +544,7 @@ def validate_manifest(manifest: dict, agent_id: str, agents_dir: Path | None = N
             ref = str(lim["same_as"])
             if ref == agent_id:
                 problems.append("limits.same_as cannot point at the agent itself")
-            elif effective_limits({"limits": {"same_as": ref}}, agents_dir) is None:
+            elif effective_limits({"limits": {"same_as": ref}}, rt) is None:
                 problems.append(f"limits.same_as = {ref!r}: that agent does not exist or has no limits of its own")
             extra = [k for k in lim if k != "same_as"]
             if extra:
@@ -347,6 +555,17 @@ def validate_manifest(manifest: dict, agent_id: str, agents_dir: Path | None = N
                     problems.append(f"unknown limit {k!r}")
                 elif not isinstance(v, int) or v <= 0:
                     problems.append(f"limit {k} must be a positive integer")
+    ref = manifest.get("soul_shared_with")
+    if ref:
+        ref = str(ref)
+        if ref == agent_id:
+            problems.append("soul_shared_with cannot point at the agent itself")
+        else:
+            other_shared, path = soul_source(ref, rt)
+            if find_instance(ref, rt) is None or path is None:
+                problems.append(f"soul_shared_with = {ref!r}: that agent does not exist or has no SOUL.md")
+            elif other_shared:
+                problems.append(f"soul_shared_with = {ref!r}: that agent borrows its SOUL itself — point at the original ({other_shared})")
     t = manifest.get("timeout")
     if t is not None and (not isinstance(t, int) or t <= 0):
         problems.append("timeout must be a positive integer (seconds)")
@@ -355,43 +574,55 @@ def validate_manifest(manifest: dict, agent_id: str, agents_dir: Path | None = N
 
 def save_instance(agent_id: str, manifest: dict, *, soul: str | None = None,
                   soul_shared_with: str | None = None,
-                  agents_dir: Path | None = None) -> dict:
-    """Write one agent's folder. Creates it if new, replaces the manifest and
-    SOUL.md if not. Returns {"created": bool, "path": str}.
+                  files: dict[str, str] | None = None,
+                  rt: Roots | None = None) -> dict:
+    """Write one agent's folder. Creates it if new, replaces manifest and SOUL
+    if not. Returns {"created": bool, "path": str}.
 
-    ``soul_shared_with`` makes SOUL.md a symlink to that agent's -- identity by
-    construction, the form the two research agents already use. ``soul`` and
-    ``soul_shared_with`` are exclusive; passing both is a caller's confusion
+    ``soul_shared_with`` writes the reference into the manifest and removes any
+    SOUL.md of the agent's own -- identity by construction. ``soul`` writes an
+    own SOUL.md and drops the reference. Passing both is a caller's confusion
     and is refused rather than guessed at.
+
+    ``files`` names workspace files from WORKSPACE_EXTRA: a name that is absent
+    is left alone, a string is written, an empty string removes the file. Said
+    this plainly because "empty textarea" is ambiguous in a form and must not
+    be ambiguous in a folder.
     """
+    rt = _r(rt)
     if not ID_RE.match(agent_id):
         raise StoreError("id: 2–64 characters, lowercase letters, digits and hyphens, starting with a letter or digit")
-    if agent_id in ("main",) and manifest.get("active"):
-        raise StoreError("main cannot be made active: it is the letterbox on the message channel, not a persona")
-    problems = validate_manifest(manifest, agent_id, agents_dir)
-    if problems:
-        raise StoreError("; ".join(problems))
+    if agent_id == LETTERBOX_ID:
+        raise StoreError(f"{LETTERBOX_ID!r} is the gateway's reception desk, not an agent — "
+                         f"its tool list lives in agents/gateway.json")
     if soul is not None and soul_shared_with:
         raise StoreError("either a SOUL text or a SOUL to share, not both")
-    if soul_shared_with:
-        if soul_shared_with == agent_id:
-            raise StoreError("an agent cannot share its SOUL with itself")
-        src = instances_dir(agents_dir) / soul_shared_with / "SOUL.md"
-        if not src.is_file():
-            raise StoreError(f"cannot share SOUL with {soul_shared_with!r}: it has no SOUL.md")
-        if src.is_symlink():
-            raise StoreError(f"{soul_shared_with!r} shares its SOUL itself — point at the original")
+    for name in (files or {}):
+        if name not in WORKSPACE_EXTRA:
+            raise StoreError(f"{name!r} is not a workspace file an agent may carry "
+                             f"(one of {', '.join(WORKSPACE_EXTRA)})")
+    inst = instances_dir(rt)
+    if inst is None:
+        raise StoreError("no installation root configured (MORA02_AGENTS_LOCAL_DIR) — "
+                         "nowhere to put an agent")
 
-    folder = instances_dir(agents_dir) / agent_id
+    # The reference lives in the manifest so the rollout sees it too.
+    clean = {k: v for k, v in manifest.items() if k not in ("id", "_dir")}
+    if soul_shared_with:
+        clean["soul_shared_with"] = soul_shared_with
+    elif soul is not None:
+        clean.pop("soul_shared_with", None)
+    problems = validate_manifest(clean, agent_id, rt)
+    if problems:
+        raise StoreError("; ".join(problems))
+
+    folder = inst / agent_id
     created = not folder.exists()
     if created:
-        folder.mkdir(parents=False)
+        inst.mkdir(parents=True, exist_ok=True)
+        folder.mkdir()
         _inherit_owner(folder)
 
-    # Fields the rollout adds at read time never go back into the file. The
-    # id is the folder; "_dir" is a runtime handle. Both in the manifest would
-    # be two sources for one fact.
-    clean = {k: v for k, v in manifest.items() if k not in ("id", "_dir")}
     mpath = folder / "agent.json"
     tmp = mpath.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(clean, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -400,45 +631,48 @@ def save_instance(agent_id: str, manifest: dict, *, soul: str | None = None,
 
     soul_path = folder / "SOUL.md"
     if soul_shared_with:
+        # Borrowed: no file of its own, or a stale one would shadow the borrow
+        # in anyone's eyes but the rollout's.
         if soul_path.is_symlink() or soul_path.exists():
             soul_path.unlink()
-        os.symlink(f"../{soul_shared_with}/SOUL.md", soul_path)
-        _inherit_owner(soul_path)
     elif soul is not None:
         if soul_path.is_symlink():
-            # Was shared, now its own: break the link, do not write through it
-            # into the other agent's file.
+            # Was a legacy link: break it, do not write through it into the
+            # other agent's file.
             soul_path.unlink()
         soul_path.write_text(soul if soul.endswith("\n") else soul + "\n", encoding="utf-8")
         _inherit_owner(soul_path)
 
+    for name, body in (files or {}).items():
+        fp = folder / name
+        if body == "":
+            if fp.exists() or fp.is_symlink():
+                fp.unlink()
+            continue
+        fp.write_text(body if body.endswith("\n") else body + "\n", encoding="utf-8")
+        _inherit_owner(fp)
+
     return {"created": created, "path": str(folder)}
 
 
-def trash_instance(agent_id: str, agents_dir: Path | None = None) -> dict:
+def trash_instance(agent_id: str, rt: Roots | None = None) -> dict:
     """Move an instance folder to instances/.trash/<id>-<stamp>.
 
-    Refuses to trash an agent whose SOUL other agents link to: the links would
-    dangle and those agents would render without a personality, silently.
+    Refuses an agent whose SOUL other agents borrow: those would render without
+    a personality, silently.
     """
-    inst = instances_dir(agents_dir)
-    folder = inst / agent_id
-    if not folder.is_dir():
+    rt = _r(rt)
+    folder = find_instance(agent_id, rt)
+    if folder is None:
         raise StoreError(f"no agent {agent_id!r}")
-    if agent_id == "main":
-        raise StoreError("main is the gateway's own agent and cannot be deleted")
-    dependants = []
-    for other in inst.iterdir():
-        sp = other / "SOUL.md"
-        if other.is_dir() and other.name != agent_id and sp.is_symlink():
-            if Path(os.readlink(sp)).parent.name == agent_id:
-                dependants.append(other.name)
+    dependants = sorted(f.name for f in iter_instances(rt)
+                        if f.name != agent_id and soul_source(f.name, rt)[0] == agent_id)
     if dependants:
         raise StoreError(
             f"{agent_id!r} lends its SOUL to {', '.join(dependants)} — give them "
             f"their own first, or delete them first"
         )
-    trash = inst / ".trash"
+    trash = folder.parent / ".trash"
     if not trash.exists():
         trash.mkdir()
         _inherit_owner(trash)

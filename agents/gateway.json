@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "The gateway's own default agent -- the one an inbound Signal message lands",
+    "on. NOT an agent anybody authored and NOT listed in the builder: it is the",
+    "gateway's reception desk, and this file exists for one reason -- to keep",
+    "its tool surface narrow. Measured 2026-09-01: an MCP server is registered",
+    "GLOBALLY, and an agent WITHOUT an explicit allow list receives every tool",
+    "the gateway has, including every MCP tool registered later. Until this",
+    "list existed, main carried all of them, exec included, sandbox off,",
+    "reachable by anyone who knew the number.",
+    "",
+    "The rollout renders this entry into agents.list beside the real agents",
+    "(the list is replaced whole, so it has to be here). Its workspace is the",
+    "shared, hand-made one and is never touched by the rollout.",
+    "",
+    "Who may write to the channel at all is a question left open on purpose",
+    "(ADR-029): the same question stands at three doors, and answering it here",
+    "alone would answer it a third."
+  ],
+  "letterbox": {
+    "id": "main",
+    "workspace": "/data/openclaw/workspace",
+    "tools": {
+      "allow": [
+        "read",
+        "memory_search",
+        "memory_get"
+      ]
+    },
+    "_measured": [
+      "Dormant: two sessions in three months, and the only tools it ever called",
+      "were memory_search and cron. mora02 itself never runs a turn on it --",
+      "notify uses `message send`, a CLI call with no model in it."
+    ]
+  }
+}

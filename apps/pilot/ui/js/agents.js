@@ -26,8 +26,16 @@ var _agb = {
   isNew: false,
   manifest: null,     // the manifest as edited (comments included)
   soul: '', soulShared: null,
+  roots: null,      // GET /agents/roots -- where agents live, and whether one can be made
+  files: {},        // TOOLS.md / USER.md / IDENTITY.md as read
+  filesEdit: {},    // the ones touched in this session; '' = remove
   dirty: false
 };
+var AGB_EXTRA_FILES = [
+  ['TOOLS.md', 'Werkzeug-Hinweise: wie DIESER Agent seine Werkzeuge einsetzen soll, ergänzend zu den Beschreibungen.'],
+  ['USER.md', 'Stehende Vorlieben der Person, für die der Agent arbeitet. Ink. 5 legt das auf agents.defaults.'],
+  ['IDENTITY.md', 'Name, Rolle, Anrede — falls die SOUL das nicht schon sagt.']
+];
 
 function _agbEsc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 var AGB_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
@@ -66,8 +74,10 @@ async function initAgents(){
       _agbGet('/agents/roster?include_inactive=true'),
       _agbGet('/agents/skills'),
       _agbGet('/agents/tools'),
-      _agbGet('/agents/models').catch(function(e){ return { models: [], error: e.message }; })
+      _agbGet('/agents/models').catch(function(e){ return { models: [], error: e.message }; }),
+      _agbGet('/agents/roots').catch(function(){ return { can_create: true }; })
     ]);
+    _agb.roots = res[4];
     _agb.roster = res[0].agents || [];
     _agb.skills = res[1].skills || [];
     _agb.tools = res[2].tools || [];
@@ -80,8 +90,10 @@ async function initAgents(){
   }
   _agbRenderList();
   main.innerHTML = '<div class="agb-note">Links einen Agenten wählen, oder oben rechts einen neuen anlegen.<br><br>'
-    + 'Ein Agent ist ein Ordner unter <code>agents/instances/</code>. Speichern schreibt den Ordner; '
-    + 'erst „Ausrollen" bringt ihn in den Gateway. „Drift prüfen" zeigt dazwischen, was sich ändern würde.</div>';
+    + 'Ein Agent ist ein Ordner unter <code>data/agents/instances/</code> — Inhalt dieser Installation, nicht des Repos. '
+    + 'Das Repo liefert die Methoden (Fertigkeiten), die Werkzeugliste und die Empfangszentrale des Gateways; Agenten liefert es keine.<br><br>'
+    + 'Speichern schreibt den Ordner; erst „Ausrollen" bringt ihn in den Gateway. „Drift prüfen" zeigt dazwischen, was sich ändern würde.'
+    + (_agb.roots && !_agb.roots.can_create ? '<br><br><span style="color:#e88">data/agents ist nicht gemountet (MORA02_AGENTS_LOCAL_DIR) — es gibt keinen Ort für Agenten.</span>' : '') + '</div>';
 }
 
 // ---- roster --------------------------------------------------------------
@@ -121,6 +133,8 @@ async function _agbOpen(id){
     _agb.manifest = d.manifest || {};
     _agb.soul = d.soul || '';
     _agb.soulShared = d.soul_shared_with || null;
+    _agb.files = d.files || {};
+    _agb.filesEdit = {};
     _agb.dirty = false;
     _agbRenderList();
     _agbRenderForm();
@@ -147,6 +161,7 @@ function _agbNew(){
   };
   _agb.soul = '# Who you are\n\n';
   _agb.soulShared = null;
+  _agb.files = {}; _agb.filesEdit = {};
   _agb.dirty = false;
   _agbRenderList();
   _agbRenderForm();
@@ -157,7 +172,6 @@ function _agbRenderForm(){
   var main = document.getElementById('agb-main');
   var m = _agb.manifest;
   var comments = Object.keys(m).filter(function(k){ return k.charAt(0) === '_'; });
-  var isMain = _agb.id === 'main';
   var h = '';
 
   // header + identity
@@ -173,13 +187,13 @@ function _agbRenderForm(){
   h += '</div>';
   h += _agbField('description', 'Beschreibung', m.description || '', 'Steht in der Slash-Liste. Nennt bei einem Cloud-Modell den Preis und dass die Anfrage das Haus verlässt.', { textarea: true });
   h += _agbField('opening', 'Eröffnung', m.opening || '', 'Was ein nacktes /<id> ohne Text sendet. Leer, wenn der Agent eine Frage braucht.');
-  h += '<label class="agb-ck" style="display:inline-flex;margin-top:6px"><input type="checkbox" data-agb-f="active" ' + (m.active !== false ? 'checked' : '') + (isMain ? ' disabled' : '') + '><div class="agb-ck-t"><div class="agb-ck-n">aktiv</div><div class="agb-ck-d">Im Chat aufrufbar. ' + (isMain ? 'main ist der Briefkasten am Nachrichtenkanal, kein Gesprächspartner.' : 'Inaktiv = angelegt, aber nicht angeboten.') + '</div></div></label>';
+  h += '<label class="agb-ck" style="display:inline-flex;margin-top:6px"><input type="checkbox" data-agb-f="active" ' + (m.active !== false ? 'checked' : '') + '><div class="agb-ck-t"><div class="agb-ck-n">aktiv</div><div class="agb-ck-d">Im Chat aufrufbar. Inaktiv = angelegt, aber nicht angeboten.</div></div></label>';
   h += '</div>';
 
   // model + timeout
   h += '<div class="agb-card"><div class="agb-card-h">Modell &amp; Zeit</div><div class="agb-grid">';
   h += '<div class="agb-f"><div class="agb-l"><b>Modell</b></div><select class="agb-sel" data-agb-f="model">';
-  if (!isMain) {
+  {
     var seen = false;
     var groups = [['lokal — bleibt im Haus', function(x){ return x.local; }], ['Cloud — die Anfrage verlässt das Haus', function(x){ return !x.local; }]];
     groups.forEach(function(g){
@@ -188,15 +202,16 @@ function _agbRenderForm(){
       h += '<optgroup label="' + _agbEsc(g[0]) + '">';
       ms.forEach(function(x){
         var sel = x.key === m.model; if (sel) seen = true;
+        // A local entry is named by what is loaded, not by its gateway id: the id
+        // is a port, and showing it here once put "qwen3-14b" under a 27B model.
+        var label = x.local ? ('lokal — ' + (x.loaded || 'llama-server')) : x.key;
         h += '<option value="' + _agbEsc(x.key) + '"' + (sel ? ' selected' : '') + (x.available ? '' : ' disabled') + '>'
-           + _agbEsc(x.key) + (x.context_window ? '  · ' + Math.round(x.context_window / 1024) + 'k' : '') + '</option>';
+           + _agbEsc(label) + (x.context_window ? '  · ' + Math.round(x.context_window / 1024) + 'k' : '') + '</option>';
       });
       h += '</optgroup>';
     });
     if (m.model && !seen) h += '<option value="' + _agbEsc(m.model) + '" selected>' + _agbEsc(m.model) + ' (dem Gateway unbekannt)</option>';
     if (!m.model) h += '<option value="" selected disabled>— wählen —</option>';
-  } else {
-    h += '<option value="" selected>(Gateway-Vorgabe)</option>';
   }
   h += '</select><div class="agb-hint" id="agb-modelhint"></div>'
      + (_agb.modelsError ? '<div class="agb-hint bad">Modell-Liste vom Gateway nicht ladbar: ' + _agbEsc(_agb.modelsError) + '</div>' : '')
@@ -223,10 +238,11 @@ function _agbRenderForm(){
   _agb.skills.forEach(function(s){
     var on = (m.skills || []).indexOf(s.name) >= 0;
     h += '<label class="agb-ck' + (on ? ' on' : '') + '"><input type="checkbox" data-agb-skill="' + _agbEsc(s.name) + '"' + (on ? ' checked' : '') + '>'
-       + '<div class="agb-ck-t"><div class="agb-ck-n">' + _agbEsc(s.name) + '<span class="agb-pill">' + s.files + ' Datei(en)</span></div>'
+       + '<div class="agb-ck-t"><div class="agb-ck-n">' + _agbEsc(s.name)
+       + '<a class="agb-pill agb-files-tg" data-agb-skfiles="' + _agbEsc(s.name) + '" title="Dateien dieser Fertigkeit lesen">' + s.files + ' Datei(en) ▸</a></div>'
        + '<div class="agb-ck-d">' + (s.description ? _agbEsc(s.description) : '<span style="color:#e88">ohne Beschreibung — wird gelistet und nie benutzt</span>') + '</div></div></label>';
   });
-  h += '</div></div>';
+  h += '</div><div id="agb-skfiles"></div></div>';
 
   // tools — never folded, always the whole list
   var unrestricted = m.tools === 'unrestricted';
@@ -249,15 +265,29 @@ function _agbRenderForm(){
   h += '<div class="agb-hint" id="agb-toolhint" style="margin-top:8px"></div></div>';
 
   // SOUL
-  var originals = _agb.roster.filter(function(a){ return a.id !== _agb.id && a.id !== 'main'; });
-  h += '<div class="agb-card"><div class="agb-card-h">SOUL.md — wer der Agent ist<span class="agb-hint">Prosa. Fertigkeiten sagen WIE, die SOUL sagt WER.</span></div>';
+  var originals = _agb.roster.filter(function(a){ return a.id !== _agb.id; });
+  h += '<div class="agb-card"><div class="agb-card-h">SOUL.md — wer der Agent ist<span class="agb-hint">Prosa. Fertigkeiten sagen WIE, die SOUL sagt WER. Geteilt = Verweis im Manifest auf einen anderen Agenten.</span></div>';
   h += '<div class="agb-grid" style="grid-template-columns:200px 1fr;margin-bottom:8px">';
   h += '<div class="agb-f"><div class="agb-l"><b>Quelle</b></div><select class="agb-sel" data-agb-smode>'
      + '<option value="own"' + (!_agb.soulShared ? ' selected' : '') + '>eigene Datei</option>'
-     + '<option value="shared"' + (_agb.soulShared ? ' selected' : '') + '>geteilt mit einem anderen Agenten (Symlink)</option></select></div>';
+     + '<option value="shared"' + (_agb.soulShared ? ' selected' : '') + '>geteilt mit einem anderen Agenten (Verweis)</option></select></div>';
   h += '<div class="agb-f" id="agb-soulsrc">' + (_agb.soulShared ? _agbSoulShareSelect(originals) : '') + '</div></div>';
   h += '<textarea class="agb-ta" data-agb-soul' + (_agb.soulShared ? ' disabled' : '') + ' spellcheck="false">' + _agbEsc(_agb.soul) + '</textarea>';
   if (_agb.soulShared) h += '<div class="agb-hint">Angezeigt wird die Datei von <b>' + _agbEsc(_agb.soulShared) + '</b>. Ändern heißt dort ändern — beide Agenten bekommen es.</div>';
+  h += '</div>';
+
+  // the other workspace files -- optional, folded, but present: the rollout
+  // renders exactly these, and a file the builder cannot see is a file that
+  // gets edited in a terminal and forgotten there.
+  h += '<div class="agb-card"><div class="agb-card-h">Weitere Workspace-Dateien<span class="agb-hint">optional · leer lassen = Datei entfernen</span></div>';
+  AGB_EXTRA_FILES.forEach(function(f){
+    var name = f[0];
+    var cur = (_agb.filesEdit[name] !== undefined) ? _agb.filesEdit[name] : (_agb.files[name] || '');
+    var has = cur !== '';
+    h += '<details class="agb-det"' + (has ? ' open' : '') + '><summary>' + _agbEsc(name) + (has ? ' <span class="agb-pill local">vorhanden</span>' : ' <span class="agb-pill">nicht vorhanden</span>') + '</summary>'
+       + '<div class="agb-hint" style="margin:4px 0 6px">' + _agbEsc(f[1]) + '</div>'
+       + '<textarea class="agb-ta short" data-agb-xfile="' + _agbEsc(name) + '" spellcheck="false" placeholder="(leer = keine Datei)">' + _agbEsc(cur) + '</textarea></details>';
+  });
   h += '</div>';
 
   // actions
@@ -265,9 +295,9 @@ function _agbRenderForm(){
      + '<button class="tool-btn tool-btn-primary" data-agb-do="save">Speichern</button>'
      + '<button class="tool-btn tool-btn-secondary" data-agb-do="drift"' + (_agb.isNew ? ' disabled' : '') + '>Drift prüfen</button>'
      + '<button class="tool-btn tool-btn-secondary" data-agb-do="deploy"' + (_agb.isNew ? ' disabled' : '') + '>Ausrollen</button>'
-     + '<button class="tool-btn tool-btn-secondary" data-agb-do="test"' + (_agb.isNew || isMain || m.active === false ? ' disabled' : '') + '>Testen</button>'
+     + '<button class="tool-btn tool-btn-secondary" data-agb-do="test"' + (_agb.isNew || m.active === false ? ' disabled' : '') + '>Testen</button>'
      + '<span class="agb-sp"></span>'
-     + (_agb.isNew || isMain ? '' : '<button class="tool-btn tool-btn-secondary tool-btn-danger" data-agb-do="delete">Löschen</button>')
+     + (_agb.isNew ? '' : '<button class="tool-btn tool-btn-secondary tool-btn-danger" data-agb-do="delete">Löschen</button>')
      + '</div>';
   h += '<div class="agb-hint" id="agb-savehint"></div>';
   h += '<div id="agb-outbox" style="margin-top:10px"></div>';
@@ -312,7 +342,7 @@ function _agbRenderLimits(mode){
   var m = _agb.manifest;
   if (mode === 'none'){ box.innerHTML = '<div class="agb-hint" style="margin-top:18px">Der Server setzt seine Vorgaben ein.</div>'; return; }
   if (mode === 'same_as'){
-    var others = _agb.roster.filter(function(a){ return a.id !== _agb.id && a.id !== 'main'; });
+    var others = _agb.roster.filter(function(a){ return a.id !== _agb.id; });
     var cur = (m.limits && m.limits.same_as) || '';
     var h = '<div class="agb-l"><b>Limits von</b></div><select class="agb-sel" data-agb-lsame>';
     others.forEach(function(a){ h += '<option value="' + _agbEsc(a.id) + '"' + (a.id === cur ? ' selected' : '') + '>' + _agbEsc(a.id) + '</option>'; });
@@ -343,7 +373,8 @@ function _agbModelHint(){
   if (!k){ el.textContent = ''; return; }
   if (k.indexOf('llama-local/') === 0){
     el.className = 'agb-hint ok';
-    el.textContent = 'Lokal. Der Name ist ein Port, nicht ein Gewicht — welches Modell wirklich antwortet, steht im llm-switch und im Umschlag jeder Antwort.';
+    var lm = _agb.models.filter(function(x){ return x.key === k; })[0];
+    el.textContent = 'Lokal auf llama-server' + (lm && lm.loaded ? ', geladen: ' + lm.loaded : '') + '. Die Anfrage bleibt im Haus.';
   } else {
     el.className = 'agb-hint warn';
     el.textContent = 'Cloud: jede Anfrage verlässt das Haus und kostet Geld (Recherche-Zug auf Sonnet ~33 ct). Nur für Agenten, die nichts steuern.';
@@ -394,6 +425,12 @@ function _agbWire(){
       _agb.manifest.skills = s; ck.closest('.agb-ck').classList.toggle('on', ck.checked); _agbMark();
     });
   });
+  main.querySelectorAll('[data-agb-skfiles]').forEach(function(a){
+    a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); _agbShowSkill(a.dataset.agbSkfiles); });
+  });
+  main.querySelectorAll('[data-agb-xfile]').forEach(function(ta){
+    ta.addEventListener('input', function(){ _agb.filesEdit[ta.dataset.agbXfile] = ta.value; _agbMark(); });
+  });
   main.querySelectorAll('[data-agb-tool]').forEach(function(ck){
     ck.addEventListener('change', function(){
       if (_agb.manifest.tools === 'unrestricted') return;
@@ -413,7 +450,7 @@ function _agbWire(){
   var ta = main.querySelector('[data-agb-soul]');
   if (smode) smode.addEventListener('change', function(){
     var src = document.getElementById('agb-soulsrc');
-    var originals = _agb.roster.filter(function(a){ return a.id !== _agb.id && a.id !== 'main'; });
+    var originals = _agb.roster.filter(function(a){ return a.id !== _agb.id; });
     if (smode.value === 'shared'){
       _agb.soulShared = _agb.soulShared || (originals[0] && originals[0].id) || null;
       src.innerHTML = _agbSoulShareSelect(originals);
@@ -454,6 +491,11 @@ async function _agbSave(){
   var body = { manifest: _agb.manifest };
   if (_agb.soulShared) body.soul_shared_with = _agb.soulShared;
   else body.soul = _agb.soul;
+  // Only the files touched in this session travel; '' removes, absent leaves alone.
+  if (Object.keys(_agb.filesEdit).length){
+    body.files = {};
+    Object.keys(_agb.filesEdit).forEach(function(k){ body.files[k] = _agb.filesEdit[k].trim() === '' ? '' : _agb.filesEdit[k]; });
+  }
   _agbSay('Speichere…');
   try {
     var r = await fetch(AGB_API + '/agents/' + encodeURIComponent(id), {
@@ -462,10 +504,10 @@ async function _agbSave(){
     var j = await r.json().catch(function(){ return {}; });
     if (!r.ok){ _agbSay('Abgelehnt: ' + (j.detail || ('HTTP ' + r.status)), 'bad'); return; }
     _agb.dirty = false; _agb.isNew = false; _agb.id = id;
-    _agbSay((j.created ? 'Angelegt: ' : 'Gespeichert: ') + 'agents/instances/' + id + '/ — noch nicht ausgerollt.', 'ok');
+    _agbSay((j.created ? 'Angelegt: ' : 'Gespeichert: ') + 'data/agents/instances/' + id + '/ — noch nicht ausgerollt.', 'ok');
     await _agbReloadRoster();
     await _agbOpen(id);
-    _agbSay((j.created ? 'Angelegt: ' : 'Gespeichert: ') + 'agents/instances/' + id + '/ — Drift wird geprüft…', 'ok');
+    _agbSay((j.created ? 'Angelegt: ' : 'Gespeichert: ') + 'data/agents/instances/' + id + '/ — Drift wird geprüft…', 'ok');
     await _agbDrift(id);
   } catch (e){ _agbSay('Fehler: ' + e.message, 'bad'); }
 }
@@ -544,7 +586,7 @@ async function _agbTest(){
 // ---- delete --------------------------------------------------------------
 async function _agbDelete(){
   var id = _agb.id;
-  if (!confirm('Agent „' + id + '" löschen?\n\nDer Ordner wandert nach agents/instances/.trash/ (wiederherstellbar). Aus dem Gateway verschwindet er beim nächsten Ausrollen.')) return;
+  if (!confirm('Agent „' + id + '" löschen?\n\nDer Ordner wandert nach data/agents/instances/.trash/ (wiederherstellbar). Aus dem Gateway verschwindet er beim nächsten Ausrollen.')) return;
   try {
     var r = await fetch(AGB_API + '/agents/' + encodeURIComponent(id), { method: 'DELETE' });
     var j = await r.json().catch(function(){ return {}; });
@@ -557,4 +599,38 @@ async function _agbDelete(){
       b.addEventListener('click', function(){ if (b.dataset.agbDo2 === 'drift') _agbDrift(null); else _agbDeploy(); });
     });
   } catch (e){ _agbSay('Fehler: ' + e.message, 'bad'); }
+}
+
+// ---- skill files, read-only ----------------------------------------------
+// A skill is shared between agents and lives in agents/skills/<name>/. What it
+// contains is the part of an agent most worth reading -- the question
+// catalogue, the template -- and until this existed it was the only part the
+// browser could not show. Reading only: writing skill files is the skill
+// editor, a separate decision (three tiers, three homes, one mounted).
+var _agbSkillOpen = null;
+async function _agbShowSkill(name){
+  var box = document.getElementById('agb-skfiles');
+  if (!box) return;
+  if (_agbSkillOpen === name){ box.innerHTML = ''; _agbSkillOpen = null; return; }
+  _agbSkillOpen = name;
+  box.innerHTML = '<div class="agb-note">Lade ' + _agbEsc(name) + '…</div>';
+  try {
+    var d = await _agbGet('/agents/skills/' + encodeURIComponent(name));
+    var h = '<div class="agb-skbox"><div class="agb-sub" style="margin-top:4px">' + (d.root === 'local' ? 'data/agents' : 'agents') + '/skills/' + _agbEsc(name) + '/ · benutzt von: ' + (d.used_by && d.used_by.length ? _agbEsc(d.used_by.join(', ')) : '—') + '</div>';
+    h += '<div class="agb-skfiles-l">';
+    (d.files || []).forEach(function(f, i){
+      h += '<a class="agb-skfile' + (i === 0 ? ' sel' : '') + '" data-agb-skf="' + i + '">' + _agbEsc(f.path) + ' <span class="dim">' + Math.round(f.size / 100) / 10 + ' kB</span></a>';
+    });
+    h += '</div><pre class="agb-out agb-skpre" id="agb-skpre"></pre>'
+       + '<div class="agb-hint">Nur lesen. Bearbeiten heißt heute: die Datei im Repo ändern und ausrollen — der Fertigkeiten-Editor ist ein eigener Schritt.</div></div>';
+    box.innerHTML = h;
+    function show(i){
+      var f = d.files[i];
+      var pre = document.getElementById('agb-skpre');
+      pre.textContent = f.content != null ? f.content : '(' + f.path + ': keine Textvorschau, ' + f.size + ' Bytes)';
+      box.querySelectorAll('.agb-skfile').forEach(function(a, j){ a.classList.toggle('sel', j === i); });
+    }
+    box.querySelectorAll('[data-agb-skf]').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); show(parseInt(a.dataset.agbSkf, 10)); }); });
+    if (d.files && d.files.length) show(0);
+  } catch (e){ box.innerHTML = '<div class="agb-err">' + _agbEsc(e.message) + '</div>'; }
 }
