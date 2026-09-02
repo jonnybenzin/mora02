@@ -527,6 +527,7 @@ async function askAgent(agent) {
     }
   }
   showTyping(true);
+  startProgress();
   isStreaming = true;
   updateSendButton(false);
   try {
@@ -536,6 +537,7 @@ async function askAgent(agent) {
       body: JSON.stringify({ message: agent.text, conversation: agentConversationId() }),
     });
     var data = await resp.json();
+    stopProgress();
     showTyping(false);
     if (!resp.ok) {
       // The detail names which half failed -- the gateway, the model, or a
@@ -551,6 +553,16 @@ async function askAgent(agent) {
       // nothing about whether it was researched or remembered -- and a turn
       // with zero tool calls on a question that needed them is the one thing
       // you cannot see by reading the answer.
+      // Which weights actually answered. For a cloud model the name IS the
+      // model; for a local one the manifest can only name a PORT, because the
+      // gateway resolves ids against its provider block. Three research runs
+      // were taken on a cloud model while everyone believed they were local,
+      // and no line in the output said otherwise. This one does.
+      if (data.model_real) {
+        addSystemMessage('· geantwortet hat: ' + data.model_real
+          + (data.model_declared && data.model_declared !== data.model_real
+              ? '   (im Agenten steht: ' + data.model_declared + ')' : ''));
+      }
       if (typeof data.tool_calls === 'number') {
         var used = (data.tools_used || []).join(', ') || 'keine';
         addSystemMessage('· ' + data.tool_calls + ' Werkzeugaufruf(e): ' + used
@@ -571,14 +583,22 @@ async function askAgent(agent) {
       // Notes taken while reading. Shown next to the answer because the point
       // is the comparison: a restriction that is in the notes and missing from
       // the answer is exactly the failure this stage was built for.
-      if (data.sources && data.sources.read_count) {
+      // Also when nothing was read: a follow-up question reads nothing and
+      // still stands on what the earlier ones wrote down. Until the notebook
+      // learned which conversation it belonged to, that turn showed nothing at
+      // all -- and was answered from memory.
+      if ((data.sources && data.sources.read_count) || data.notes_carried) {
         var notes = data.notes || [];
-        if (!notes.length) {
+        if (!notes.length && !data.notes_carried) {
           addSystemMessage('⚠ ' + data.sources.read_count
             + ' Seite(n) gelesen, aber nichts notiert — Einschränkungen gehen so verloren.');
         } else {
           var lim = notes.filter(function (n) { return n.restriction; });
           var line = '· ' + notes.length + ' Notiz(en), ' + lim.length + ' mit Einschränkung'
+            + (data.notes_carried ? ' · ' + data.notes_carried
+                 + ' aus früheren Fragen mitgeführt' : '')
+            + (data.checks_carried ? ' · ' + data.checks_carried
+                 + ' Fakt(en) schon früher geprüft' : '')
             + (data.notes_reviewed ? ' · vor dem Schreiben nochmal gelesen'
                                    : ' · ⚠ NICHT nochmal gelesen');
           for (var i = 0; i < lim.length && i < 6; i++) {
@@ -586,6 +606,61 @@ async function askAgent(agent) {
           }
           addSystemMessage(line);
         }
+      }
+      // Step 4: what was checked at a source, and what was carried past.
+      // Printed from the envelope, not from the answer, and printed even when
+      // the agent said nothing about it -- that silence WAS the failure. Both
+      // runs that missed the right machine had named the gap in their own notes
+      // and walked on, and nothing in the output said so.
+      var checks = data.checks || [];
+      var openUn = data.open_unchecked || [];
+      var solo = data.single_source_unchecked || [];
+      // Rendered whenever anything was READ, so that "0 verified" is printed as
+      // a zero instead of vanishing. Measured 2026-09-02: a local turn made no
+      // source checks at all, and because nothing else in this block had
+      // anything to say, the whole block was skipped -- the single most
+      // important fact about that turn was invisible, and its absence read as
+      // "nothing to report". `one_source_family` was lost the same way: it only
+      // ever appeared when some OTHER signal had already opened the block.
+      if (checks.length || openUn.length || solo.length
+          || data.one_source_family || (data.notes || []).length) {
+        var mark = { bestaetigt: '✓', widersprochen: '✗', nicht_auffindbar: '?' };
+        var cl = '· ' + checks.length + ' Fakt(en) an der Quelle geprüft';
+        for (var c = 0; c < checks.length && c < 6; c++) {
+          cl += '\n   ' + (mark[checks[c].result] || '·') + ' ' + checks[c].result
+              + ' — ' + (checks[c].claim || '').slice(0, 70)
+              + (checks[c].detail ? '  (' + checks[c].detail.slice(0, 60) + ')' : '');
+        }
+        if (openUn.length) {
+          // Says only what is measured. The first real run flagged a point
+          // the report HAD declared in plain words -- the label claimed
+          // otherwise, and the agent came off worse than it deserved.
+          cl += '\n   ⚠ ' + openUn.length + ' offene(r) Punkt(e) nicht an der'
+              + ' Quelle geprüft — im Bericht ausgewiesen?';
+          for (var o = 0; o < openUn.length && o < 3; o++) {
+            cl += '\n     ⚑ ' + (openUn[o].claim || '').slice(0, 70)
+                + '  — ' + (openUn[o].restriction || '');
+          }
+        }
+        // Quieter than the warning above, and phrased as a question, because
+        // standing alone is not being wrong. It is here because the one real
+        // error measured so far -- a version confused with its successor --
+        // sat in exactly this class and nothing in the output named it.
+        if (data.one_source_family) {
+          // Tested against a real turn: when a run reads the vendor's own
+          // pages -- which is what step 4 asks for -- everything is
+          // single-sourced. A list where all of it is flagged flags nothing,
+          // so that turn gets one sentence about itself instead.
+          cl += '\n   · alle Zahlen aus einer Quellenfamilie — bei einer'
+              + ' Herstellerangabe in Ordnung, bei einer Bewertung nicht';
+        } else if (solo.length) {
+          cl += '\n   · ' + solo.length + ' Zahl(en) auf nur einer Quelle,'
+              + ' ungeprüft:';
+          for (var q = 0; q < solo.length && q < 3; q++) {
+            cl += '\n     · ' + (solo[q].claim || '').slice(0, 80);
+          }
+        }
+        addSystemMessage(cl);
       }
       // How close this turn came to the wall. Worth showing permanently: the
       // gateway budgeted against a window four times larger than the server
@@ -608,6 +683,8 @@ async function askAgent(agent) {
   } catch (err) {
     showTyping(false);
     addSystemMessage(agent.label + ' unreachable: ' + err.message);
+  } finally {
+    stopProgress();
   }
   isStreaming = false;
   updateSendButton(true);
@@ -718,6 +795,53 @@ function copyCodeFromAction(el) {
    TYPING INDICATOR
    ═══════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════
+   Live progress of a running agent turn.
+
+   A research turn was measured at 53s for a light question and 194s for one
+   with five source checks, and in both the person saw a bouncing dot. Every
+   number below is already being kept by the tool layer for the answer
+   envelope; this only asks for it while the turn is still going.
+
+   Polling, not streaming: the answer is one request that takes minutes, and
+   making it a stream would mean reshaping the gateway call underneath it. A
+   poll can be dropped without touching the turn.
+   ═══════════════════════════════════════════════════════════════ */
+var progressTimer = null;
+
+function stopProgress() {
+  if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+}
+
+function startProgress() {
+  stopProgress();
+  progressTimer = setInterval(async function () {
+    var el = document.getElementById('chat-progress');
+    if (!el) return;
+    try {
+      var r = await fetch(AGENT_API + '/agent/progress');
+      var p = await r.json();
+      if (!p.running) return;
+      var head = document.querySelector('#chat-typing .msg-model');
+      if (head) head.textContent = (p.phase || 'THINKING').toUpperCase();
+      var bits = [Math.round(p.elapsed_s) + 's'];
+      if (p.pages || p.searches) {
+        bits.push(p.searches + '/' + p.searches_max + ' Suchen');
+        bits.push(p.pages + '/' + p.pages_max + ' Seiten');
+      }
+      if (p.notes) bits.push(p.notes + ' Notizen');
+      if (p.checks) bits.push(p.checks + ' geprüft');
+      var line = bits.join(' · ');
+      // The gap between tool calls is the model composing. A few seconds is
+      // thinking; two minutes is a turn that may never come back, and until
+      // this line existed the two looked identical from outside.
+      if (p.idle_s > 20) line += ' · seit ' + Math.round(p.idle_s) + 's kein Werkzeug';
+      if (p.last_read) line += '\n' + p.last_read.slice(0, 90);
+      el.textContent = line;
+    } catch (e) { /* a failed poll must never disturb the turn */ }
+  }, 2000);
+}
+
 function showTyping(show) {
   var indicator = document.getElementById('chat-typing');
   var msgs = document.getElementById('chat-messages');
@@ -728,7 +852,8 @@ function showTyping(show) {
     indicator.className = 'msg-bot msg-typing';
     indicator.innerHTML =
       '<div class="msg-head"><span class="msg-model" style="color:var(--tx-muted)">THINKING</span></div>' +
-      '<div class="msg-body"><div class="m2-loader-m" id="chat-m2-loader" style="padding:12px 0"></div></div>';
+      '<div class="msg-body"><div class="m2-loader-m" id="chat-m2-loader" style="padding:12px 0"></div>'
+      + '<div id="chat-progress" style="font-size:11px;color:var(--tx-muted);line-height:1.5"></div></div>';
     msgs.appendChild(indicator);
     startM2(document.getElementById('chat-m2-loader'), 9, 35);
     scrollToBottom();

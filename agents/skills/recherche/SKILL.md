@@ -118,7 +118,7 @@ so in the report rather than to stop quietly. "Budget aufgebraucht" is one of th
 three valid reasons to stop, alongside "answered" and "further rounds would only
 repeat".
 
-## 4. Check the load-bearing facts at the source
+## 4. Check the load-bearing facts at the source — with `verify`
 
 Searching wider is not the same act as checking. More rounds give you more
 material and, with it, more variance: what lands on top depends on what the
@@ -126,23 +126,36 @@ engines happened to rank today, so the same question answered twice comes out
 differently. Verification is what makes an answer reproducible — a figure
 confirmed at its origin is the same figure next week.
 
-So before writing the answer, name the facts the **recommendation rests on** —
-usually a handful: a version, a size, a price, a limit, a licence. For each of
-those, and only those:
+Name the facts the **recommendation rests on** — usually a handful: a version, a
+size, a price, a limit, a licence. For each of those, and only those:
 
-**Go to the thing itself.** The project's own repository, its model card, the
-vendor's own documentation, the official register. Not an article about it, not
-a comparison site, not a listing that aggregates others. Those are fine for
-finding candidates and useless for confirming numbers.
+**Go to the thing itself** with `web_read`. The project's own repository, its
+model card, the vendor's own documentation, the official register, the listing
+that carries the specification. Not an article about it, not a comparison of
+others. Those are fine for finding candidates and useless for confirming
+numbers.
+
+**The check rides on the note.** When the page you are reading IS the source of
+a figure, put `result` on that note and the figure is checked — no second call,
+no separate act. Three results, all of them real: `bestaetigt` (the page says
+it), `widersprochen` (it says something else), `nicht_auffindbar` (it has not
+got it, or would not load). A decisive figure that is *not* at its source is
+often the most useful line in the whole report.
+
+`verify` still exists as a tool of its own, for checks you make after the fact —
+you went back to a page to settle something. It books into exactly the same
+place. But the ordinary way is the note: a figure you just read is a figure you
+can still place, and twenty calls later you are working from memory of it.
+
+`verify` is checked against what the tools actually fetched. A source you did
+not open this turn is refused, because a check that was only asserted is not a
+check. If a page would not load at all — and manufacturers' pages increasingly
+assemble themselves in a browser and hand a reader nothing — `nicht_auffindbar`
+against that same address is the honest record, and it is accepted.
 
 **Watch for the wrong edition.** Most confidently wrong figures come from a page
 about the previous version, the other variant, the other region. If a name
 carries a number, check that the page you are reading carries the same one.
-
-**Say what happened to each check.** Confirmed at the source, contradicted by
-it, or not findable there. All three are results. „Not findable at the source"
-about a decisive figure is itself worth reporting, and is often the most useful
-line in the whole report.
 
 **Name a contradiction rather than picking a side.** When two sources disagree
 on something the decision hangs on, the primary source settles it; if it does
@@ -150,8 +163,23 @@ not exist or does not say, report that both claims exist and that it is
 unresolved.
 
 This step is bounded on purpose. Not every sentence gets verified — only what
-the answer would be wrong without. Everything else stays a normal finding with
-its URL beside it.
+the answer would be wrong without.
+
+### The open points
+
+When you call `notes_review`, it hands back an `offen` list: notes whose own
+restriction says the figure was never established — *nicht bestätigt*, *nicht
+gefunden*, *unklar*. That list is computed from what you wrote, not from what
+you remember.
+
+Two endings are allowed for each, and both are complete:
+
+1. go to the source, and record the outcome with `verify`
+2. say in the report, in plain words, that it stayed open
+
+There is no third. Passing over an open point in silence is the failure this
+step exists to prevent — and it is the one that was measured: an answer that
+named its own gap in its notes, walked past it, and read as finished.
 
 ## 5. Report
 

@@ -68,6 +68,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from collections import deque
 from typing import Any
@@ -172,27 +173,89 @@ _SEEN: deque = deque(maxlen=600)
 # with no note behind it is then as visible as a fabricated URL is now.
 _NOTES: deque = deque(maxlen=300)
 
+# What the agent checked at its SOURCE, and what came back. Step 4 of the method
+# ("check the load-bearing facts at the source") was the only one of the five
+# without a tool: notes had `note`, re-reading had `notes_review`, sources had
+# `web_read` -- and each of those leaves a trace beside the answer. Step 4 was a
+# paragraph asking for behaviour, so it never appeared in a report and nobody
+# noticed.
+#
+# Measured 2026-09-01, twice, on the strongest model available: both research
+# runs named their own gap in plain words -- "genaue Tiefe/Breite fuer die
+# DeLonghi-Modelle nicht aus den Quellen bestaetigt" -- and stopped there. A
+# hand check the next morning found the missing figure at a price comparison
+# site in two minutes, and it changed the recommendation. Neither the searching
+# nor the judging failed. The CLOSING step did, and it failed silently.
+#
+# A check is therefore an act with a record, like a note. And unlike a note it
+# is verified against what the tools really fetched (see `_read_urls_since`):
+# a check may not be asserted, only performed.
+_CHECKS: deque = deque(maxlen=200)
+
+# Which restrictions mark a note as an OPEN question rather than a caveat.
+# Deliberately crude -- its job is to raise candidates, not to be right. Both
+# languages, because the agent answers in the language it is addressed in.
+# German puts the negation far from the verb it negates -- the first real note
+# this was tried on read "nicht AUS DEN QUELLEN bestaetigt" and slipped straight
+# through a pattern that wanted the two words adjacent. So a few words are
+# allowed to stand between them, in both languages.
+_GAP = r"(?:\S+\s+){0,4}"
+_OPEN_RX = re.compile(
+    r"nicht\s+" + _GAP + r"(?:best(?:ä|ae|a)tigt|belegt|gefunden|genannt"
+    r"|verifiziert|auffindbar|nachgewiesen|gepr(?:ü|ue)ft)"
+    r"|kein(?:e|er|en)?\s+" + _GAP + r"(?:angabe|angaben|beleg|quelle|nachweis)"
+    r"|unbest(?:ä|ae|a)tigt|unbelegt|unklar|ungekl(?:ä|ae)rt"
+    r"|widerspr(?:ü|ue)chlich|ungepr(?:ü|ue)ft|fraglich"
+    r"|not\s+" + _GAP + r"(?:confirmed|found|stated|verified|listed|established)"
+    r"|unconfirmed|unverified|unclear|contradictor|no\s+source",
+    re.I,
+)
+
 # Where the current turn began. The MCP surface has no turn id -- OpenClaw sends
 # none -- so the agent route stamps this when it starts one, and the note tools
 # read it. Same time-window approach as the URL record above, with the same
 # limitation: two turns at once would blur.
 _TURN_T0: float = 0.0
+# Which CONVERSATION the current turn belongs to. The time window alone answers
+# "what was noted in this turn"; it cannot answer "what did we establish two
+# questions ago", and a follow-up question was measured arriving with an empty
+# notebook while the conversation thread itself held fine. The gateway sends no
+# session id with an MCP call, so the agent route stamps this the same way it
+# stamps the turn start, from `session_key(agent, conversation)` -- a pure
+# function, so the same Pilot conversation always maps to the same string.
+#
+# Still in-process: a rebuild empties the notebook while OpenClaw keeps the
+# thread. Acceptable and named -- notes are working material for a chain of
+# questions, not a record. Persisting them is a separate decision.
+_SESSION: str = ""
+# When the route stopped waiting. Without it `turn_progress` would report a turn
+# as running forever after it ended -- true of the registers, false of the
+# world, and the kind of stale "yes" that is worse than no answer.
+_TURN_END: float = 0.0
 _REVIEWED: float = 0.0
 _SPENT: dict = {"pages": 0, "searches": 0}
 
 
-def begin_turn(limits: dict | None = None) -> float:
+def begin_turn(limits: dict | None = None, session: str = "") -> float:
     """Called by the agent route when a turn starts.
 
     Carries the acting agent's payload limits, because the MCP surface has no
     way to know who is calling -- the same reason the turn boundary is stamped
     here at all.
     """
-    global _TURN_T0, _LIMITS, _SPENT
+    global _TURN_T0, _LIMITS, _SPENT, _SESSION, _TURN_END
     _TURN_T0 = time.time()
+    _TURN_END = 0.0
     _LIMITS = {**_DEFAULTS, **(limits or {})}
     _SPENT = {"pages": 0, "searches": 0}
+    _SESSION = session or ""
     return _TURN_T0
+
+
+def end_turn() -> None:
+    """The route is no longer waiting. Called on every exit, success or not."""
+    global _TURN_END
+    _TURN_END = time.time()
 
 
 def reviewed_this_turn() -> bool:
@@ -206,7 +269,175 @@ def _remember(kind: str, url: str, ok: bool = True) -> None:
 
 
 def notes_since(t0: float) -> list[dict]:
-    return [n for ts, n in list(_NOTES) if ts >= t0]
+    """What was written down in THIS turn. Unchanged meaning on purpose: it is
+    what stands beside this answer."""
+    return [n for ts, sess, n in list(_NOTES) if ts >= t0]
+
+
+def notes_earlier(session: str, t0: float, cap: int = 12) -> list[dict]:
+    """What the same conversation established BEFORE this turn, newest first.
+
+    Capped, and the cap is the whole design decision. Everything ever noted in a
+    long conversation would crowd out the reading of the current one; twelve is
+    enough to carry the qualifiers a follow-up depends on. Without a session an
+    empty list, never a guess -- two conversations blurring into one another is
+    worse than a lost note.
+    """
+    if not session:
+        return []
+    out = [n for ts, sess, n in list(_NOTES) if sess == session and ts < t0]
+    return out[-cap:][::-1]
+
+
+def checks_since(t0: float) -> list[dict]:
+    return [c for ts, sess, c in list(_CHECKS) if ts >= t0]
+
+
+def checks_earlier(session: str, t0: float, cap: int = 12) -> list[dict]:
+    """Facts already verified earlier in the same conversation.
+
+    Carried for the same reason as the notes, and with more force: a figure
+    confirmed at its source two questions ago does not become unconfirmed
+    because someone asked a follow-up, and re-fetching it is a round trip spent
+    on something already known.
+    """
+    if not session:
+        return []
+    out = [c for ts, sess, c in list(_CHECKS) if sess == session and ts < t0]
+    return out[-cap:][::-1]
+
+
+# Words too common to mean two notes are talking about the same thing.
+_STOP = frozenset("""
+oder aber nicht wird werden sind auch kann koennen können laut nach ueber über
+unter eine einer eines einem einen dass diese dieser dieses beim vom zum zur
+this that with from which have been also more than only some most best when
+does will they there their been such into over about
+""".split())
+
+# What makes a claim worth verifying at all. Step 4 names the kinds itself:
+# a version, a size, a price, a limit, a licence. All of them carry a figure,
+# and a claim without one is usually a description rather than a load-bearing
+# fact.
+_FIG_RX = re.compile(r"\d")
+# A version or a measurement outranks a bare year: "5.2.1", "2 GB", "24,6 cm".
+_STRONG_RX = re.compile(
+    r"\d+\.\d+|\d+[,.]\d+\s*(?:cm|mm|gb|mb|kg|g|w|wh|%|€|eur)"
+    r"|\d+\s*(?:gb|mb|cm|mm|kg|wh|€|eur|%)", re.I)
+
+
+def _host(url: str) -> str:
+    m = re.match(r"(?:https?://)?(?:www\.)?([^/]+)", (url or "").strip().lower())
+    return m.group(1) if m else ""
+
+
+def _tokens(text: str) -> set:
+    return {w for w in re.findall(r"[\w.,]{4,}", (text or "").lower())
+            if w not in _STOP}
+
+
+def single_source_notes(notes: list[dict], cap: int = 3) -> dict:
+    """Which figures rest on one host — and whether that says anything.
+
+    WHAT THIS WAS PROPOSED FOR, AND WHY THAT FAILED. It was meant to catch the
+    one real error measured on 2026-09-02: the Blender turn wrote "Intel-Macs
+    werden seit Blender 4.5 LTS nicht mehr unterstuetzt", when 4.5 LTS was the
+    LAST release WITH Intel support and the cut is 5.0. The idea was that a
+    claim no second source echoes is the one to verify.
+
+    Tested against that turn's actual six notes: ALL SIX qualified. A turn that
+    does what step 4 asks -- read the vendor's own pages -- makes almost
+    everything single-sourced, and for a version number one authoritative source
+    is not a shortage, it is the right answer. Worse, the error was not
+    under-sourced at all. It was MISREAD: the page said one thing and the note
+    said its opposite. Counting sources cannot catch a misreading, however many
+    sources there are.
+
+    So the detector was kept and its claim reduced to what it can support. When
+    the uncorroborated figures are a MINORITY, naming them is a real hint: the
+    turn had several independent sources and these few stood apart. When they
+    are most of the turn, that is a fact about the turn -- one source family --
+    and it is reported as that single sentence instead of as a list of
+    candidates, because a list where everything is flagged flags nothing.
+
+    Deliberately NOT built: a heuristic for version-boundary phrasing ("seit",
+    "letzte Version mit"), which would have caught this one case. Building it
+    now would be tuning the instrument on the single example it is meant to
+    generalise past.
+
+    Returns ``{"candidates": [...], "one_family": bool, "total": int}``.
+    """
+    def whole(n: dict) -> str:
+        return f"{n.get('claim') or ''} {n.get('restriction') or ''}"
+
+    rich = [(n, _tokens(whole(n))) for n in notes if _FIG_RX.search(whole(n))]
+    alone = []
+    for note, toks in rich:
+        host = _host(note.get("source"))
+        if not any(len(toks & ot) >= 2 and _host(o.get("source")) != host
+                   for o, ot in rich if o is not note):
+            alone.append(note)
+
+    # Selective or not. Two thirds is where a list stops distinguishing
+    # anything; below it the few that stand apart are worth a look.
+    one_family = bool(rich) and len(alone) > (2 * len(rich)) / 3
+    if one_family:
+        return {"candidates": [], "one_family": True, "total": len(alone)}
+
+    alone.sort(key=lambda n: 0 if _STRONG_RX.search(whole(n)) else 1)
+    return {
+        "candidates": [{"claim": (n.get("claim") or "")[:200],
+                        "source": n.get("source", ""),
+                        "grund": "nur eine Quelle"} for n in alone[:cap]],
+        "one_family": False,
+        "total": len(alone),
+    }
+
+
+def open_notes(notes: list[dict], cap: int = 3) -> list[dict]:
+    """Notes whose restriction says the figure was never actually established.
+
+    Capped on purpose. Every open point turned into a duty is another tool call,
+    and long chains were measured ending in no answer at all. Three is what a
+    recommendation usually rests on; beyond that the honest move is to report
+    them as open, which is a full outcome here and not the lesser one.
+    """
+    out = []
+    for n in notes:
+        if _OPEN_RX.search(n.get("restriction") or ""):
+            out.append({"claim": n.get("claim", "")[:200],
+                        "source": n.get("source", ""),
+                        "restriction": n.get("restriction", "")[:160]})
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _norm_url(u: str) -> str:
+    """Loose enough that a check is not refused over a trailing slash."""
+    u = (u or "").strip().lower()
+    u = re.sub(r"^https?://", "", u)
+    u = re.sub(r"^www\.", "", u)
+    return u.rstrip("/")
+
+
+def _read_urls_since(t0: float, ok_only: bool = True) -> set:
+    """Every address actually FETCHED this turn, normalised, untruncated.
+
+    `urls_since` cuts its list for display; this one must not, because it
+    decides whether a check is accepted.
+
+    ``ok_only=False`` also returns the ones that FAILED, and that distinction
+    carries a finding of its own. Measured 2026-09-02 by hand: four of ten
+    fetches were refused outright (403), and the manufacturer's own page --
+    the canonical place to verify a specification -- served nothing but
+    ``VersuniB2CApp``, because it assembles itself in the browser. A tool that
+    turns HTML into text can look up nothing there. So "not findable at the
+    source" must stay reachable for a page that would not open, or the honest
+    outcome becomes the one the machinery forbids.
+    """
+    return {_norm_url(u) for ts, kind, u, ok in list(_SEEN)
+            if ts >= t0 and kind == "read" and (ok or not ok_only)}
 
 
 def urls_since(t0: float) -> dict:
@@ -231,6 +462,65 @@ def urls_since(t0: float) -> dict:
         "read_count": len(read),
         "found_count": len(set(found)),
         "failed": failed[:5],
+    }
+
+
+def turn_progress() -> dict:
+    """What the running turn has done so far, from records that already exist.
+
+    Nothing new is measured here. Every field is read out of the same registers
+    the answer envelope is built from -- which is the point: a turn was opaque
+    for three minutes while the service knew, second by second, what it was
+    doing. Measured 2026-09-02: 53 s for a light question, 194 s for one with
+    five source checks, and in both the person saw a typing dot.
+
+    `idle_s` is the field worth reading. Tool calls come in bursts; the gaps
+    between them are the model composing. A gap of a few seconds is thinking, a
+    gap of two minutes is a turn that may never come back, and until now those
+    two looked identical from outside.
+
+    Same limitation as the rest of this module, named rather than hidden: there
+    is one set of registers, so two turns at once would blur into each other.
+    """
+    if not _TURN_T0 or _TURN_END >= _TURN_T0:
+        return {"running": False}
+    now = time.time()
+    events = [(ts, kind, url, ok) for ts, kind, url, ok in list(_SEEN) if ts >= _TURN_T0]
+    note_ts = [ts for ts, _sess, _n in list(_NOTES) if ts >= _TURN_T0]
+    check_ts = [ts for ts, _sess, _c in list(_CHECKS) if ts >= _TURN_T0]
+    read = [u for _ts, kind, u, ok in events if kind == "read" and ok]
+
+    last = max([ts for ts, *_ in events] + note_ts + check_ts
+               + ([_REVIEWED] if _REVIEWED >= _TURN_T0 else []) + [_TURN_T0])
+
+    # What it is doing, in the order the method does it. Derived from which
+    # record moved last rather than from anything the model says about itself.
+    if _REVIEWED >= _TURN_T0 and _REVIEWED >= last:
+        phase = "schreibt die Antwort"
+    elif check_ts and max(check_ts) >= last:
+        phase = "prüft an der Quelle"
+    elif note_ts and max(note_ts) >= last:
+        phase = "notiert"
+    elif events and events[-1][1] == "read":
+        phase = "liest Seiten"
+    elif events:
+        phase = "sucht"
+    else:
+        phase = "überlegt"
+
+    return {
+        "running": True,
+        "elapsed_s": round(now - _TURN_T0, 1),
+        "idle_s": round(now - last, 1),
+        "phase": phase,
+        "searches": _SPENT.get("searches", 0),
+        "searches_max": _lim("max_searches_total"),
+        "pages": _SPENT.get("pages", 0),
+        "pages_max": _lim("max_pages_total"),
+        "notes": len(note_ts),
+        "checks": len(check_ts),
+        "reviewed": _REVIEWED >= _TURN_T0,
+        "last_read": read[-1] if read else "",
     }
 
 
@@ -344,7 +634,14 @@ TOOLS: list[dict[str, Any]] = [
             "source claims, which source it was, and above all any restriction "
             "attached: a date, a season, a region, a version, a closure, a "
             "licence limit, a 'but only if'. What is written down does not have "
-            "to survive being remembered."
+            "to survive being remembered. "
+            "AND: when the page you just read IS the source of a figure — the "
+            "maker's own release page, the register, the repository — add "
+            "`result` to that note and the figure is thereby checked at its "
+            "source: 'bestaetigt' if the page says it, 'widersprochen' if it "
+            "says something else, 'nicht_auffindbar' if it does not have it or "
+            "would not load. That is the difference between a figure you read "
+            "somewhere and one you can stand behind, and it costs no extra call."
         ),
         "inputSchema": {
             "type": "object",
@@ -362,6 +659,16 @@ TOOLS: list[dict[str, Any]] = [
                             "restriction": {"type": "string",
                                             "description": "The limit attached: date, season, "
                                                            "region, version, closure, licence."},
+                            "result": {"type": "string",
+                                       "enum": ["bestaetigt", "widersprochen",
+                                                "nicht_auffindbar"],
+                                       "description": "Only when this page IS the "
+                                                      "source of the figure: what it "
+                                                      "did with it. Makes the note a "
+                                                      "source check."},
+                            "detail": {"type": "string",
+                                       "description": "With `result`: what the page "
+                                                      "actually said."},
                         },
                         "required": ["claim", "source"],
                     },
@@ -381,6 +688,60 @@ TOOLS: list[dict[str, Any]] = [
             "and the qualifiers are the first thing to fade. Takes no arguments."
         ),
         "inputSchema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "verify",
+        # A MOMENT, not a judgement. The first wording asked the model to
+        # decide "which facts would the recommendation be WRONG without" before
+        # reaching for the tool, and two local runs never reached for it at all
+        # -- with the window doubled in between, so it was not a matter of room.
+        # `note` in the same prompt fired every single time, and the difference
+        # between them is the trigger: note names an instant tied to another
+        # tool ("right after reading, before opening more"), verify named a
+        # deliberation. A smaller model follows a clock, not a criterion.
+        "description": (
+            "Use this right after a web_read that settled a FIGURE you will put "
+            "in your answer — a version, a date, a price, a size, a limit, a "
+            "licence. Same moment as `note`, usually the same reading: while "
+            "the page is still in front of you, record where the figure came "
+            "from and what the page did with it. Report ALL of them in ONE "
+            "call. Three results count and all three are worth reporting: "
+            "'bestaetigt' (the page says it), 'widersprochen' (the page says "
+            "something else), 'nicht_auffindbar' (the page does not have it, or "
+            "would not load) — a decisive figure that is NOT at its source is "
+            "often the most useful line in a report. The source must be a page "
+            "you fetched this turn."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "checks": {
+                    "type": "array",
+                    "description": "Every load-bearing fact you checked, at once.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "claim": {"type": "string",
+                                      "description": "The fact the recommendation "
+                                                     "rests on, in one sentence."},
+                            "source": {"type": "string",
+                                       "description": "URL of the source you went "
+                                                      "to. Must be one you fetched "
+                                                      "with web_read this turn."},
+                            "result": {"type": "string",
+                                       "enum": ["bestaetigt", "widersprochen",
+                                                "nicht_auffindbar"],
+                                       "description": "What the source said."},
+                            "detail": {"type": "string",
+                                       "description": "What it actually said — the "
+                                                      "figure, or what contradicted."},
+                        },
+                        "required": ["claim", "source", "result"],
+                    },
+                },
+            },
+            "required": ["checks"],
+        },
     },
     {
         "name": "run_status",
@@ -611,6 +972,28 @@ async def _web_read(urls: list, max_chars: int | None) -> dict:
     }
 
 
+def _record_check(claim: str, src: str, res: str, detail: str = "") -> str:
+    """Book one source check, or say why it was refused.
+
+    Shared by `verify` and by a `note` that carries a `result`, so the two
+    cannot drift apart: a check is a check whichever door it came through, and
+    the provenance rule is the same. Returns "" on success, else the reason.
+    """
+    if res not in ("bestaetigt", "widersprochen", "nicht_auffindbar"):
+        return f"unbekanntes Ergebnis '{res}'"
+    # "not findable" may rest on a page that refused to load; the other two
+    # may not -- you cannot confirm from a page you never got.
+    allowed = (_read_urls_since(_TURN_T0, ok_only=False)
+               if res == "nicht_auffindbar" else _read_urls_since(_TURN_T0))
+    if _norm_url(src) not in allowed:
+        return ("Quelle in diesem Zug nicht mit web_read geholt — "
+                "erst lesen, dann prüfen.")
+    _CHECKS.append((time.time(), _SESSION, {
+        "claim": claim[:300], "source": src[:300],
+        "result": res, "detail": detail[:300]}))
+    return ""
+
+
 async def _call(name: str, arguments: dict) -> dict:
     if name == "flows_list":
         return await _flows_list()
@@ -624,20 +1007,124 @@ async def _call(name: str, arguments: dict) -> dict:
         global _REVIEWED
         _REVIEWED = time.time()
         notes = notes_since(_TURN_T0)
-        limits = [n for n in notes if n.get("restriction")]
-        if not notes:
+        # What the same conversation established before this question. Measured:
+        # a follow-up arrived with an empty notebook because the window had been
+        # restamped, so the second answer was built from memory of the first --
+        # the exact distance the notes exist to close.
+        frueher = notes_earlier(_SESSION, _TURN_T0)
+        alle = notes + frueher
+        limits = [n for n in alle if n.get("restriction")]
+        if not alle:
             return {"notes": [], "hint": "Nichts notiert. Wenn du Seiten gelesen "
                                          "hast, fehlt die Grundlage der Antwort."}
-        return {
+        # The open points are COMPUTED here rather than asked for, because a
+        # note that names its own gap was measured to be exactly where the
+        # answer went wrong -- and the gap was named correctly and then walked
+        # past. Naming it is evidently easy; closing it is the step that needs
+        # machinery.
+        done = checks_since(_TURN_T0) + checks_earlier(_SESSION, _TURN_T0)
+        offen = open_notes(alle)
+        solo = single_source_notes(alle)
+        allein = [n for n in solo["candidates"]
+                  if n["claim"][:60] not in {o["claim"][:60] for o in offen}]
+        out = {
             "notes": notes,
-            "count": len(notes),
+            "count": len(alle),
             "with_restriction": len(limits),
+            "geprueft": len(done),
             "hint": "Schreibe die Antwort JETZT aus diesen Notizen. Jede "
                     "Einschränkung reist mit ihrer Behauptung mit — eine "
                     "Empfehlung, deren Einschränkung weggelassen wurde, ist "
                     "nicht kürzer, sondern falsch. Was hier nicht steht, hast "
                     "du nicht gelesen.",
         }
+        if frueher:
+            out["frueher"] = frueher
+            out["hint"] = (
+                f"{len(frueher)} Notiz(en) stammen aus früheren Fragen dieses "
+                "Gesprächs und stehen unter `frueher` — mit ihren "
+                "Einschränkungen. Sie gelten weiter; du musst sie nicht neu "
+                "nachlesen. " + out["hint"]
+            )
+        if done:
+            out["bereits_geprueft"] = done
+        if solo["one_family"]:
+            # Not a list of suspects -- a property of the turn, said once.
+            out["quellenlage"] = (
+                f"Alle {solo['total']} Zahlen dieses Zuges stammen aus einer "
+                "Quellenfamilie; keine wird von einem unabhängigen Anbieter "
+                "gestützt. Das ist bei einer Herstellerangabe in Ordnung und "
+                "bei einer Bewertung nicht."
+            )
+        if allein:
+            # Weaker than `offen` on purpose, and labelled as such: standing
+            # alone is not being wrong. It is offered because the alternative --
+            # asking which facts are load-bearing -- was measured returning the
+            # facts the model was already sure of.
+            out["nur_eine_quelle"] = allein
+            out["hint"] = (
+                f"{len(allein)} Behauptung(en) mit einer Zahl stehen auf EINER "
+                "Quelle, ohne dass eine zweite sie stützt. Wenn die Empfehlung "
+                "daran hängt, ist das der Kandidat für `verify` — genau in "
+                "dieser Klasse ist zuletzt ein Fehler um eine Version "
+                "durchgerutscht. " + out["hint"]
+            )
+        if offen:
+            out["offen"] = offen
+            # Two outcomes, both complete. Turning every open point into a duty
+            # lengthens the chain, and long chains were measured ending with no
+            # answer at all -- so saying "unresolved" out loud is a full result
+            # here, not the lesser one.
+            out["hint"] = (
+                f"{len(offen)} Punkt(e) unten sind OFFEN — die Notiz sagt "
+                "selbst, dass die Zahl nicht belegt ist. Genau daran ist "
+                "gemessen schon eine Empfehlung gescheitert. Zwei Ausgänge "
+                "sind zulässig, ein dritter nicht: (a) an der Primärquelle "
+                "nachsehen (web_read) und das Ergebnis mit `verify` "
+                "festhalten, oder (b) im Bericht ausdrücklich als offen "
+                "ausweisen. Stillschweigend übergehen ist der Fehler. "
+                + out["hint"]
+            )
+        return out
+
+    if name == "verify":
+        raw = arguments.get("checks")
+        if not isinstance(raw, list):
+            raw = [arguments] if arguments.get("claim") else []
+        # A check is PERFORMED, not asserted. The same record that catches an
+        # invented citation decides here whether a check happened at all: a
+        # source that was never fetched this turn cannot have confirmed
+        # anything. Without this, `verify` would be one more sentence the model
+        # can produce in the right shape, which is the failure it exists to fix.
+        kept, rejected = [], []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            claim = (item.get("claim") or "").strip()
+            src = (item.get("source") or "").strip()
+            res = (item.get("result") or "").strip().lower()
+            if not claim or not src:
+                continue
+            why = _record_check(claim, src, res, (item.get("detail") or "").strip())
+            if why:
+                rejected.append({"claim": claim[:120], "grund": why})
+            else:
+                kept.append({"claim": claim[:300], "source": src[:300],
+                             "result": res})
+        if not kept and not rejected:
+            return {"error": "verify needs a 'checks' list, each with claim, "
+                             "source and result"}
+        out = {"ok": bool(kept), "geprueft": len(kept),
+               "gesamt_im_zug": len(checks_since(_TURN_T0))}
+        if rejected:
+            out["abgelehnt"] = rejected
+            out["hint"] = ("Abgelehnte Prüfungen zählen nicht. Hol die Seite "
+                           "mit web_read und prüfe dann erneut — oder weise "
+                           "den Punkt im Bericht als offen aus.")
+        else:
+            out["hint"] = ("Festgehalten. Was hier steht, erscheint neben "
+                           "deiner Antwort — mit Ergebnis.")
+        return out
     if name == "note":
         # A list, not one call per finding. The tool bench measured this model
         # holding eight hops in four runs of five; note-per-finding pushed real
@@ -648,27 +1135,51 @@ async def _call(name: str, arguments: dict) -> dict:
         raw = arguments.get("notes")
         if not isinstance(raw, list):
             raw = [arguments] if arguments.get("claim") else []
-        kept = []
+        kept, checked, refused = [], [], []
         for item in raw:
             if not isinstance(item, dict):
                 continue
             claim = (item.get("claim") or "").strip()
             if not claim:
                 continue
+            src = (item.get("source") or "").strip()[:300]
             note = {
                 "claim": claim[:400],
-                "source": (item.get("source") or "").strip()[:300],
+                "source": src,
                 "restriction": (item.get("restriction") or "").strip()[:300],
             }
-            _NOTES.append((time.time(), note))
+            _NOTES.append((time.time(), _SESSION, note))
             kept.append(note)
+            # A note that says what the page DID with the figure is also a
+            # source check. Measured across three local turns: the same four
+            # tools every time -- search, read, note, notes_review -- and never
+            # a fifth, with `verify` allowed, described, and re-described with a
+            # concrete trigger in between. It was not the wording. So the record
+            # is attached to the act that reliably happens instead of being
+            # asked for as an act of its own.
+            res = (item.get("result") or "").strip().lower()
+            if res:
+                why = _record_check(claim, src, res,
+                                    (item.get("detail") or "").strip())
+                (checked if not why else refused).append(
+                    {"claim": claim[:120], **({"grund": why} if why else
+                                              {"result": res})})
         if not kept:
             return {"error": "note needs a 'notes' list, each with a claim"}
-        return {"ok": True, "noted": len(kept),
-                "notes_so_far": len(notes_since(_TURN_T0)),
-                "hint": "Weiterlesen oder direkt zum Schluss. Unmittelbar VOR dem "
-                        "Schreiben `notes_review` aufrufen und die Antwort daraus "
-                        "bauen."}
+        out = {"ok": True, "noted": len(kept),
+               "notes_so_far": len(notes_since(_TURN_T0)),
+               "hint": "Weiterlesen oder direkt zum Schluss. Unmittelbar VOR dem "
+                       "Schreiben `notes_review` aufrufen und die Antwort daraus "
+                       "bauen."}
+        if checked:
+            out["geprueft"] = len(checked)
+            out["hint"] = (f"{len(checked)} davon als Quellenprüfung "
+                           "festgehalten — erscheint neben deiner Antwort. "
+                           + out["hint"])
+        if refused:
+            out["pruefung_abgelehnt"] = refused
+            out["hint"] = ("Die Notiz steht, die Prüfung nicht: " + out["hint"])
+        return out
     if name == "web_search":
         qs = arguments.get("queries")
         return await _web_search(qs if isinstance(qs, list) else [])

@@ -19,11 +19,15 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+import httpx
 from pydantic import BaseModel
 
-from mcp_tools import begin_turn, notes_since, reviewed_this_turn, urls_since
-from mora02_core import pricing
-from mora02_core.agents import AgentError, ask, listing
+from mcp_tools import (begin_turn, checks_earlier, checks_since, end_turn,
+                       notes_earlier,
+                       notes_since, open_notes, reviewed_this_turn,
+                       single_source_notes, turn_progress, urls_since)
+from mora02_core import auth, pricing
+from mora02_core.agents import AgentError, ask, listing, session_key
 from mora02_core._common import get_logger
 
 log = get_logger("agents")
@@ -152,6 +156,56 @@ async def get_roster():
     return {"agents": agents}
 
 
+# Where llama.cpp answers. Same default as mora02_core.llm.models, and for the
+# same reason: the container is called llama-server for every profile.
+_QWEN_URL = auth.get("QWEN_URL", "http://llama-server:8080")
+
+
+async def _loaded_weights() -> str:
+    """Which model file is actually loaded, asked of the server itself.
+
+    Why this exists at all. A local agent's `model` line reads
+    "llama-local/qwen3-14b" and cannot say anything else: that is the id
+    configured in the gateway's provider block, and an unconfigured one makes
+    the agent fail to resolve. Meanwhile llama-server serves whatever GGUF is
+    loaded and ignores the id in the request -- so the name in the manifest is
+    a port, not a weight. Measured 2026-09-02: the manifest said qwen3-14b,
+    llm-switch said qwen36-27b, and the server had Qwen3.6-27B.
+
+    Asked of the server rather than read from llm-switch/current.json, because
+    that file records what was REQUESTED. This reports what is LOADED, and the
+    two can differ -- a switch that failed leaves the old weights answering
+    under the new name.
+
+    The wider point is the day's lesson. A model name nobody could check cost
+    three research runs on a cloud model while everyone believed they were
+    local. This puts the answer beside the answer.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(f"{_QWEN_URL}/v1/models")
+            data = r.json()["data"][0]
+    except Exception:
+        # Never delay or fail a turn over a label. Silence here reads as
+        # "unknown" in the envelope, which is honest.
+        return ""
+    name = (data.get("id") or "").rsplit("/", 1)[-1]
+    return name[:-5] if name.endswith(".gguf") else name
+
+
+@router.get("/agent/progress")
+async def get_agent_progress():
+    """What the turn currently running has done so far.
+
+    Polled by the Pilot while it waits. Deliberately a separate GET rather than
+    a stream: the answer route is one request that takes minutes, and turning it
+    into a stream would mean reshaping the gateway call underneath it. A poll
+    reads registers that are already being kept, costs nothing on the model, and
+    can be dropped without touching the turn.
+    """
+    return turn_progress()
+
+
 @router.post("/agent/{agent_id}/message")
 async def post_agent_message(agent_id: str, req: AgentMessage):
     """Run one turn and return the answer.
@@ -164,7 +218,11 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     # module: a limit cut for a 32k window forces a large-context model into
     # five calls where one would do, and every call is a round trip.
     limits = _manifest(agent_id).get("limits")
-    started = begin_turn(limits if isinstance(limits, dict) else None)
+    # The notebook needs to know which conversation it belongs to. Computed the
+    # same way the gateway session is, so a follow-up question finds what the
+    # previous one wrote down -- the thread held, the notes did not.
+    sess = session_key(agent_id, req.conversation or "")
+    started = begin_turn(limits if isinstance(limits, dict) else None, session=sess)
     try:
         result = await ask(
             agent_id,
@@ -176,6 +234,9 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     except AgentError as e:
         log.warning("agent %s failed: %s", agent_id, e)
         raise HTTPException(status_code=502, detail=str(e))
+    finally:
+        # Every exit, so a failed turn stops reporting itself as running.
+        end_turn()
 
     # What the web tools really touched during this turn. Not decoration: a
     # citation that is not in `sources.read` was not read, and that is a fact
@@ -191,6 +252,76 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     # re-read is the measured failure one step on: the coffee-machine answer
     # named a different winner than its own note did.
     result["notes_reviewed"] = reviewed_this_turn()
+    # Which weights actually answered. For a cloud model the reported name IS
+    # the model; for a local one it is the name of a port, so the server is
+    # asked. Reported on every turn rather than only for local ones, because
+    # "which model was that" is the question, not "was it local".
+    # Locality is decided by the MANIFEST, never by what the gateway reports
+    # back. Measured within an hour of writing this: OpenClaw returns the bare
+    # id ("claude-sonnet-4-6", "qwen3-14b") with no provider prefix, so a test
+    # for a missing slash called a cloud turn local and printed the local
+    # weights under a Sonnet answer -- the very confusion this field exists to
+    # end. The manifest carries the full "anthropic/..." or "llama-local/..."
+    # string and is right here already.
+    declared = str(_manifest(agent_id).get("model") or "")
+    reported = str(result.get("model") or "")
+    result["model_declared"] = declared or reported
+    if declared.startswith("llama-local/"):
+        result["model_real"] = await _loaded_weights() or declared
+    else:
+        result["model_real"] = reported or declared
+    # Carried across from earlier questions in the same conversation. Reported
+    # separately from `notes`: what stands beside THIS answer is what was read
+    # for it, and what merely still applies is a different claim.
+    result["notes_carried"] = len(notes_earlier(sess, started))
+    result["checks_carried"] = len(checks_earlier(sess, started))
+
+    # Step 4 of the method, made visible whether or not the agent mentions it.
+    # This is the whole point of the block: the two runs that missed the answer
+    # both NAMED the gap in their notes and then walked past it, and nothing in
+    # the output said so -- the report simply read as finished. So the envelope
+    # states it instead. `checks` is what was verified at a source and what came
+    # back; `open` is what the notes themselves flag as unestablished; and
+    # `open_unchecked` is the difference -- the ones no `verify` call closed.
+    #
+    # WHAT THIS DOES NOT KNOW, and what its first real run taught: it never
+    # reads the answer. Measured 2026-09-02, the ComfyUI turn -- one open point
+    # was flagged here while the report had declared it in plain words ("Hinweis
+    # zur Lücke: ... habe ich nicht direkt an der offiziellen WHL-Index-Seite
+    # geprüft"), which is the second of the two legitimate endings. The agent
+    # behaved better than the display credited it for.
+    #
+    # So this counts ONE thing: open points that were not verified at a source.
+    # Whether the report declared them is a different question, and a crude word
+    # match against the answer would answer it wrongly in the direction that
+    # matters -- a false "declared" would hide exactly the case this was built
+    # to catch. Left unmeasured on purpose until a run shows a point genuinely
+    # passed over in silence, so the detector can be built against a real one.
+    #
+    # Zero is a legitimate value everywhere here. A turn that verified nothing
+    # because nothing load-bearing was in doubt is fine. What is no longer
+    # possible is for that to be indistinguishable from a turn that had three
+    # open figures and said nothing.
+    checks = checks_since(started)
+    offen = open_notes(notes)
+    closed = {(c.get("claim") or "")[:60] for c in checks}
+    result["checks"] = checks
+    result["checks_confirmed"] = sum(1 for c in checks
+                                     if c.get("result") == "bestaetigt")
+    result["open_points"] = offen
+    result["open_unchecked"] = [o for o in offen
+                                if (o.get("claim") or "")[:60] not in closed]
+    # Weaker signal, shown separately so the strong warning stays strong: a
+    # figure resting on one host that no verify call touched. Candidates, not
+    # faults -- but this is the class the Blender turn's one real error fell
+    # into, and nothing in the output had named it.
+    _solo = single_source_notes(notes)
+    result["one_source_family"] = _solo["one_family"]
+    result["single_source_unchecked"] = [
+        n for n in _solo["candidates"]
+        if (n.get("claim") or "")[:60] not in closed
+        and (n.get("claim") or "")[:60] not in {o.get("claim", "")[:60] for o in offen}
+    ]
 
     # Price the reported usage. A floor, not a total -- openclaw reports the
     # last model call of the turn, and a research turn makes many. Said out
@@ -210,6 +341,11 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
         result.get("tools_used"), result["sources"]["read_count"],
         result.get("session_key"),
     )
+    if result["open_unchecked"]:
+        # Says only what it knows. Whether the report declared the point is not
+        # measured here -- see the note above.
+        log.warning("agent %s left %s open point(s) unverified at a source",
+                    agent_id, len(result["open_unchecked"]))
     if result["sources"]["read_count"] and not notes:
         # Not an error, but the exact shape of the failure that was measured:
         # pages read, nothing written down, restrictions lost on the way out.
