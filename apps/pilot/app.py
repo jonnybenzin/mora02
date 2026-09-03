@@ -18,7 +18,6 @@ from mora02_core.db import (
     write_session, read_last_sessions, read_all_sessions,
     read_context, read_known_issues, headers as _baserow_headers,
     format_sessions_context, format_known_issues, format_context_table,
-    read_personas, create_persona_row, increment_persona_usage, update_persona,
     write_feedback, list_feedback, update_feedback,
     save_bucket, list_buckets, delete_bucket,
     save_style_pack, list_style_packs, get_style_pack,
@@ -237,7 +236,6 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
 session_settings: dict[str, dict] = {}
-session_personas: dict[str, dict] = {}
 
 DEFAULT_SETTINGS = {
     "system_prompt": DEFAULT_SYSTEM_PROMPT,
@@ -272,18 +270,7 @@ def get_system_prompt(session_id: str, model_key: str) -> str:
         identity_name = model["name"]
     identity = f"\n\n## Your Identity\nYou are currently running as: {identity_name} ({model['icon']})\nModel key: {model_key}\nWhen asked which model you are, state this clearly."
 
-    # Persona injection
-    persona = session_personas.get(session_id)
-    if persona and persona.get("prompt"):
-        persona_block = (
-            f"\n\n---\n"
-            f"## Active Persona: {persona['icon']} {persona['name']}\n\n"
-            f"{persona['prompt']}"
-        )
-    else:
-        persona_block = ""
-
-    return base + identity + persona_block
+    return base + identity
 
 
 async def get_cost_summary() -> str:
@@ -768,7 +755,6 @@ async def end_session(sid: str, request: Request):
     primary_model = max(model_counts, key=model_counts.get) if model_counts else "qwen"
 
     now = datetime.now(timezone.utc).isoformat()
-    persona = session_personas.get(sid)
     models_used = ", ".join(sorted(model_counts.keys())) if model_counts else "qwen"
     row_data = {
         "Name": summary_data.get("goal", "")[:255],
@@ -782,7 +768,6 @@ async def end_session(sid: str, request: Request):
         "tokens_in": session.total_tokens_in,
         "tokens_out": session.total_tokens_out,
         "cost_usd": str(session.get_total_cost()),
-        "persona_name": persona["name"] if persona else "",
         "models_used": models_used,
     }
     if bucket_items:
@@ -802,7 +787,6 @@ async def end_session(sid: str, request: Request):
             "ended_at": now,
             "primary_model": primary_model,
             "models_used": models_used,
-            "persona": persona["name"] if persona else None,
             "summary": summary_data,
             "tokens": {"in": session.total_tokens_in, "out": session.total_tokens_out},
             "cost_usd": session.get_total_cost(),
@@ -826,7 +810,6 @@ async def end_session(sid: str, request: Request):
 
     store.delete(sid)
     session_settings.pop(sid, None)
-    session_personas.pop(sid, None)
 
     return JSONResponse(content={
         "type": "session_ended",
@@ -836,84 +819,6 @@ async def end_session(sid: str, request: Request):
         "baserow_saved": baserow_result is not None,
         "bucket_items": len(bucket_items),
     })
-
-
-@app.get("/personas")
-async def list_personas():
-    personas = await read_personas()
-    return [
-        {"id": p["id"], "name": p.get("name", ""), "icon": p.get("icon", "🎭"),
-         "description": p.get("description", ""),
-         "prompt": p.get("prompt", ""),
-         "briefing_target": p.get("briefing_target", ""),
-         "usage_count": p.get("usage_count", 0)}
-        for p in personas
-    ]
-
-
-@app.post("/personas")
-async def create_persona(request: Request):
-    body = await request.json()
-    name = body.get("name", "").strip()
-    if not name:
-        return JSONResponse(status_code=400, content={"error": "Name is required"})
-    row = await create_persona_row(
-        name=name, icon=body.get("icon", "🎭").strip() or "🎭",
-        description=body.get("description", "").strip(),
-        prompt=body.get("prompt", "").strip(),
-        briefing_target=body.get("briefing_target", "").strip(),
-    )
-    if not row:
-        return JSONResponse(status_code=500, content={"error": "Failed to create persona"})
-    return {"id": row["id"], "name": row.get("name", name),
-            "icon": row.get("icon", "🎭"), "description": row.get("description", ""),
-            "briefing_target": row.get("briefing_target", ""), "action": "created"}
-
-
-@app.post("/session/{sid}/persona")
-async def set_persona(sid: str, request: Request):
-    body = await request.json()
-    persona_id = body.get("persona_id")
-    if persona_id is None:
-        session_personas.pop(sid, None)
-        return {"session_id": sid, "persona": None, "action": "deactivated"}
-    personas = await read_personas()
-    persona = next((p for p in personas if p["id"] == persona_id), None)
-    if not persona:
-        return JSONResponse(status_code=404, content={"error": f"Persona {persona_id} not found"})
-    session_personas[sid] = {
-        "id": persona["id"], "name": persona.get("name", ""),
-        "icon": persona.get("icon", "🎭"), "prompt": persona.get("prompt", ""),
-        "briefing_target": persona.get("briefing_target", ""),
-    }
-    await increment_persona_usage(persona["id"], persona.get("usage_count", 0))
-    return {"session_id": sid, "persona": {"id": persona["id"], "name": persona.get("name", ""),
-            "icon": persona.get("icon", "🎭"), "briefing_target": persona.get("briefing_target", "")},
-            "action": "activated"}
-
-
-@app.delete("/session/{sid}/persona")
-async def clear_persona(sid: str):
-    session_personas.pop(sid, None)
-    return {"session_id": sid, "persona": None, "action": "deactivated"}
-
-
-@app.get("/session/{sid}/persona")
-async def get_persona(sid: str):
-    persona = session_personas.get(sid)
-    if persona:
-        return {"session_id": sid, "persona": {"id": persona["id"], "name": persona["name"],
-                "icon": persona["icon"], "briefing_target": persona.get("briefing_target", "")}}
-    return {"session_id": sid, "persona": None}
-
-
-@app.patch("/personas/{persona_id}")
-async def update_persona_endpoint(persona_id: int, request: Request):
-    body = await request.json()
-    row = await update_persona(persona_id, body)
-    if not row:
-        return JSONResponse(status_code=500, content={"error": "Failed to update persona"})
-    return {"id": row["id"], "action": "updated"}
 
 
 # ============================================================
@@ -966,7 +871,6 @@ async def submit_feedback(request: Request):
         "Page": page,
         "Session_ID": body.get("session_id", ""),
         "Model": body.get("model", ""),
-        "Persona": body.get("persona", ""),
         "Status": "new",
         "created_at": now,
     }

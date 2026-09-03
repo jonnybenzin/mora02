@@ -21,7 +21,6 @@ class Settings(BaseSettings):
     baserow_token: str = ""
     baserow_table_sessions: int = 571
     baserow_table_context: int = 572
-    baserow_table_personas: int = 575
     baserow_table_known_issues: int = 573
     baserow_table_feedback: int = 576
     baserow_table_buckets: int = 577
@@ -100,7 +99,6 @@ Tables:
 - 571: bot_sessions
 - 572: bot_context
 - 573: bot_known_issues
-- 575: bot_personas
 
 CRUD Operations:
 - List:   GET    .../table/{ID}/?user_field_names=true

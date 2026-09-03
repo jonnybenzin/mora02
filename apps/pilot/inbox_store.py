@@ -7,7 +7,7 @@ strand a paused pipeline: the workflow itself is parked in Lobster's state; here
 we only keep the ``resume_token`` plus the context needed to render the decision.
 
 v1 deliberately uses a small JSON file. The clean follow-up is Baserow (Pilot's
-data layer, like sessions/personas) — the functions below are the seam to swap
+data layer, like sessions) — the functions below are the seam to swap
 behind without touching the routes or the UI.
 """
 

@@ -156,7 +156,3 @@ body{font-family:var(--font)!important;background:var(--sf-app);color:var(--tx-p
 .app.mob-open{transform:translateX(var(--sb-w))}
 .app.mob-open .main::after{content:'';position:absolute;inset:0;background:rgba(0,0,0,.3);z-index:200}
 .app.mob-open .mob-hamburger{visibility:hidden}
-
-/* Persona icons: hidden by default, visible on hover + active */
-#persona-list .mi-ico{opacity:0;transition:opacity var(--tr-fast)}
-#persona-list .mi:hover .mi-ico,#persona-list .mi.act .mi-ico{opacity:1}

@@ -16,7 +16,6 @@
 .msg-bot{display:flex;flex-direction:column;align-items:flex-start;max-width:var(--input-max-w)}
 .msg-head{display:flex;align-items:center;gap:var(--sp-8);margin-bottom:0;font-size:var(--typo-meta-size);font-family:var(--typo-meta-font);letter-spacing:var(--ls-normal)}
 .msg-model{font-weight:var(--fw-bold);text-transform:uppercase}
-.msg-persona{color:var(--c-grey6);text-transform:uppercase}
 .msg-time{color:var(--c-grey6)}
 
 /* Body — Inter only */

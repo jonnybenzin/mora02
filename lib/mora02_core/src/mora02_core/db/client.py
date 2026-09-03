@@ -59,7 +59,6 @@ _url = url
 TABLE_SESSIONS = 571
 TABLE_CONTEXT = 572
 TABLE_KNOWN_ISSUES = 573
-TABLE_PERSONAS = 575
 TABLE_FEEDBACK = 576
 TABLE_BUCKETS = 577
 TABLE_STYLE_PACKS = 578
@@ -180,86 +179,6 @@ async def read_known_issues(*, user_id: str = "default") -> list[dict]:
         if resp.status_code == 200:
             return resp.json().get("results", [])
         return []
-
-
-# ============================================================
-# PERSONAS
-# ============================================================
-
-async def read_personas(*, user_id: str = "default") -> list[dict]:
-    """Read all active personas from bot_personas table, sorted by sort_order."""
-    try:
-        url = f"{_url()}/api/database/rows/table/{TABLE_PERSONAS}/"
-        params = {
-            "user_field_names": "true",
-            "filter__active__boolean": "true",
-            "order_by": "sort_order",
-            "size": 50,
-        }
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers=_headers(), params=params)
-            if resp.status_code == 200:
-                return resp.json().get("results", [])
-            log.warning("read_personas failed: %d %s", resp.status_code, resp.text[:200])
-    except Exception as e:
-        log.exception("read_personas error: %r", e)
-    return []
-
-
-async def create_persona_row(
-    name: str,
-    icon: str,
-    description: str,
-    prompt: str,
-    briefing_target: str,
-    *,
-    user_id: str = "default",
-) -> dict | None:
-    """Create a new persona row in Baserow."""
-    try:
-        url = f"{_url()}/api/database/rows/table/{TABLE_PERSONAS}/"
-        params = {"user_field_names": "true"}
-        payload = {
-            "name": name, "icon": icon, "description": description,
-            "prompt": prompt, "briefing_target": briefing_target,
-            "sort_order": 99, "active": True, "usage_count": 0,
-        }
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(url, headers=_headers(), params=params, json=payload)
-            if resp.status_code in (200, 201):
-                return resp.json()
-            log.warning("create_persona failed: %d %s", resp.status_code, resp.text[:200])
-    except Exception as e:
-        log.exception("create_persona error: %r", e)
-    return None
-
-
-async def increment_persona_usage(
-    persona_row_id: int, current_count: int, *, user_id: str = "default"
-) -> None:
-    """Increment usage_count for a persona."""
-    try:
-        url = f"{_url()}/api/database/rows/table/{TABLE_PERSONAS}/{persona_row_id}/"
-        params = {"user_field_names": "true"}
-        payload = {"usage_count": current_count + 1}
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.patch(url, headers=_headers(), params=params, json=payload)
-    except Exception as e:
-        log.exception("increment_persona_usage error: %r", e)
-
-
-async def update_persona(
-    row_id: int, data: dict, *, user_id: str = "default"
-) -> dict | None:
-    """Update a persona row (e.g. archive via {'active': False})."""
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.patch(
-            f"{_url()}/api/database/rows/table/{TABLE_PERSONAS}/{row_id}/?user_field_names=true",
-            headers=_headers(), json=data,
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        return None
 
 
 # ============================================================

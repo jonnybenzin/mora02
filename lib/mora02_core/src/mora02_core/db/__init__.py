@@ -7,9 +7,9 @@ Phase 1.2c: high-level CRUD API in mora02_core.db.api (insert/get/query/update/d
 Recommended for new code:
 
     from mora02_core.db import api
-    rows = await api.query("bot_personas", filter={"active": True})
+    rows = await api.query("bot_feedback", filter={"Status": "new"})
 
-The 28 functions below remain for backward compatibility with the original
+The functions below remain for backward compatibility with the original
 Pilot client until apps are migrated.
 """
 
@@ -27,11 +27,6 @@ from mora02_core.db.client import (
     write_context,
     # known issues
     read_known_issues,
-    # personas
-    read_personas,
-    create_persona_row,
-    increment_persona_usage,
-    update_persona,
     # feedback
     write_feedback,
     list_feedback,
@@ -66,10 +61,6 @@ __all__ = [
     "read_context",
     "write_context",
     "read_known_issues",
-    "read_personas",
-    "create_persona_row",
-    "increment_persona_usage",
-    "update_persona",
     "write_feedback",
     "list_feedback",
     "update_feedback",

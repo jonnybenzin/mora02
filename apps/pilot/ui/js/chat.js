@@ -2,7 +2,7 @@
    MORA02 PILOT — Chat Module v3 (Clean Rewrite 2026-03-18)
    ═══════════════════════════════════════════════════════════════
    SSE Streaming · Markdown (marked.js) · Code Blocks · Lightbox
-   Image Attachment · Slash-Command Responses · Persona · Stats
+   Image Attachment · Slash-Command Responses · Stats
    ───────────────────────────────────────────────────────────────
    Depends on: app.js (API_BASE, sessionId, initSession)
                marked.min.js (optional, has basic fallback)
@@ -208,19 +208,6 @@ async function handleSSEStream(resp) {
     shell.el.setAttribute('data-model', model);
   }
 
-  /* Finalize: persona */
-  var persona = getActivePersona();
-  if (persona) {
-    var headDiv = shell.el.querySelector('.msg-head');
-    if (headDiv) {
-      var span = document.createElement('span');
-      span.className = 'msg-persona';
-      span.textContent = persona;
-      var timeEl = headDiv.querySelector('.msg-time');
-      if (timeEl) headDiv.insertBefore(span, timeEl);
-    }
-  }
-
   /* Finalize: action buttons + code blocks */
   shell.el.insertAdjacentHTML('beforeend', msgActionsHTML());
   wrapCodeBlocks(currentStreamEl);
@@ -254,9 +241,8 @@ function handleJSONResponse(data) {
 /* ── Stock Images ──────────────────────────────────────────── */
 
 function renderStockResults(data) {
-  var persona = getActivePersona();
   var m = (data.model || 'script-runner').toUpperCase();
-  var html = msgHeadHTML(m, 'var(--tx-muted)', persona) +
+  var html = msgHeadHTML(m, 'var(--tx-muted)') +
     '<div class="msg-body"><p>Found ' + (data.results || []).length +
     ' results for "' + escapeHTML(data.query || '') + '":</p><div class="stock-grid">';
   (data.results || []).forEach(function(img) {
@@ -341,12 +327,11 @@ function addBotMessage(content, model, isCommand) {
   var msgs = document.getElementById('chat-messages');
   if (!msgs) return;
   var m = (typeof llmModelLabel === 'function') ? llmModelLabel(model || 'system') : (model || 'system').toUpperCase();
-  var persona = getActivePersona();
   var color = model ? 'var(--m-' + model + ', var(--tx-muted))' : 'var(--tx-muted)';
   var bodyHTML = isCommand
     ? '<pre class="cmd-result">' + escapeHTML(content) + '</pre>'
     : renderMarkdownString(content);
-  var html = msgHeadHTML(m, color, persona) +
+  var html = msgHeadHTML(m, color) +
     '<div class="msg-body">' + bodyHTML + '</div>' + msgActionsHTML();
   var el = appendBotEl(model || 'system', html);
   wrapCodeBlocks(el.querySelector('.msg-body'));
@@ -389,10 +374,9 @@ function appendBotEl(model, innerHTML) {
   return el;
 }
 
-function msgHeadHTML(label, color, persona) {
+function msgHeadHTML(label, color) {
   return '<div class="msg-head">' +
     '<span class="msg-model" style="color:' + color + '">' + label + '</span>' +
-    (persona ? '<span class="msg-persona">' + persona + '</span>' : '') +
     '<span class="msg-time">' + timeStamp() + '</span></div>';
 }
 
@@ -727,7 +711,7 @@ async function renderToolWidget(page, initFnName, args) {
     var resp = await fetch('pages/' + page + '.html');
     var html = await resp.text();
     var label = page.toUpperCase().replace('-', ' ');
-    var head = msgHeadHTML(label, 'var(--tx-muted)', getActivePersona());
+    var head = msgHeadHTML(label, 'var(--tx-muted)');
     var el = appendBotEl('system', head + '<div class="msg-body post-widget" style="border:1px solid #444;border-radius:8px;padding:4px">' + html + '</div>');
     if (typeof initToolPage === 'function') initToolPage(page);
     if (initFnName && typeof window[initFnName] === 'function') window[initFnName](args);
@@ -1192,13 +1176,6 @@ async function loadMonthlyCost() {
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
    ═══════════════════════════════════════════════════════════════ */
-
-function getActivePersona() {
-  var active = document.querySelector('[data-action="select-persona"].act .mi-lbl');
-  if (!active) return '';
-  var name = active.textContent.trim().toUpperCase();
-  return (name === 'NEUTRAL') ? '' : name;
-}
 
 function timeStamp() {
   return new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });

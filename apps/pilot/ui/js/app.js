@@ -50,7 +50,6 @@ var autoFocusMap = {
   'pixeltext':        '#px-words',
   'post':             '#post-name',
   'wiki':             '#wiki-search',
-  'persona-create':   '#pc-name',
 };
 
 function autoFocusPage(page) {
@@ -221,11 +220,6 @@ document.addEventListener('click', function(e) {
       selectLLM(target);
       break;
 
-    case 'select-persona':
-      selectPersona(target);
-      selectInSection(target);
-      break;
-
     case 'home-attach':
       window._pendingAttach = true;
       navigate('chat');
@@ -374,78 +368,6 @@ setInterval(function() {
   btn.style.display = (msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 100) ? 'none' : 'flex';
 }, 300);
 
-/* ─── PERSONAS (dynamic from backend) ───────────────────────── */
-
-var activePersonaId = null;
-
-async function loadPersonas() {
-  try {
-    var resp = await fetch(API_BASE + '/personas');
-    if (!resp.ok) return;
-    var personas = await resp.json();
-
-    var listEl = document.getElementById('persona-list');
-    var flyEl = document.getElementById('persona-fly');
-    if (!listEl) return;
-
-    var html = '';
-    var flyHtml = '';
-
-    // "Neutral" = no persona
-    html += '<div class="mi' + (activePersonaId === null ? ' act' : '') + '" data-action="select-persona" data-persona-id="null">' +
-      '<div class="mi-l"><div class="mi-ico"><svg fill="currentColor"><use href="icons/sprite.svg#i-persona"/></svg></div>' +
-      '<span class="mi-lbl">NEUTRAL</span></div></div>';
-    flyHtml += '<div class="mi' + (activePersonaId === null ? ' act' : '') + '" data-action="select-persona" data-persona-id="null">' +
-      '<div class="mi-l"><span class="mi-lbl">NEUTRAL</span></div></div>';
-
-    personas.forEach(function(p) {
-      var isActive = activePersonaId === p.id;
-      html += '<div class="mi' + (isActive ? ' act' : '') + '" data-action="select-persona" data-persona-id="' + p.id + '">' +
-        '<div class="mi-l"><div class="mi-ico">' + p.icon + '</div>' +
-        '<span class="mi-lbl">' + p.name.toUpperCase() + '</span></div></div>';
-      flyHtml += '<div class="mi' + (isActive ? ' act' : '') + '" data-action="select-persona" data-persona-id="' + p.id + '">' +
-        '<div class="mi-l"><span class="mi-lbl">' + p.name.toUpperCase() + '</span></div></div>';
-    });
-
-    // Sub-links
-    html += '<div class="p-sub">' +
-      '<div class="p-sub-i" data-action="navigate" data-page="persona-settings">▸ ADJUST SETTINGS</div>' +
-      '<div class="p-sub-i" data-action="navigate" data-page="persona-create">+ CREATE NEW PERSONA</div></div>';
-
-    listEl.innerHTML = html;
-    if (flyEl) flyEl.innerHTML = flyHtml;
-
-  } catch (e) {
-    console.warn('Could not load personas:', e);
-  }
-}
-
-async function selectPersona(item) {
-  var idStr = item.dataset.personaId;
-  var personaId = (idStr === 'null' || !idStr) ? null : parseInt(idStr);
-
-  // Visual update: both open + collapsed
-  document.querySelectorAll('[data-action="select-persona"]').forEach(function(mi) {
-    mi.classList.toggle('act', mi.dataset.personaId === idStr);
-  });
-
-  activePersonaId = personaId;
-  if (activePage === "persona-settings" && typeof initPersonaSettings === "function") initPersonaSettings();
-
-  // Backend call
-  if (sessionId) {
-    if (personaId === null) {
-      fetch(API_BASE + '/session/' + sessionId + '/persona', { method: 'DELETE' }).catch(function(){});
-    } else {
-      fetch(API_BASE + '/session/' + sessionId + '/persona', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ persona_id: personaId }),
-      }).catch(function(){});
-    }
-  }
-}
-
 /* ─── FEEDBACK / BUG REPORTER ──────────────────────────────── */
 
 var fbScreenshotData = null;
@@ -483,13 +405,6 @@ function fbUpdateMeta() {
   var activeModel = document.querySelector('[data-action="select-llm"].act');
   var modelName = activeModel ? (activeModel.dataset.model || '?') : '?';
   parts.push('Model: ' + modelName);
-  // Persona
-  var personaName = 'neutral';
-  if (activePersonaId) {
-    var personaEl = document.querySelector('[data-action="select-persona"].act .mi-lbl');
-    if (personaEl) personaName = personaEl.textContent.toLowerCase();
-  }
-  parts.push('Persona: ' + personaName);
   el.textContent = parts.join(' · ');
 }
 
@@ -563,13 +478,6 @@ async function fbSubmit() {
   var activeModel = document.querySelector('[data-action="select-llm"].act');
   var modelName = activeModel ? (activeModel.dataset.model || '') : '';
 
-  // Gather current persona
-  var personaName = '';
-  if (activePersonaId) {
-    var personaEl = document.querySelector('[data-action="select-persona"].act .mi-lbl');
-    if (personaEl) personaName = personaEl.textContent;
-  }
-
   var payload = {
     type: document.getElementById('fb-type').value,
     severity: document.getElementById('fb-severity').value,
@@ -577,7 +485,6 @@ async function fbSubmit() {
     page: activePage || 'home',
     session_id: sessionId || '',
     model: modelName,
-    persona: personaName,
   };
 
   if (fbScreenshotData) {
@@ -622,5 +529,3 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-// Load on startup
-loadPersonas();

@@ -7,9 +7,9 @@ in ``schema.TABLE_IDS`` (re-generate via the installer when schema drifts).
 Example:
     from mora02_core.db import api
 
-    rows = await api.query("bot_personas", filter={"active": True})
+    rows = await api.query("bot_feedback", filter={"Status": "new"})
     new = await api.insert("bot_feedback", {"Type": "bug", "Description": "..."})
-    await api.update("bot_personas", row_id=3, data={"active": False})
+    await api.update("bot_feedback", row_id=3, data={"Status": "resolved"})
 """
 
 from typing import Any

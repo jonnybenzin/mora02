@@ -23,6 +23,7 @@ one agent and its folder name is its id::
       tools.json                    the gateway's tools, described
       skills/<name>/SKILL.md        skills, granted per agent
     data/agents/                    this installation (gitignored)
+      USER.md                       the person, rendered into every workspace
       instances/<id>/agent.json     one agent
       instances/<id>/SOUL.md        its personality, prose in a prose file
       skills/<name>/SKILL.md        skills of this machine's own
@@ -258,6 +259,16 @@ def desired_workspace_files(agent: dict, rt: Roots) -> dict[str, str]:
     house_rules = agents_dir / "AGENTS.md"
     if house_rules.is_file():
         out[f"{ws}/AGENTS.md"] = house_rules.read_text(encoding="utf-8")
+
+    # The person is shared too, but belongs to the installation, not to the
+    # platform: data/agents/USER.md is what every agent knows about whoever it
+    # works for -- the standing preference that used to be a "persona" picked
+    # per chat (increment 5). It is written by the human and rendered as text;
+    # an agent carrying its own USER.md overrides it below, key for key.
+    if rt.local is not None:
+        person = rt.local / "USER.md"
+        if person.is_file():
+            out[f"{ws}/USER.md"] = person.read_text(encoding="utf-8")
 
     # SOUL.md may be the agent's own, a legacy symlink, or borrowed by
     # reference from another agent (possibly in the other root). The store

@@ -33,7 +33,7 @@ var _agb = {
 };
 var AGB_EXTRA_FILES = [
   ['TOOLS.md', 'Werkzeug-Hinweise: wie DIESER Agent seine Werkzeuge einsetzen soll, ergänzend zu den Beschreibungen.'],
-  ['USER.md', 'Stehende Vorlieben der Person, für die der Agent arbeitet. Ink. 5 legt das auf agents.defaults.'],
+  ['USER.md', 'Was DIESER Agent über die Person weiß. Fehlt die Datei, gilt data/agents/USER.md, die für alle Agenten.'],
   ['IDENTITY.md', 'Name, Rolle, Anrede — falls die SOUL das nicht schon sagt.']
 ];
 

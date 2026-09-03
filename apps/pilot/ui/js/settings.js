@@ -1,10 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
-   MORA02 PILOT — Settings & Persona Module (2026-03-19)
+   MORA02 PILOT — Settings Module (2026-03-19)
    ═══════════════════════════════════════════════════════════════
    Settings: Load/Save temperature, max_tokens, system prompt
-   Persona: View active, Create new
    ───────────────────────────────────────────────────────────────
-   Depends on: app.js (API_BASE, sessionId, activePersonaId)
+   Depends on: app.js (API_BASE, sessionId)
    ═══════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════
@@ -110,151 +109,12 @@ async function settingsReset() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PERSONA SETTINGS (read-only view of active persona)
-   ═══════════════════════════════════════════════════════════════ */
-
-async function initPersonaSettings() {
-  var content = document.getElementById('persona-edit-content');
-  var empty = document.getElementById('persona-edit-empty');
-
-  /* Find active persona ID from sidebar */
-  var activeMi = document.querySelector('[data-action="select-persona"].act');
-  var pid = activeMi ? activeMi.dataset.personaId : null;
-
-  if (!pid || pid === 'null') {
-    if (content) content.style.display = 'none';
-    if (empty) empty.style.display = '';
-    return;
-  }
-
-  if (content) content.style.display = '';
-  if (empty) empty.style.display = 'none';
-
-  /* Fetch persona details */
-  try {
-    var resp = await fetch(API_BASE + '/personas');
-    if (!resp.ok) return;
-    var personas = await resp.json();
-    var persona = personas.find(function(p) { return String(p.id) === String(pid); });
-    if (!persona) return;
-
-    var name = document.getElementById('pe-name');
-    var icon = document.getElementById('pe-icon');
-    var desc = document.getElementById('pe-description');
-    var prompt = document.getElementById('pe-prompt');
-    var briefing = document.getElementById('pe-briefing');
-    var usage = document.getElementById('pe-usage');
-
-    if (name) name.value = persona.name || '';
-    if (icon) icon.value = persona.icon || '';
-    if (desc) desc.value = persona.description || '';
-    if (prompt) prompt.value = persona.prompt || '';
-    if (briefing) briefing.value = persona.briefing_target || '';
-    if (usage) usage.textContent = (persona.usage_count || 0) + ' conversations';
-
-    /* Auto-resize textareas */
-    [desc, prompt].forEach(function(el) {
-      if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
-    });
-  } catch (e) {
-    console.warn('Failed to load persona:', e);
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   PERSONA CREATE
-   ═══════════════════════════════════════════════════════════════ */
-
-async function initPersonaCreate() {
-  /* Nothing to load — empty form */
-  setStatus('pc-status', '');
-}
-
-async function personaCreateSave() {
-  var name = (document.getElementById('pc-name') || {}).value || '';
-  var icon = (document.getElementById('pc-icon') || {}).value || '';
-  var desc = (document.getElementById('pc-description') || {}).value || '';
-  var prompt = (document.getElementById('pc-prompt') || {}).value || '';
-  var briefing = (document.getElementById('pc-briefing') || {}).value || '';
-
-  if (!name.trim()) {
-    setStatus('pc-status', 'Name is required', true);
-    return;
-  }
-
-  try {
-    var resp = await fetch(API_BASE + '/personas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: name.trim(),
-        icon: icon.trim() || '\ud83c\udfad',
-        description: desc.trim(),
-        prompt: prompt.trim(),
-        briefing_target: briefing.trim(),
-      }),
-    });
-    var data = await resp.json();
-
-    if (data.id || data.name) {
-      setStatus('pc-status', '\u2713 Persona "' + (data.name || name) + '" created', false);
-
-      /* Clear form */
-      ['pc-name', 'pc-icon', 'pc-description', 'pc-prompt', 'pc-briefing'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) el.value = '';
-      });
-
-      /* Refresh persona list in sidebar */
-      if (typeof loadPersonas === 'function') loadPersonas();
-    } else {
-      setStatus('pc-status', data.error || 'Create failed', true);
-    }
-  } catch (e) {
-    setStatus('pc-status', 'Create failed: ' + e.message, true);
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   PERSONA ARCHIVE (set active=false in Baserow)
-   ═══════════════════════════════════════════════════════════════ */
-
-async function personaArchive() {
-  var activeMi = document.querySelector('[data-action="select-persona"].act');
-  var pid = activeMi ? activeMi.dataset.personaId : null;
-  if (!pid || pid === 'null') return;
-
-  if (!confirm('Archive this persona? It will be hidden from the menu.')) return;
-
-  try {
-    var resp = await fetch(API_BASE + '/personas/' + pid, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active: false }),
-    });
-    if (resp.ok) {
-      setStatus('pe-status', '\u2713 Persona archived');
-      /* Refresh sidebar */
-      if (typeof loadPersonas === 'function') loadPersonas();
-      /* Navigate home */
-      if (typeof navigate === 'function') navigate('home');
-    } else {
-      setStatus('pe-status', 'Archive failed', true);
-    }
-  } catch (e) {
-    setStatus('pe-status', 'Archive failed: ' + e.message, true);
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════
    PAGE INIT ROUTER
    ═══════════════════════════════════════════════════════════════ */
 
 function initSettingsPage(page) {
   switch (page) {
     case 'settings':         initSettings(); break;
-    case 'persona-settings': initPersonaSettings(); break;
-    case 'persona-create':   initPersonaCreate(); break;
   }
 }
 
@@ -280,7 +140,5 @@ document.addEventListener('click', function(e) {
   switch (target.dataset.action) {
     case 'settings-save':        settingsSave(); break;
     case 'settings-reset':       settingsReset(); break;
-    case 'persona-create-save':  personaCreateSave(); break;
-    case 'persona-archive':      personaArchive(); break;
   }
 });

@@ -169,6 +169,19 @@ def main() -> int:
         record(any(p.endswith("/USER.md") for p in files), "the rollout renders it (one list, two readers)")
         store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, files={"USER.md": ""}, rt=RT)
         record(not (L / "instances/twin/USER.md").exists(), "empty string removes the file")
+
+        # the shared USER.md of the installation: every workspace gets it, an own one wins
+        def _user_md():
+            f = deploy.desired_workspace_files([a for a in store.load_roster(RT)["agents"] if a["id"] == "twin"][0], RT)
+            hit = [v for k, v in f.items() if k.endswith("/USER.md")]
+            return hit[0] if hit else None
+        record(_user_md() is None, "no USER.md anywhere: none rendered")
+        (L / "USER.md").write_text("# The person\nwrites German\n")
+        record(_user_md() == "# The person\nwrites German\n", "data/agents/USER.md is rendered into a workspace without its own")
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, files={"USER.md": "own view"}, rt=RT)
+        record(_user_md() == "own view\n", "an agent's own USER.md overrides the shared one")
+        store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, files={"USER.md": ""}, rt=RT)
+        (L / "USER.md").unlink()
         refuses(lambda: store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, files={"EVIL.md": "x"}, rt=RT),
                 "a file outside the allowed set is refused", "not a workspace file")
 
