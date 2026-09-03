@@ -33,13 +33,13 @@
               <div class="code-action" title="Copy" data-action="copy-code"><svg fill="currentColor"><use href="icons/sprite.svg#i-copy"/></svg></div>
             </div>
           </div>
-          <div class="code-body"><pre><code><span class="hljs-comment"># Alle Tabellen in der Datenbank finden:</span>
+          <div class="code-body"><pre><code><span class="hljs-comment"># Find every table in the database:</span>
 <span class="hljs-built_in">curl</span> -s <span class="hljs-string">"http://mora02.local:8085/api/database/rows/table/575/?
 user_field_names=true&amp;size=1"</span> \
   -H <span class="hljs-string">"Authorization: Token &lt;YOUR_TOKEN&gt;"</span> &gt; /
 dev/null &amp;&amp; <span class="hljs-built_in">echo</span> <span class="hljs-string">"575: bot_personas ✓"</span>
 
-<span class="hljs-comment"># Welche anderen Tabellen nutzt der Pilot?</span>
+<span class="hljs-comment"># Which other tables does the Pilot use?</span>
 <span class="hljs-built_in">grep</span> -o <span class="hljs-string">"table/[0-9]*"</span> /opt/mora02/docker/pilot/baserow_client.py | sort -u</code></pre>
           </div>
         </div>

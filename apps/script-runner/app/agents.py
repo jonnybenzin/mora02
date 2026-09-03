@@ -463,7 +463,7 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     closed = {(c.get("claim") or "")[:60] for c in checks}
     result["checks"] = checks
     result["checks_confirmed"] = sum(1 for c in checks
-                                     if c.get("result") == "bestaetigt")
+                                     if c.get("result") == "confirmed")
     result["open_points"] = offen
     result["open_unchecked"] = [o for o in offen
                                 if (o.get("claim") or "")[:60] not in closed]

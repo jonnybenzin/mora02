@@ -71,19 +71,19 @@ async def _check_schema_drift() -> None:
             continue
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
         desc = (
-            f"Baserow Table 574 (bot_costs) fehlt Spalte {col}.\n"
-            f"Das Modell '{model_key}' wurde in lib/.../llm/models.py "
-            f"eingetragen, aber die Kosten-Spalte in Baserow existiert nicht.\n"
+            f"Baserow table 574 (bot_costs) lacks column {col}.\n"
+            f"The model '{model_key}' was added to lib/.../llm/models.py, "
+            f"but the cost column does not exist in Baserow.\n"
             f"\n"
-            f"→ Was tun:\n"
-            f"  1. http://mora02.local:8085/database/113/table/574 öffnen\n"
-            f"  2. '+' am rechten Tabellen-Rand → 'Number'-Feld anlegen\n"
+            f"→ What to do:\n"
+            f"  1. Open http://mora02.local:8085/database/113/table/574\n"
+            f"  2. '+' at the right edge of the table → create a 'Number' field\n"
             f"  3. Name: {col}\n"
-            f"  4. Dezimalstellen: 6\n"
-            f"  5. Speichern\n"
+            f"  4. Decimal places: 6\n"
+            f"  5. Save\n"
             f"\n"
-            f"Sobald die Spalte existiert, verschwindet diese Meldung beim\n"
-            f"nächsten Pilot-Boot automatisch."
+            f"Once the column exists, this reminder disappears automatically\n"
+            f"at the next Pilot boot."
         )
         await db_api.insert("bot_feedback", {
             "Name": f"[schema] {col} missing — {ts}",
@@ -152,13 +152,13 @@ async def _check_profile_label_drift() -> None:
             f"LOCAL_PROFILE_LABELS in lib/.../llm/models.py {kind} '{name}'.\n"
             f"{detail}\n"
             f"\n"
-            f"→ Was tun:\n"
-            f"  1. /opt/mora02/lib/mora02_core/src/mora02_core/llm/models.py öffnen\n"
-            f"  2. LOCAL_PROFILE_LABELS-Dict editieren (siehe Detail oben)\n"
-            f"  3. Pilot rebuilden: docker compose --profile qwen3-14b up -d --build pilot\n"
+            f"→ What to do:\n"
+            f"  1. Open /opt/mora02/lib/mora02_core/src/mora02_core/llm/models.py\n"
+            f"  2. Edit the LOCAL_PROFILE_LABELS dict (see detail above)\n"
+            f"  3. Rebuild Pilot: docker compose --profile qwen3-14b up -d --build pilot\n"
             f"\n"
-            f"Sobald lib + script-runner übereinstimmen, verschwindet diese\n"
-            f"Meldung beim nächsten Pilot-Boot automatisch."
+            f"Once lib and script-runner agree, this reminder disappears\n"
+            f"automatically at the next Pilot boot."
         )
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
@@ -173,9 +173,9 @@ async def _check_profile_label_drift() -> None:
             "Type": "profile-label-drift",
             "Severity": "low",
             "Description": _make_desc(
-                "fehlt fuer", name,
-                f"script-runner kennt das Profil mit Label '{lbl}', lib aber nicht. "
-                f"Eintragen: '{name}': '{lbl}'",
+                "lacks", name,
+                f"script-runner knows the profile with label '{lbl}', lib does not. "
+                f"Add: '{name}': '{lbl}'",
             ),
             "Page": "boot-check",
             "Status": "new",
@@ -191,9 +191,9 @@ async def _check_profile_label_drift() -> None:
             "Type": "profile-label-drift",
             "Severity": "low",
             "Description": _make_desc(
-                "ist veraltet fuer", name,
-                f"Profil '{name}' steht in lib aber script-runner kennt es nicht (mehr). "
-                f"Entweder aus LOCAL_PROFILE_LABELS loeschen, oder script-runner PROFILES nachpflegen.",
+                "is stale for", name,
+                f"Profile '{name}' is in lib but script-runner does not know it (any more). "
+                f"Either remove it from LOCAL_PROFILE_LABELS, or add it to script-runner PROFILES.",
             ),
             "Page": "boot-check",
             "Status": "new",
@@ -209,9 +209,9 @@ async def _check_profile_label_drift() -> None:
             "Type": "profile-label-drift",
             "Severity": "low",
             "Description": _make_desc(
-                "hat falsches Label fuer", name,
-                f"lib sagt '{lib_lbl}', script-runner sagt '{canon_lbl}'. "
-                f"script-runner ist die Source of Truth — aendern: '{name}': '{canon_lbl}'",
+                "has the wrong label for", name,
+                f"lib says '{lib_lbl}', script-runner says '{canon_lbl}'. "
+                f"script-runner is the source of truth — change to: '{name}': '{canon_lbl}'",
             ),
             "Page": "boot-check",
             "Status": "new",

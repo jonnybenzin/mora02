@@ -464,12 +464,12 @@ function setActiveAgent(agent) {
   // which of the two they are talking to.
   var input = document.getElementById('chat-input');
   if (agent) {
-    addSystemMessage('Im Gespräch mit ' + agent.label
-      + ' — jede weitere Nachricht geht dorthin. "/ende" beendet es, '
-      + '"' + agent.match + '" beginnt ein neues.');
+    addSystemMessage('Talking to ' + agent.label
+      + ' — every further message goes there. "/ende" ends it, '
+      + '"' + agent.match + '" starts a new one.');
     if (input) input.placeholder = agent.label + ' …';
   } else {
-    addSystemMessage('Gespräch mit ' + (was || 'dem Agenten') + ' beendet.');
+    addSystemMessage('Conversation with ' + (was || 'the agent') + ' ended.');
     if (input) input.placeholder = '';
   }
 }
@@ -543,14 +543,14 @@ async function askAgent(agent) {
       // were taken on a cloud model while everyone believed they were local,
       // and no line in the output said otherwise. This one does.
       if (data.model_real) {
-        addSystemMessage('· geantwortet hat: ' + data.model_real
+        addSystemMessage('· answered by: ' + data.model_real
           + (data.model_declared && data.model_declared !== data.model_real
-              ? '   (im Agenten steht: ' + data.model_declared + ')' : ''));
+              ? '   (the agent declares: ' + data.model_declared + ')' : ''));
       }
       if (typeof data.tool_calls === 'number') {
-        var used = (data.tools_used || []).join(', ') || 'keine';
-        addSystemMessage('· ' + data.tool_calls + ' Werkzeugaufruf(e): ' + used
-          + (data.tool_failures ? ' — ' + data.tool_failures + ' gescheitert' : '')
+        var used = (data.tools_used || []).join(', ') || 'none';
+        addSystemMessage('· ' + data.tool_calls + ' tool call(s): ' + used
+          + (data.tool_failures ? ' — ' + data.tool_failures + ' failed' : '')
           + (data.duration_ms ? ' · ' + Math.round(data.duration_ms / 1000) + 's' : ''));
       }
       // The addresses the tools really produced. A citation in the answer that
@@ -558,10 +558,10 @@ async function askAgent(agent) {
       // only defence against a fabricated footnote that a rule cannot give.
       var src = data.sources;
       if (src && (src.read_count || src.found_count)) {
-        var line = '· gelesen: ' + src.read_count + ' Seite(n)';
+        var line = '· read: ' + src.read_count + ' page(s)';
         if (src.read && src.read.length) line += ' — ' + src.read.join('  ');
-        if (src.found_count) line += '  · ' + src.found_count + ' Treffer gesehen';
-        if (src.failed && src.failed.length) line += '  · ' + src.failed.length + ' nicht erreichbar';
+        if (src.found_count) line += '  · ' + src.found_count + ' results seen';
+        if (src.failed && src.failed.length) line += '  · ' + src.failed.length + ' unreachable';
         addSystemMessage(line);
       }
       // Notes taken while reading. Shown next to the answer because the point
@@ -575,16 +575,16 @@ async function askAgent(agent) {
         var notes = data.notes || [];
         if (!notes.length && !data.notes_carried) {
           addSystemMessage('⚠ ' + data.sources.read_count
-            + ' Seite(n) gelesen, aber nichts notiert — Einschränkungen gehen so verloren.');
+            + ' page(s) read, but nothing noted — restrictions get lost this way.');
         } else {
           var lim = notes.filter(function (n) { return n.restriction; });
-          var line = '· ' + notes.length + ' Notiz(en), ' + lim.length + ' mit Einschränkung'
+          var line = '· ' + notes.length + ' note(s), ' + lim.length + ' with a restriction'
             + (data.notes_carried ? ' · ' + data.notes_carried
-                 + ' aus früheren Fragen mitgeführt' : '')
+                 + ' carried over from earlier questions' : '')
             + (data.checks_carried ? ' · ' + data.checks_carried
-                 + ' Fakt(en) schon früher geprüft' : '')
-            + (data.notes_reviewed ? ' · vor dem Schreiben nochmal gelesen'
-                                   : ' · ⚠ NICHT nochmal gelesen');
+                 + ' fact(s) already checked earlier' : '')
+            + (data.notes_reviewed ? ' · re-read before writing'
+                                   : ' · ⚠ NOT re-read');
           for (var i = 0; i < lim.length && i < 6; i++) {
             line += '\n   ⚑ ' + lim[i].restriction + '  (' + (lim[i].claim || '').slice(0, 70) + ')';
           }
@@ -608,10 +608,11 @@ async function askAgent(agent) {
       // ever appeared when some OTHER signal had already opened the block.
       if (checks.length || openUn.length || solo.length
           || data.one_source_family || (data.notes || []).length) {
-        var mark = { bestaetigt: '✓', widersprochen: '✗', nicht_auffindbar: '?' };
-        var cl = '· ' + checks.length + ' Fakt(en) an der Quelle geprüft';
+        var mark = { confirmed: '✓', contradicted: '✗', not_found: '?' };
+        var word = { confirmed: 'confirmed', contradicted: 'contradicted', not_found: 'not found' };
+        var cl = '· ' + checks.length + ' fact(s) checked at the source';
         for (var c = 0; c < checks.length && c < 6; c++) {
-          cl += '\n   ' + (mark[checks[c].result] || '·') + ' ' + checks[c].result
+          cl += '\n   ' + (mark[checks[c].result] || '·') + ' ' + (word[checks[c].result] || checks[c].result)
               + ' — ' + (checks[c].claim || '').slice(0, 70)
               + (checks[c].detail ? '  (' + checks[c].detail.slice(0, 60) + ')' : '');
         }
@@ -619,8 +620,8 @@ async function askAgent(agent) {
           // Says only what is measured. The first real run flagged a point
           // the report HAD declared in plain words -- the label claimed
           // otherwise, and the agent came off worse than it deserved.
-          cl += '\n   ⚠ ' + openUn.length + ' offene(r) Punkt(e) nicht an der'
-              + ' Quelle geprüft — im Bericht ausgewiesen?';
+          cl += '\n   ⚠ ' + openUn.length + ' open point(s) not checked at the'
+              + ' source — declared in the report?';
           for (var o = 0; o < openUn.length && o < 3; o++) {
             cl += '\n     ⚑ ' + (openUn[o].claim || '').slice(0, 70)
                 + '  — ' + (openUn[o].restriction || '');
@@ -635,11 +636,11 @@ async function askAgent(agent) {
           // pages -- which is what step 4 asks for -- everything is
           // single-sourced. A list where all of it is flagged flags nothing,
           // so that turn gets one sentence about itself instead.
-          cl += '\n   · alle Zahlen aus einer Quellenfamilie — bei einer'
-              + ' Herstellerangabe in Ordnung, bei einer Bewertung nicht';
+          cl += '\n   · all figures from one source family — fine for a'
+              + ' vendor statement, not for an assessment';
         } else if (solo.length) {
-          cl += '\n   · ' + solo.length + ' Zahl(en) auf nur einer Quelle,'
-              + ' ungeprüft:';
+          cl += '\n   · ' + solo.length + ' figure(s) resting on a single source,'
+              + ' unchecked:';
           for (var q = 0; q < solo.length && q < 3; q++) {
             cl += '\n     · ' + (solo[q].claim || '').slice(0, 80);
           }
@@ -650,18 +651,18 @@ async function askAgent(agent) {
       // gateway budgeted against a window four times larger than the server
       // really had, reported "fits", and produced no answer at all.
       if (data.cost_eur_last_call) {
-        addSystemMessage('· letzter Modellaufruf: ' + (data.usage_in || 0) + ' rein / '
-          + (data.usage_out || 0) + ' raus · ~' + data.cost_eur_last_call.toFixed(3)
-          + ' € — nur dieser eine Aufruf, nicht der ganze Zug');
+        addSystemMessage('· last model call: ' + (data.usage_in || 0) + ' in / '
+          + (data.usage_out || 0) + ' out · ~' + data.cost_eur_last_call.toFixed(3)
+          + ' € — this one call only, not the whole turn');
       }
       if (data.ctx_budget) {
         var k = function (n) { return Math.round((n || 0) / 100) / 10 + 'k'; };
-        addSystemMessage('· Kontext: ' + k(data.ctx_prompt) + ' von ' + k(data.ctx_budget)
+        addSystemMessage('· context: ' + k(data.ctx_prompt) + ' of ' + k(data.ctx_budget)
           + (data.ctx_route && data.ctx_route !== 'fits' ? '  ⚠ ' + data.ctx_route : ''));
       }
       if (data.complete === false) {
-        addSystemMessage('⚠ Antwort abgeschnitten (' + (data.stop_reason || 'Grund unbekannt')
-          + '). Frag nach dem Rest — der Gesprächsfaden hält.');
+        addSystemMessage('⚠ Answer cut off (' + (data.stop_reason || 'reason unknown')
+          + '). Ask for the rest — the conversation thread holds.');
       }
     }
   } catch (err) {
@@ -810,16 +811,16 @@ function startProgress() {
       if (head) head.textContent = (p.phase || 'THINKING').toUpperCase();
       var bits = [Math.round(p.elapsed_s) + 's'];
       if (p.pages || p.searches) {
-        bits.push(p.searches + '/' + p.searches_max + ' Suchen');
-        bits.push(p.pages + '/' + p.pages_max + ' Seiten');
+        bits.push(p.searches + '/' + p.searches_max + ' searches');
+        bits.push(p.pages + '/' + p.pages_max + ' pages');
       }
-      if (p.notes) bits.push(p.notes + ' Notizen');
-      if (p.checks) bits.push(p.checks + ' geprüft');
+      if (p.notes) bits.push(p.notes + ' notes');
+      if (p.checks) bits.push(p.checks + ' checked');
       var line = bits.join(' · ');
       // The gap between tool calls is the model composing. A few seconds is
       // thinking; two minutes is a turn that may never come back, and until
       // this line existed the two looked identical from outside.
-      if (p.idle_s > 20) line += ' · seit ' + Math.round(p.idle_s) + 's kein Werkzeug';
+      if (p.idle_s > 20) line += ' · no tool for ' + Math.round(p.idle_s) + 's';
       if (p.last_read) line += '\n' + p.last_read.slice(0, 90);
       el.textContent = line;
     } catch (e) { /* a failed poll must never disturb the turn */ }

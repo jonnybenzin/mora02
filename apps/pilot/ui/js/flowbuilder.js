@@ -7,7 +7,8 @@
  *
  * The block-stack is the graphical twin of a pipeline spec: linear steps top→bottom,
  * each op a collapsible block (basics + a "detailed settings" sub-collapse for the
- * advanced params), fan-in shown as "← step" dropdowns. Reuses Pilot design tokens. */
+ * advanced params), fan-in shown as "← step" dropdowns. Reuses Pilot design tokens.
+ * Every string a person sees here is English — house rule for the whole Pilot UI. */
 
 var FLOW_API = (typeof LLM_API_BASE !== 'undefined') ? LLM_API_BASE : 'http://mora02.local:8098/sr';
 var _fbOpsCache = null;
@@ -33,32 +34,32 @@ async function initFlowBuilder(args){
   var el = wraps[wraps.length - 1];
   if (!el) return;
   args = (args || '').trim();
-  el.innerHTML = '<div class="fb-note" style="padding:10px">Lade Flow-Library…</div>';
+  el.innerHTML = '<div class="fb-note" style="padding:10px">Loading flow library…</div>';
   try {
     var flows = ((await (await fetch(FLOW_API + '/pipeline/flows')).json()).flows) || [];
     if (!args){ _fbPicker(el, flows); return; }
     var q = _fbNorm(args);
     var m = flows.filter(function(f){ return _fbNorm(f.name).indexOf(q) >= 0 || _fbNorm(f.file).indexOf(q) >= 0; });
     if (m.length === 1) await _fbStack(el, m[0].name);
-    else if (m.length === 0) _fbPicker(el, flows, 'Kein Flow für „' + _fbEsc(args) + '". Verfügbar:');
-    else _fbPicker(el, m, 'Mehrere Treffer für „' + _fbEsc(args) + '":');
+    else if (m.length === 0) _fbPicker(el, flows, 'No flow for "' + _fbEsc(args) + '". Available:');
+    else _fbPicker(el, m, 'Several matches for "' + _fbEsc(args) + '":');
   } catch(e){
-    el.innerHTML = '<div style="color:#e77;padding:10px">Flow-Library nicht erreichbar: ' + _fbEsc(e.message) + '</div>';
+    el.innerHTML = '<div style="color:#e77;padding:10px">Flow library unreachable: ' + _fbEsc(e.message) + '</div>';
   }
 }
 
 function _fbPicker(el, flows, note){
-  var h = '<p class="fb-title">Flow-Library</p>';
+  var h = '<p class="fb-title">Flow library</p>';
   if (note) h += '<p class="fb-note" style="margin:0 0 10px">' + note + '</p>';
   if (!flows.length){
-    h += '<p class="fb-note">Noch keine Flows in <code>pipelines/specs/</code>. Leg einen an, dann erscheint er hier.</p>';
+    h += '<p class="fb-note">No flows in <code>pipelines/specs/</code> yet. Create one and it shows up here.</p>';
   } else {
     h += '<div class="fb-pick">';
     flows.forEach(function(f){
       h += '<div class="fb-card" data-fb-flow="' + _fbEsc(f.name) + '">' +
              '<div class="fb-card-name">' + _fbEsc(f.name) + '</div>' +
              (f.description ? '<div class="fb-card-desc">' + _fbEsc(f.description) + '</div>' : '') +
-             '<div class="fb-card-meta">' + f.steps + ' Schritte</div></div>';
+             '<div class="fb-card-meta">' + f.steps + ' steps</div></div>';
     });
     h += '</div>';
   }
@@ -66,7 +67,7 @@ function _fbPicker(el, flows, note){
 }
 
 async function _fbStack(el, name){
-  el.innerHTML = '<div class="fb-note" style="padding:10px">Lade Flow „' + _fbEsc(name) + '"…</div>';
+  el.innerHTML = '<div class="fb-note" style="padding:10px">Loading flow "' + _fbEsc(name) + '"…</div>';
   var spec, ops;
   try {
     var resp = await fetch(FLOW_API + '/pipeline/flow/' + encodeURIComponent(name));
@@ -74,7 +75,7 @@ async function _fbStack(el, name){
     if (!resp.ok) throw new Error(spec.detail || ('HTTP ' + resp.status));
     ops = await _fbOps();
   } catch(e){
-    el.innerHTML = '<div style="color:#e77;padding:10px">Laden fehlgeschlagen: ' + _fbEsc(e.message) + '</div>';
+    el.innerHTML = '<div style="color:#e77;padding:10px">Loading failed: ' + _fbEsc(e.message) + '</div>';
     return;
   }
   el.dataset.fbName = spec.name || name;
@@ -112,7 +113,7 @@ async function _fbStack(el, name){
            '<span class="fb-summary">' + _fbEsc(s.prompt) + '</span>' +
            '<span class="fb-badge gate">HITL</span></div>' +
            '<div class="fb-body"><div class="fb-io">' + _fbEsc(s.prompt) + '</div>' +
-           '<div class="fb-note" style="margin-top:6px">Mensch-Freigabe — die Pipeline pausiert hier, bis jemand in der Inbox entscheidet.</div></div></div>';
+           '<div class="fb-note" style="margin-top:6px">Human approval — the pipeline pauses here until someone decides in the inbox.</div></div></div>';
       return;
     }
     var def = ops[s.op] || { params: [], output_type: null, status: 'wired' };
@@ -139,7 +140,7 @@ async function _fbStack(el, name){
     if (inSrc === 'none') inTxt = '—';
     else if (Array.isArray(inSrc)) inTxt = inSrc.map(function(x){ return '#' + x; }).join(' + ');
     else if (inSrc) inTxt = '#' + inSrc;
-    else inTxt = i > 0 ? '#' + steps[i-1].id + ' (Vorgänger)' : '—';
+    else inTxt = i > 0 ? '#' + steps[i-1].id + ' (previous)' : '—';
     h += '<div class="fb-io">Input: <b>' + _fbEsc(inTxt) + '</b></div>';
 
     var basics = params.filter(function(p){ return !p.advanced; });
@@ -148,7 +149,7 @@ async function _fbStack(el, name){
 
     if (adv.length){
       h += '<div class="fb-detail" data-fb-detail><div class="fb-detail-h" data-fb-detail-head>' + _FB_CHEV +
-           'Detaillierte Einstellungen (' + adv.length + ')</div><div class="fb-detail-body">' +
+           'Detailed settings (' + adv.length + ')</div><div class="fb-detail-body">' +
            adv.map(function(p){ return _fbFieldHTML(p, s.cfg[p.name], stepIds.slice(0, i)); }).join('') +
            '</div></div>';
     }
@@ -157,8 +158,8 @@ async function _fbStack(el, name){
   });
 
   var hasPlanned = steps.some(function(s){ var d = ops[s.op]; return d && d.status === 'planned'; });
-  h += '<div class="fb-run"><button class="fb-runbtn" data-fb-run>▶ Pipeline starten</button>' +
-       '<span class="fb-status" data-fb-status>' + (hasPlanned ? 'enthält planned-Ops → läuft erst nach dem Wiring' : 'startet mit den Inputs oben') + '</span></div>';
+  h += '<div class="fb-run"><button class="fb-runbtn" data-fb-run>▶ Start pipeline</button>' +
+       '<span class="fb-status" data-fb-status>' + (hasPlanned ? 'contains planned ops → runs only after wiring' : 'starts with the inputs above') + '</span></div>';
   el.innerHTML = h;
 }
 
@@ -184,7 +185,7 @@ async function _fbRun(btn){
   var status = el.querySelector('[data-fb-status]');
   var args = {};
   el.querySelectorAll('[data-fb-arg]').forEach(function(inp){ args[inp.getAttribute('data-fb-arg')] = inp.value; });
-  status.style.color = ''; status.textContent = 'starte…';
+  status.style.color = ''; status.textContent = 'starting…';
   // Route through Pilot's /pipeline/run (not script-runner directly) so a pause at a
   // gate gets filed into the HITL inbox for approval.
   var PILOT = (typeof PILOT_API_BASE !== 'undefined') ? PILOT_API_BASE
@@ -195,19 +196,19 @@ async function _fbRun(btn){
       body: JSON.stringify({ name: el.dataset.fbName, args: args, title: el.dataset.fbName })
     });
     var data = await resp.json();
-    if (!resp.ok) { status.style.color = '#e77'; status.textContent = 'Fehler: ' + (data.error || data.detail || ('HTTP ' + resp.status)); return; }
+    if (!resp.ok) { status.style.color = '#e77'; status.textContent = 'Error: ' + (data.error || data.detail || ('HTTP ' + resp.status)); return; }
     var res = data.result || {};
     if (res.is_paused) {
       status.style.color = '#eb4';
-      status.textContent = '⏸ pausiert am Gate — Freigabe in der INBOX (links im Menü).';
+      status.textContent = '⏸ paused at a gate — approve in the INBOX (menu on the left).';
     } else if (res.ok === false || res.status === 'error') {
       status.style.color = '#e77';
-      status.textContent = 'Fehler: ' + ((res.error && (res.error.message || res.error)) || res.status || 'siehe Run-Log');
+      status.textContent = 'Error: ' + ((res.error && (res.error.message || res.error)) || res.status || 'see run log');
     } else {
       status.style.color = '#8ec';
-      status.textContent = '✓ fertig (' + (res.status || 'ok') + ')';
+      status.textContent = '✓ done (' + (res.status || 'ok') + ')';
     }
-  } catch(e){ status.style.color = '#e77'; status.textContent = 'Fehler: ' + e.message; }
+  } catch(e){ status.style.color = '#e77'; status.textContent = 'Error: ' + e.message; }
 }
 
 // one delegated listener for all /flow widgets (script loads once)

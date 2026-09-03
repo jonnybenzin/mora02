@@ -9,6 +9,12 @@ knowledge/
 docs/
 x_briefing/
 llm-switch/
+# Private notes, the compendium and session logs: never part of a build.
+# Found the hard way on 2026-09-03: the pilot build (context = repo root)
+# walked into notizen/ and died on an unreadable __pycache__ there.
+notizen/
+kompendium/
+claude/
 
 # AI model weights (huge, license-bound, not for image)
 ai-models/

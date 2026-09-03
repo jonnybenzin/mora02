@@ -194,10 +194,10 @@ async function resolveInbox(id, body) {
     const data = await resp.json();
     const res = data.result || {};
     if (res.ok === false && res.error) {
-      alert("Pipeline-Fehler: " + (res.error.message || JSON.stringify(res.error)));
+      alert("Pipeline error: " + (res.error.message || JSON.stringify(res.error)));
     }
   } catch (e) {
-    alert("Resolve fehlgeschlagen: " + e);
+    alert("Resolve failed: " + e);
   }
   await refreshInbox();
 }
@@ -210,7 +210,7 @@ async function runInboxDemo() {
       body: JSON.stringify({ pipeline_path: INBOX_DEMO_PIPELINE, title: "Demo HITL" }),
     });
   } catch (e) {
-    alert("Demo-Run fehlgeschlagen: " + e);
+    alert("Demo run failed: " + e);
   }
   await refreshInbox();
 }

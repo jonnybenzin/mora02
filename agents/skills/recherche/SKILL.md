@@ -137,8 +137,8 @@ numbers.
 
 **The check rides on the note.** When the page you are reading IS the source of
 a figure, put `result` on that note and the figure is checked — no second call,
-no separate act. Three results, all of them real: `bestaetigt` (the page says
-it), `widersprochen` (it says something else), `nicht_auffindbar` (it has not
+no separate act. Three results, all of them real: `confirmed` (the page says
+it), `contradicted` (it says something else), `not_found` (it has not
 got it, or would not load). A decisive figure that is *not* at its source is
 often the most useful line in the whole report.
 
@@ -150,7 +150,7 @@ can still place, and twenty calls later you are working from memory of it.
 `verify` is checked against what the tools actually fetched. A source you did
 not open this turn is refused, because a check that was only asserted is not a
 check. If a page would not load at all — and manufacturers' pages increasingly
-assemble themselves in a browser and hand a reader nothing — `nicht_auffindbar`
+assemble themselves in a browser and hand a reader nothing — `not_found`
 against that same address is the honest record, and it is accepted.
 
 **Watch for the wrong edition.** Most confidently wrong figures come from a page

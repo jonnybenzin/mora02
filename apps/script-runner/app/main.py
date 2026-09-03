@@ -1707,8 +1707,8 @@ def _flag_truncation(usage: dict, op: str) -> None:
     if usage.get("finish_reason") == "length":
         usage["truncated"] = True
         usage["hint"] = (
-            f"Ausgabe abgeschnitten nach {usage.get('tokens_out')} Tokens — "
-            f"max_tokens erhöhen oder ganz weglassen."
+            f"Output cut off after {usage.get('tokens_out')} tokens — "
+            f"raise max_tokens or drop it entirely."
         )
         _log.warning("%s: output truncated (finish_reason=length)", op)
 

@@ -388,7 +388,7 @@ def single_source_notes(notes: list[dict], cap: int = 3) -> dict:
     return {
         "candidates": [{"claim": (n.get("claim") or "")[:200],
                         "source": n.get("source", ""),
-                        "grund": "nur eine Quelle"} for n in alone[:cap]],
+                        "reason": "single source"} for n in alone[:cap]],
         "one_family": False,
         "total": len(alone),
     }
@@ -496,17 +496,17 @@ def turn_progress() -> dict:
     # What it is doing, in the order the method does it. Derived from which
     # record moved last rather than from anything the model says about itself.
     if _REVIEWED >= _TURN_T0 and _REVIEWED >= last:
-        phase = "schreibt die Antwort"
+        phase = "writing the answer"
     elif check_ts and max(check_ts) >= last:
-        phase = "prüft an der Quelle"
+        phase = "checking at the source"
     elif note_ts and max(note_ts) >= last:
-        phase = "notiert"
+        phase = "taking notes"
     elif events and events[-1][1] == "read":
-        phase = "liest Seiten"
+        phase = "reading pages"
     elif events:
-        phase = "sucht"
+        phase = "searching"
     else:
-        phase = "überlegt"
+        phase = "thinking"
 
     return {
         "running": True,
@@ -638,8 +638,8 @@ TOOLS: list[dict[str, Any]] = [
             "AND: when the page you just read IS the source of a figure — the "
             "maker's own release page, the register, the repository — add "
             "`result` to that note and the figure is thereby checked at its "
-            "source: 'bestaetigt' if the page says it, 'widersprochen' if it "
-            "says something else, 'nicht_auffindbar' if it does not have it or "
+            "source: 'confirmed' if the page says it, 'contradicted' if it "
+            "says something else, 'not_found' if it does not have it or "
             "would not load. That is the difference between a figure you read "
             "somewhere and one you can stand behind, and it costs no extra call."
         ),
@@ -660,8 +660,8 @@ TOOLS: list[dict[str, Any]] = [
                                             "description": "The limit attached: date, season, "
                                                            "region, version, closure, licence."},
                             "result": {"type": "string",
-                                       "enum": ["bestaetigt", "widersprochen",
-                                                "nicht_auffindbar"],
+                                       "enum": ["confirmed", "contradicted",
+                                                "not_found"],
                                        "description": "Only when this page IS the "
                                                       "source of the figure: what it "
                                                       "did with it. Makes the note a "
@@ -706,8 +706,8 @@ TOOLS: list[dict[str, Any]] = [
             "the page is still in front of you, record where the figure came "
             "from and what the page did with it. Report ALL of them in ONE "
             "call. Three results count and all three are worth reporting: "
-            "'bestaetigt' (the page says it), 'widersprochen' (the page says "
-            "something else), 'nicht_auffindbar' (the page does not have it, or "
+            "'confirmed' (the page says it), 'contradicted' (the page says "
+            "something else), 'not_found' (the page does not have it, or "
             "would not load) — a decisive figure that is NOT at its source is "
             "often the most useful line in a report. The source must be a page "
             "you fetched this turn."
@@ -729,8 +729,8 @@ TOOLS: list[dict[str, Any]] = [
                                                       "to. Must be one you fetched "
                                                       "with web_read this turn."},
                             "result": {"type": "string",
-                                       "enum": ["bestaetigt", "widersprochen",
-                                                "nicht_auffindbar"],
+                                       "enum": ["confirmed", "contradicted",
+                                                "not_found"],
                                        "description": "What the source said."},
                             "detail": {"type": "string",
                                        "description": "What it actually said — the "
@@ -895,11 +895,11 @@ async def _web_search(queries: list) -> dict:
     if not queries:
         return {"error": "web_search needs at least one query in 'queries'"}
     if _lim("max_searches_total") - _SPENT["searches"] <= 0:
-        return {"error": "Such-Budget für diesen Zug erschöpft.",
-                "hint": "Nicht weitersuchen. Schreibe die Antwort aus dem, was du "
-                        "hast, und sag im Bericht, dass du aus Budgetgründen "
-                        "aufgehört hast — das ist ein gültiger Grund und gehört "
-                        "genannt."}
+        return {"error": "Search budget for this turn is used up.",
+                "hint": "Do not search further. Write the answer from what you "
+                        "have, and say in the report that you stopped for budget "
+                        "reasons — that is a valid reason and deserves to be "
+                        "named."}
     _SPENT["searches"] += 1
     try:
         found = await web.search_many(queries, limit=_lim("results_per_query"))
@@ -937,10 +937,10 @@ async def _web_read(urls: list, max_chars: int | None) -> dict:
         return {"error": "web_read needs at least one url in 'urls'"}
     left = _lim("max_pages_total") - _SPENT["pages"]
     if left <= 0:
-        return {"error": "Lese-Budget für diesen Zug erschöpft.",
-                "hint": "Keine weiteren Seiten. Rufe `notes_review` auf und "
-                        "schreibe die Antwort aus deinen Notizen. Sag im "
-                        "Bericht, dass du aus Budgetgründen aufgehört hast."}
+        return {"error": "Reading budget for this turn is used up.",
+                "hint": "No further pages. Call `notes_review` and write the "
+                        "answer from your notes. Say in the report that you "
+                        "stopped for budget reasons."}
     urls = urls[:left]
     _SPENT["pages"] += len(urls)
     cap = int(max_chars or _lim("page_chars"))
@@ -964,10 +964,10 @@ async def _web_read(urls: list, max_chars: int | None) -> dict:
         "pages": pages, "read": len(pages) - len(failed), "failed": failed,
         "budget_left": {"pages": _lim("max_pages_total") - _SPENT["pages"],
                         "searches": _lim("max_searches_total") - _SPENT["searches"]},
-        "next": "Jetzt je gelesener Seite `note` aufrufen — was sie zur Frage "
-                "sagt und welche Einschränkung daran hängt (Datum, Saison, "
-                "Version, Sperrung, Lizenz) — ALLE Funde in EINEM Aufruf, als "
-                "Liste. Erst danach weiterlesen. Vor dem Schreiben dann "
+        "next": "Now call `note` for each page read — what it says about the "
+                "question and which restriction is attached (date, season, "
+                "version, lock, licence) — ALL findings in ONE call, as a "
+                "list. Only then read on. Before writing, call "
                 "`notes_review`.",
     }
 
@@ -979,15 +979,15 @@ def _record_check(claim: str, src: str, res: str, detail: str = "") -> str:
     cannot drift apart: a check is a check whichever door it came through, and
     the provenance rule is the same. Returns "" on success, else the reason.
     """
-    if res not in ("bestaetigt", "widersprochen", "nicht_auffindbar"):
-        return f"unbekanntes Ergebnis '{res}'"
+    if res not in ("confirmed", "contradicted", "not_found"):
+        return f"unknown result '{res}'"
     # "not findable" may rest on a page that refused to load; the other two
     # may not -- you cannot confirm from a page you never got.
     allowed = (_read_urls_since(_TURN_T0, ok_only=False)
-               if res == "nicht_auffindbar" else _read_urls_since(_TURN_T0))
+               if res == "not_found" else _read_urls_since(_TURN_T0))
     if _norm_url(src) not in allowed:
-        return ("Quelle in diesem Zug nicht mit web_read geholt — "
-                "erst lesen, dann prüfen.")
+        return ("Source was not fetched with web_read in this turn — "
+                "read first, then check.")
     _CHECKS.append((time.time(), _SESSION, {
         "claim": claim[:300], "source": src[:300],
         "result": res, "detail": detail[:300]}))
@@ -1011,12 +1011,12 @@ async def _call(name: str, arguments: dict) -> dict:
         # a follow-up arrived with an empty notebook because the window had been
         # restamped, so the second answer was built from memory of the first --
         # the exact distance the notes exist to close.
-        frueher = notes_earlier(_SESSION, _TURN_T0)
-        alle = notes + frueher
+        earlier = notes_earlier(_SESSION, _TURN_T0)
+        alle = notes + earlier
         limits = [n for n in alle if n.get("restriction")]
         if not alle:
-            return {"notes": [], "hint": "Nichts notiert. Wenn du Seiten gelesen "
-                                         "hast, fehlt die Grundlage der Antwort."}
+            return {"notes": [], "hint": "Nothing noted. If you have read pages, "
+                                         "the answer has no foundation."}
         # The open points are COMPUTED here rather than asked for, because a
         # note that names its own gap was measured to be exactly where the
         # answer went wrong -- and the gap was named correctly and then walked
@@ -1031,58 +1031,56 @@ async def _call(name: str, arguments: dict) -> dict:
             "notes": notes,
             "count": len(alle),
             "with_restriction": len(limits),
-            "geprueft": len(done),
-            "hint": "Schreibe die Antwort JETZT aus diesen Notizen. Jede "
-                    "Einschränkung reist mit ihrer Behauptung mit — eine "
-                    "Empfehlung, deren Einschränkung weggelassen wurde, ist "
-                    "nicht kürzer, sondern falsch. Was hier nicht steht, hast "
-                    "du nicht gelesen.",
+            "checked": len(done),
+            "hint": "Write the answer NOW from these notes. Every restriction "
+                    "travels with its claim — a recommendation whose "
+                    "restriction was left out is not shorter, it is wrong. "
+                    "What is not written here, you have not read.",
         }
-        if frueher:
-            out["frueher"] = frueher
+        if earlier:
+            out["earlier"] = earlier
             out["hint"] = (
-                f"{len(frueher)} Notiz(en) stammen aus früheren Fragen dieses "
-                "Gesprächs und stehen unter `frueher` — mit ihren "
-                "Einschränkungen. Sie gelten weiter; du musst sie nicht neu "
-                "nachlesen. " + out["hint"]
+                f"{len(earlier)} note(s) come from earlier questions in this "
+                "conversation and sit under `earlier` — with their "
+                "restrictions. They still hold; you need not read them "
+                "again. " + out["hint"]
             )
         if done:
-            out["bereits_geprueft"] = done
+            out["already_checked"] = done
         if solo["one_family"]:
             # Not a list of suspects -- a property of the turn, said once.
-            out["quellenlage"] = (
-                f"Alle {solo['total']} Zahlen dieses Zuges stammen aus einer "
-                "Quellenfamilie; keine wird von einem unabhängigen Anbieter "
-                "gestützt. Das ist bei einer Herstellerangabe in Ordnung und "
-                "bei einer Bewertung nicht."
+            out["source_situation"] = (
+                f"All {solo['total']} figures of this turn come from one source "
+                "family; none is backed by an independent provider. That is "
+                "fine for a vendor statement and not for an assessment."
             )
         if allein:
             # Weaker than `offen` on purpose, and labelled as such: standing
             # alone is not being wrong. It is offered because the alternative --
             # asking which facts are load-bearing -- was measured returning the
             # facts the model was already sure of.
-            out["nur_eine_quelle"] = allein
+            out["single_source"] = allein
             out["hint"] = (
-                f"{len(allein)} Behauptung(en) mit einer Zahl stehen auf EINER "
-                "Quelle, ohne dass eine zweite sie stützt. Wenn die Empfehlung "
-                "daran hängt, ist das der Kandidat für `verify` — genau in "
-                "dieser Klasse ist zuletzt ein Fehler um eine Version "
-                "durchgerutscht. " + out["hint"]
+                f"{len(allein)} claim(s) with a figure rest on ONE source, with "
+                "no second one backing them. If the recommendation depends "
+                "on it, that is the candidate for `verify` — exactly in this "
+                "class an error of one version slipped through last time. "
+                + out["hint"]
             )
         if offen:
-            out["offen"] = offen
+            out["open"] = offen
             # Two outcomes, both complete. Turning every open point into a duty
             # lengthens the chain, and long chains were measured ending with no
             # answer at all -- so saying "unresolved" out loud is a full result
             # here, not the lesser one.
             out["hint"] = (
-                f"{len(offen)} Punkt(e) unten sind OFFEN — die Notiz sagt "
-                "selbst, dass die Zahl nicht belegt ist. Genau daran ist "
-                "gemessen schon eine Empfehlung gescheitert. Zwei Ausgänge "
-                "sind zulässig, ein dritter nicht: (a) an der Primärquelle "
-                "nachsehen (web_read) und das Ergebnis mit `verify` "
-                "festhalten, oder (b) im Bericht ausdrücklich als offen "
-                "ausweisen. Stillschweigend übergehen ist der Fehler. "
+                f"{len(offen)} point(s) below are OPEN — the note itself says "
+                "the figure is not backed. Exactly this has already, "
+                "measurably, sunk a recommendation. Two outcomes are "
+                "allowed, a third is not: (a) look at the primary source "
+                "(web_read) and record the result with `verify`, or (b) "
+                "declare it open in the report, explicitly. Passing over it "
+                "in silence is the error. "
                 + out["hint"]
             )
         return out
@@ -1107,23 +1105,23 @@ async def _call(name: str, arguments: dict) -> dict:
                 continue
             why = _record_check(claim, src, res, (item.get("detail") or "").strip())
             if why:
-                rejected.append({"claim": claim[:120], "grund": why})
+                rejected.append({"claim": claim[:120], "reason": why})
             else:
                 kept.append({"claim": claim[:300], "source": src[:300],
                              "result": res})
         if not kept and not rejected:
             return {"error": "verify needs a 'checks' list, each with claim, "
                              "source and result"}
-        out = {"ok": bool(kept), "geprueft": len(kept),
-               "gesamt_im_zug": len(checks_since(_TURN_T0))}
+        out = {"ok": bool(kept), "checked": len(kept),
+               "total_this_turn": len(checks_since(_TURN_T0))}
         if rejected:
-            out["abgelehnt"] = rejected
-            out["hint"] = ("Abgelehnte Prüfungen zählen nicht. Hol die Seite "
-                           "mit web_read und prüfe dann erneut — oder weise "
-                           "den Punkt im Bericht als offen aus.")
+            out["rejected"] = rejected
+            out["hint"] = ("Rejected checks do not count. Fetch the page with "
+                           "web_read and check again — or declare the point "
+                           "open in the report.")
         else:
-            out["hint"] = ("Festgehalten. Was hier steht, erscheint neben "
-                           "deiner Antwort — mit Ergebnis.")
+            out["hint"] = ("Recorded. What is written here appears next to "
+                           "your answer — with its result.")
         return out
     if name == "note":
         # A list, not one call per finding. The tool bench measured this model
@@ -1162,23 +1160,23 @@ async def _call(name: str, arguments: dict) -> dict:
                 why = _record_check(claim, src, res,
                                     (item.get("detail") or "").strip())
                 (checked if not why else refused).append(
-                    {"claim": claim[:120], **({"grund": why} if why else
+                    {"claim": claim[:120], **({"reason": why} if why else
                                               {"result": res})})
         if not kept:
             return {"error": "note needs a 'notes' list, each with a claim"}
         out = {"ok": True, "noted": len(kept),
                "notes_so_far": len(notes_since(_TURN_T0)),
-               "hint": "Weiterlesen oder direkt zum Schluss. Unmittelbar VOR dem "
-                       "Schreiben `notes_review` aufrufen und die Antwort daraus "
-                       "bauen."}
+               "hint": "Read on, or go straight to the conclusion. Immediately "
+                       "BEFORE writing, call `notes_review` and build the answer "
+                       "from it."}
         if checked:
-            out["geprueft"] = len(checked)
-            out["hint"] = (f"{len(checked)} davon als Quellenprüfung "
-                           "festgehalten — erscheint neben deiner Antwort. "
+            out["checked"] = len(checked)
+            out["hint"] = (f"{len(checked)} of them recorded as source checks "
+                           "— shown next to your answer. "
                            + out["hint"])
         if refused:
-            out["pruefung_abgelehnt"] = refused
-            out["hint"] = ("Die Notiz steht, die Prüfung nicht: " + out["hint"])
+            out["check_rejected"] = refused
+            out["hint"] = ("The note stands, the check does not: " + out["hint"])
         return out
     if name == "web_search":
         qs = arguments.get("queries")

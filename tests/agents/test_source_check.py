@@ -102,20 +102,20 @@ def test_provenance() -> None:
     url = "https://geizhals.de/evo"
 
     r = call("verify", {"checks": [{"claim": "Breite 24,0 cm", "source": url,
-                                    "result": "bestaetigt", "detail": "240mm"}]})
-    check("unfetched source refused", r.get("geprueft") == 0 and bool(r.get("abgelehnt")))
+                                    "result": "confirmed", "detail": "240mm"}]})
+    check("unfetched source refused", r.get("checked") == 0 and bool(r.get("rejected")))
 
     m._remember("read", url, ok=True)
     r = call("verify", {"checks": [{"claim": "Breite 24,0 cm",
                                     "source": "https://www.geizhals.de/evo/",
-                                    "result": "bestaetigt",
+                                    "result": "confirmed",
                                     "detail": "240x360x440mm (BxHxT)"}]})
-    check("accepted after a real fetch", r.get("geprueft") == 1,
+    check("accepted after a real fetch", r.get("checked") == 1,
           "www and trailing slash tolerated -- a check must not fail on cosmetics")
 
     r = call("verify", {"checks": [{"claim": "x", "source": url,
                                     "result": "vielleicht"}]})
-    check("invented result refused", r.get("geprueft") == 0)
+    check("invented result refused", r.get("checked") == 0)
 
 
 def test_dead_page() -> None:
@@ -133,13 +133,13 @@ def test_dead_page() -> None:
     m._remember("read", dead, ok=False)
 
     r = call("verify", {"checks": [{"claim": "Breite laut Hersteller", "source": dead,
-                                    "result": "nicht_auffindbar",
+                                    "result": "not_found",
                                     "detail": "liefert nur VersuniB2CApp"}]})
-    check("'nicht_auffindbar' stands for a page that failed", r.get("geprueft") == 1)
+    check("'not_found' stands for a page that failed", r.get("checked") == 1)
 
     r = call("verify", {"checks": [{"claim": "Breite laut Hersteller", "source": dead,
-                                    "result": "bestaetigt", "detail": "24,6 cm"}]})
-    check("the same page may NOT confirm anything", r.get("geprueft") == 0)
+                                    "result": "confirmed", "detail": "24,6 cm"}]})
+    check("the same page may NOT confirm anything", r.get("checked") == 0)
 
 
 def test_review_reports_open() -> None:
@@ -154,9 +154,9 @@ def test_review_reports_open() -> None:
         {"claim": "c", "source": "u", "restriction": "keine Angabe zur Breite"}]})
 
     r = call("notes_review", {})
-    check("open points returned", len(r.get("offen") or []) == 2)
+    check("open points returned", len(r.get("open") or []) == 2)
     check("both endings named in the hint",
-          "verify" in r.get("hint", "") and "offen" in r.get("hint", "").lower(),
+          "verify" in r.get("hint", "") and "open" in r.get("hint", "").lower(),
           "checking and declaring are both complete outcomes")
     check("review is recorded", m.reviewed_this_turn())
 
@@ -241,27 +241,27 @@ def test_notes_survive_a_follow_up() -> None:
          "restriction": "neuere ausdrücklich empfohlen"}]})
     call("verify", {"checks": [
         {"claim": "Python 3.13 empfohlen", "source": "https://docs.comfy.org/req",
-         "result": "bestaetigt", "detail": "'Python 3.13 is very well supported'"}]})
+         "result": "confirmed", "detail": "'Python 3.13 is very well supported'"}]})
 
     time.sleep(0.01)
     m.begin_turn({}, session=sess)                      # the follow-up question
     r = call("notes_review", {})
-    check("earlier notes are carried", len(r.get("frueher") or []) == 2,
+    check("earlier notes are carried", len(r.get("earlier") or []) == 2,
           "before this, a follow-up opened an empty notebook")
     check("their restrictions come with them",
-          all(n.get("restriction") for n in r.get("frueher") or []))
+          all(n.get("restriction") for n in r.get("earlier") or []))
     check("earlier verifications are carried too",
-          len(r.get("bereits_geprueft") or []) == 1,
+          len(r.get("already_checked") or []) == 1,
           "a figure confirmed two questions ago is still confirmed")
     check("this turn's own notes stay separate", r["notes"] == [])
 
     m.begin_turn({}, session=other)
     check("a different conversation sees nothing",
-          not call("notes_review", {}).get("frueher"))
+          not call("notes_review", {}).get("earlier"))
 
     m.begin_turn({}, session="")
     check("no session carries nothing rather than guessing",
-          not call("notes_review", {}).get("frueher"))
+          not call("notes_review", {}).get("earlier"))
 
 
 def test_progress_is_visible_while_running() -> None:
@@ -286,27 +286,27 @@ def test_progress_is_visible_while_running() -> None:
     check("nothing running between turns", m.turn_progress() == {"running": False})
 
     m.begin_turn({}, session="s-progress")
-    check("a fresh turn is thinking", m.turn_progress()["phase"] == "überlegt")
+    check("a fresh turn is thinking", m.turn_progress()["phase"] == "thinking")
 
     m._remember("search", "https://a/1", ok=True)
-    check("searching is visible", m.turn_progress()["phase"] == "sucht")
+    check("searching is visible", m.turn_progress()["phase"] == "searching")
 
     m._remember("read", "https://docs.comfy.org/req", ok=True)
     prog = m.turn_progress()
     check("reading is visible, with the page",
-          prog["phase"] == "liest Seiten" and prog["last_read"].endswith("/req"))
+          prog["phase"] == "reading pages" and prog["last_read"].endswith("/req"))
 
     call("note", {"notes": [{"claim": "x", "source": "https://docs.comfy.org/req",
                              "restriction": "gilt 2026"}]})
-    check("noting is visible", m.turn_progress()["phase"] == "notiert")
+    check("noting is visible", m.turn_progress()["phase"] == "taking notes")
 
     call("verify", {"checks": [{"claim": "x", "source": "https://docs.comfy.org/req",
-                                "result": "bestaetigt"}]})
-    check("verifying is visible", m.turn_progress()["phase"] == "prüft an der Quelle")
+                                "result": "confirmed"}]})
+    check("verifying is visible", m.turn_progress()["phase"] == "checking at the source")
 
     call("notes_review", {})
     prog = m.turn_progress()
-    check("composing is visible", prog["phase"] == "schreibt die Antwort")
+    check("composing is visible", prog["phase"] == "writing the answer")
     check("budget is counted, not guessed",
           prog["notes"] == 1 and prog["checks"] == 1 and prog["pages_max"] > 0)
 
@@ -372,33 +372,33 @@ def test_check_rides_on_the_note() -> None:
     r = call("note", {"notes": [
         {"claim": "Penpot 2.17.2 ist aktuell, 27. August",
          "source": "https://github.com/penpot/penpot/releases",
-         "restriction": "Stand 2. September", "result": "bestaetigt",
+         "restriction": "Stand 2. September", "result": "confirmed",
          "detail": "'2.17.2 Latest', '27 Aug 08:31'"},
         {"claim": "Ein Blog nennt ein anderes Datum",
          "source": "https://blog.example/x", "restriction": "Sekundärquelle",
-         "result": "bestaetigt"},
+         "result": "confirmed"},
         {"claim": "Schweregrad von GHSA-4f36",
          "source": "https://github.com/penpot/penpot/security/advisories/X",
-         "restriction": "404", "result": "nicht_auffindbar"},
+         "restriction": "404", "result": "not_found"},
         {"claim": "Eine gewöhnliche Notiz ohne Prüfung",
          "source": "https://github.com/penpot/penpot/releases", "restriction": "keine"},
     ]})
     check("all four notes are kept", r.get("noted") == 4)
-    check("two of them became checks", r.get("geprueft") == 2)
+    check("two of them became checks", r.get("checked") == 2)
     check("a check on an unfetched page is refused",
-          len(r.get("pruefung_abgelehnt") or []) == 1,
+          len(r.get("check_rejected") or []) == 1,
           "the NOTE still stands -- only the check is refused")
     check("a page that would not load may still say 'not findable'",
-          any(c["result"] == "nicht_auffindbar" for c in m.checks_since(m._TURN_T0)))
+          any(c["result"] == "not_found" for c in m.checks_since(m._TURN_T0)))
 
     rv = call("notes_review", {})
-    check("review sees them as checks", rv.get("geprueft") == 2)
+    check("review sees them as checks", rv.get("checked") == 2)
 
     r2 = call("verify", {"checks": [
         {"claim": "nachtraeglich", "source": "https://github.com/penpot/penpot/releases",
-         "result": "widersprochen", "detail": "x"}]})
+         "result": "contradicted", "detail": "x"}]})
     check("verify still works on its own and books to the same ledger",
-          r2.get("geprueft") == 1 and r2.get("gesamt_im_zug") == 3)
+          r2.get("checked") == 1 and r2.get("total_this_turn") == 3)
 
 
 if __name__ == "__main__":

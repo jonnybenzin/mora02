@@ -10,6 +10,8 @@
  * first, the ones flagged "advanced" behind a sub-collapse. Any param can be a
  * literal, a reference to an EARLIER step (the run bucket holds every step's
  * output for the whole run, so it may reach back arbitrarily far), or a run input.
+ *
+ * Every string a person sees here is English — house rule for the whole Pilot UI.
  */
 
 var FLOWS_API = (typeof LLM_API_BASE !== 'undefined') ? LLM_API_BASE : 'http://mora02.local:8098/sr';
@@ -25,13 +27,13 @@ var _flOpenSteps = {};
 var _flInsertAt = null;
 
 var FL_BUCKETS = [
-  ['source', 'Quellen'], ['image', 'Bild'], ['video', 'Video'],
-  ['blender', '3D-Text'], ['media', 'Medien-Finish'], ['audio', 'Audio'],
-  ['llm', 'LLM lokal'], ['cloud', 'LLM Cloud'], ['db', 'Daten'],
-  ['data', 'Werte'],
-  ['web', 'Web & Stock'], ['publish', 'Publizieren'], ['delivery', 'Zustellung']
+  ['source', 'Sources'], ['image', 'Image'], ['video', 'Video'],
+  ['blender', '3D text'], ['media', 'Media finish'], ['audio', 'Audio'],
+  ['llm', 'LLM local'], ['cloud', 'LLM cloud'], ['db', 'Database'],
+  ['data', 'Values'],
+  ['web', 'Web & stock'], ['publish', 'Publish'], ['delivery', 'Delivery']
 ];
-var FL_TYPES = { image: 'Bild', video: 'Video', audio: 'Audio', text: 'Text', any: 'beliebig' };
+var FL_TYPES = { image: 'image', video: 'video', audio: 'audio', text: 'text', any: 'any' };
 var FL_CHEV = '<svg class="flw-chev" viewBox="0 0 16 16" width="9" height="9"><path fill="currentColor" d="M6 4l4 4-4 4z"/></svg>';
 var FL_NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
@@ -48,7 +50,7 @@ function _flSlug(s){
 }
 function _flIo(op){
   var inp = (op.consumes === 'none') ? '—'
-          : _flTy(op.input_type) + (op.consumes === 'many' ? ' (mehrere)' : '');
+          : _flTy(op.input_type) + (op.consumes === 'many' ? ' (several)' : '');
   return inp + ' → ' + _flTy(op.output_type);
 }
 
@@ -86,9 +88,9 @@ function _flWireBefore(index){
 // Can this op be appended at the end of the stack, given what lies on the wire?
 function _flCanAppend(op, wire){
   if (op.consumes === 'none' || op.consumes_optional) return { ok: true };
-  if (!wire) return { ok: false, why: 'braucht eine Eingabe — davor steht kein Schritt' };
+  if (!wire) return { ok: false, why: 'needs an input — there is no step before it' };
   if (op.input_type === 'any' || wire === 'any' || wire === op.input_type) return { ok: true };
-  return { ok: false, why: 'braucht ' + _flTy(op.input_type) + ', hier liegt ' + _flTy(wire) };
+  return { ok: false, why: 'needs ' + _flTy(op.input_type) + ', but the wire carries ' + _flTy(wire) };
 }
 
 // ---- entry point ---------------------------------------------------------
@@ -101,16 +103,16 @@ async function initFlows(){
   document.querySelectorAll('[data-fl-act]').forEach(function(b){
     b.addEventListener('click', function(){
       if (b.dataset.flAct === 'library'){
-        if (_flState.dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return;
+        if (_flState.dirty && !confirm('Discard unsaved changes?')) return;
         _flLibrary();
       }
       if (b.dataset.flAct === 'new') _flNew();
     });
   });
 
-  main.innerHTML = '<div class="flw-note">Lade Vokabular…</div>';
+  main.innerHTML = '<div class="flw-note">Loading vocabulary…</div>';
   try { await _flRenderPalette(pal); }
-  catch (e){ pal.innerHTML = '<div class="flw-err" style="padding:12px">Vokabular nicht erreichbar:<br>' + _flEsc(e.message) + '</div>'; }
+  catch (e){ pal.innerHTML = '<div class="flw-err" style="padding:12px">Vocabulary unreachable:<br>' + _flEsc(e.message) + '</div>'; }
   _flLibrary();
 }
 
@@ -129,15 +131,15 @@ async function _flRenderPalette(el){
   // never appear in /pipeline/ops. They still belong in the palette: a human
   // checkpoint is a block you place like any other.
   var h = '<div class="flw-grp open"><div class="flw-grp-h">' + FL_CHEV +
-            '<span>Mensch</span><span class="flw-grp-n">2</span></div><div class="flw-grp-body">' +
+            '<span>Human</span><span class="flw-grp-n">2</span></div><div class="flw-grp-body">' +
           '<div class="flw-op" data-fl-gate="gate">' +
-            '<div class="flw-op-n"><span class="flw-dot wired"></span>Freigabe</div>' +
-            '<div class="flw-op-d">Hält an und fragt einen Menschen, bevor es weitergeht.</div>' +
-            '<div class="flw-op-io">reicht durch, was auf dem Draht liegt</div></div>' +
+            '<div class="flw-op-n"><span class="flw-dot wired"></span>Approval</div>' +
+            '<div class="flw-op-d">Stops and asks a human before going on.</div>' +
+            '<div class="flw-op-io">passes through whatever is on the wire</div></div>' +
           '<div class="flw-op" data-fl-gate="review">' +
             '<div class="flw-op-n"><span class="flw-dot wired"></span>Review</div>' +
-            '<div class="flw-op-d">Schickt das Ergebnis des Schritts davor an einen Menschen (Signal) und fragt dann.</div>' +
-            '<div class="flw-op-io">reicht durch, was auf dem Draht liegt</div></div>' +
+            '<div class="flw-op-d">Sends the previous step\'s result to a human (Signal), then asks.</div>' +
+            '<div class="flw-op-io">passes through whatever is on the wire</div></div>' +
           '</div></div>';
 
   order.forEach(function(pair){
@@ -193,13 +195,13 @@ async function _flLibrary(){
   var main = document.getElementById('fl-main');
   _flState = { name: null, spec: null, dirty: false };
   _flUpdatePalette();
-  main.innerHTML = '<div class="flw-note">Lade Bibliothek…</div>';
+  main.innerHTML = '<div class="flw-note">Loading library…</div>';
   var flows;
   try { flows = ((await (await fetch(FLOWS_API + '/pipeline/flows')).json()).flows) || []; }
-  catch (e){ main.innerHTML = '<div class="flw-err">Bibliothek nicht erreichbar: ' + _flEsc(e.message) + '</div>'; return; }
+  catch (e){ main.innerHTML = '<div class="flw-err">Library unreachable: ' + _flEsc(e.message) + '</div>'; return; }
 
   if (!flows.length){
-    main.innerHTML = '<div class="flw-note">Noch keine Flows gespeichert. „+ Neuer Flow" legt den ersten an.</div>';
+    main.innerHTML = '<div class="flw-note">No flows saved yet. "+ New flow" creates the first one.</div>';
     return;
   }
   var h = '<div class="flw-lib">';
@@ -209,7 +211,7 @@ async function _flLibrary(){
            (f.description ? '<div class="flw-card-d">' + _flEsc(f.description) + '</div>' : '') +
            '<div class="flw-card-f">' +
              (f.tags || []).map(function(t){ return '<span class="flw-tag">' + _flEsc(t) + '</span>'; }).join('') +
-             '<span class="flw-card-m">' + f.steps + ' Schritte</span></div></div>';
+             '<span class="flw-card-m">' + f.steps + ' steps</span></div></div>';
   });
   main.innerHTML = h + '</div>';
   main.querySelectorAll('[data-fl-open]').forEach(function(c){
@@ -224,7 +226,7 @@ function _flNew(){
 
 async function _flOpen(name){
   var main = document.getElementById('fl-main');
-  main.innerHTML = '<div class="flw-note">Lade „' + _flEsc(name) + '"…</div>';
+  main.innerHTML = '<div class="flw-note">Loading "' + _flEsc(name) + '"…</div>';
   try {
     var resp = await fetch(FLOWS_API + '/pipeline/flow/' + encodeURIComponent(name));
     var spec = await resp.json();
@@ -233,7 +235,7 @@ async function _flOpen(name){
     _flState = { name: name, spec: spec, dirty: false };
     _flRenderFlow();
   } catch (e){
-    main.innerHTML = '<div class="flw-err">Laden fehlgeschlagen: ' + _flEsc(e.message) + '</div>';
+    main.innerHTML = '<div class="flw-err">Loading failed: ' + _flEsc(e.message) + '</div>';
   }
 }
 
@@ -264,7 +266,7 @@ function _flMarkDirty(){
   if (head && !head.querySelector('.flw-dirty')){
     var s = document.createElement('span');
     s.className = 'flw-dirty';
-    s.textContent = ' • ungespeichert';
+    s.textContent = ' • unsaved';
     head.appendChild(s);
   }
 }
@@ -294,8 +296,8 @@ function _flAddGate(kind){
   if (!_flState.spec) _flNew();
   var step = {};
   step[kind] = { prompt: (kind === 'gate')
-    ? 'Freigeben?'
-    : 'Ergebnis prüfen (aufs Handy schauen)?' };
+    ? 'Approve?'
+    : 'Check the result (look at your phone)?' };
   _flInsertStep(step);
 }
 function _flMove(i, dir){
@@ -308,7 +310,7 @@ function _flMove(i, dir){
 function _flDelete(i){
   var s = _flStepShape(_flSteps()[i]);
   var label = s.kind === 'op' ? s.op : s.kind;
-  if (!confirm('Schritt ' + (i + 1) + ' („' + label + '") löschen?')) return;
+  if (!confirm('Delete step ' + (i + 1) + ' ("' + label + '")?')) return;
   _flSteps().splice(i, 1);
   for (var k = i; k < _flSteps().length; k++) _flOpenSteps[k] = _flOpenSteps[k + 1];
   delete _flOpenSteps[_flSteps().length];
@@ -319,7 +321,7 @@ function _flSetId(i, value){
   var v = _flSlug(value);
   if (!v) return;
   if (_flIdsInUse(i).indexOf(v) >= 0){
-    alert('Die ID „' + v + '" ist schon vergeben.');
+    alert('The id "' + v + '" is already taken.');
     _flRenderFlow();
     return;
   }
@@ -339,8 +341,8 @@ async function _flSave(){
     if (el){ el.textContent = msg; el.className = 'flw-hint' + (bad ? ' bad' : ''); }
   }
 
-  if (!FL_NAME_RE.test(name)){ say('Name: 2–64 Zeichen, Kleinbuchstaben, Ziffern, Bindestriche.', true); return; }
-  if (!spec.steps.length){ say('Ein Flow braucht mindestens einen Schritt.', true); return; }
+  if (!FL_NAME_RE.test(name)){ say('Name: 2–64 characters, lowercase letters, digits, hyphens.', true); return; }
+  if (!spec.steps.length){ say('A flow needs at least one step.', true); return; }
   spec.name = name;
 
   async function post(overwrite){
@@ -348,20 +350,20 @@ async function _flSave(){
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec)
     });
   }
-  say('Speichere…');
+  say('Saving…');
   try {
     var r = await post(_flState.name === name);
     if (r.status === 409){
-      if (!confirm('Ein Flow „' + name + '" existiert bereits. Überschreiben?')){ say(''); return; }
+      if (!confirm('A flow "' + name + '" already exists. Overwrite?')){ say(''); return; }
       r = await post(true);
     }
     var j = await r.json();
-    if (!r.ok){ say('Abgelehnt: ' + (j.detail || ('HTTP ' + r.status)), true); return; }
+    if (!r.ok){ say('Refused: ' + (j.detail || ('HTTP ' + r.status)), true); return; }
     _flState.name = name;
     _flState.dirty = false;
     _flRenderFlow();
-    say('Gespeichert: ' + j.file + ' (' + j.steps + ' Schritte)' + (j.replaced ? ', ersetzt' : ''));
-  } catch (e){ say('Fehler: ' + e.message, true); }
+    say('Saved: ' + j.file + ' (' + j.steps + ' steps)' + (j.replaced ? ', replaced' : ''));
+  } catch (e){ say('Error: ' + e.message, true); }
 }
 
 // ---- render one flow -----------------------------------------------------
@@ -372,8 +374,8 @@ function _flRenderFlow(){
   var steps = spec.steps || [];
 
   var h = '<div class="flw-head">' +
-            '<div class="flw-head-n">' + _flEsc(spec.name || 'Neuer Flow') +
-              (_flState.dirty ? ' <span class="flw-dirty">• ungespeichert</span>' : '') + '</div>' +
+            '<div class="flw-head-n">' + _flEsc(spec.name || 'New flow') +
+              (_flState.dirty ? ' <span class="flw-dirty">• unsaved</span>' : '') + '</div>' +
             // Shared Pilot form components (css/tools.css): the label follows the
             // input because .fl-label floats via the "~" sibling selector, and the
             // blank placeholder is what :not(:placeholder-shown) keys off.
@@ -383,40 +385,40 @@ function _flRenderFlow(){
                 '<label class="fl-label">Name</label></div>' +
               '<div class="fl-field">' +
                 '<input class="fl-input" id="fl-f-desc" value="' + _flEsc(spec.description || '') + '" placeholder=" ">' +
-                '<label class="fl-label">Beschreibung</label></div>' +
+                '<label class="fl-label">Description</label></div>' +
               '<div class="fl-field">' +
                 '<input class="fl-input" id="fl-f-tags" value="' + _flEsc((spec.tags || []).join(', ')) + '" placeholder=" ">' +
-                '<label class="fl-label">Tags (Komma-getrennt)</label></div>' +
+                '<label class="fl-label">Tags (comma-separated)</label></div>' +
             '</div></div>';
 
   h += '<div class="flw-bar">' +
-         '<button class="tool-btn tool-btn-secondary" data-fl-add="gate">+ Freigabe</button>' +
+         '<button class="tool-btn tool-btn-secondary" data-fl-add="gate">+ Approval</button>' +
          '<button class="tool-btn tool-btn-secondary" data-fl-add="review">+ Review</button>' +
          '<span class="flw-sp"></span>' +
          '<span class="flw-hint" id="fl-savehint"></span>' +
-         (_flState.name ? '<button class="tool-btn tool-btn-secondary tool-btn-danger" data-fl-delflow="1">Löschen</button>' : '') +
-         '<button class="tool-btn tool-btn-secondary" data-fl-run="1">Starten</button>' +
-         '<button class="tool-btn tool-btn-primary" data-fl-save="1">Speichern</button>' +
+         (_flState.name ? '<button class="tool-btn tool-btn-secondary tool-btn-danger" data-fl-delflow="1">Delete</button>' : '') +
+         '<button class="tool-btn tool-btn-secondary" data-fl-run="1">Run</button>' +
+         '<button class="tool-btn tool-btn-primary" data-fl-save="1">Save</button>' +
        '</div><div id="fl-runpanel"></div>';
 
   if (!steps.length){
-    h += '<div class="flw-note">Noch keine Schritte. Ein Klick auf eine Vokabel links fügt den ersten ein — ' +
-         'ausgegraute passen nicht an das, was gerade auf dem Draht liegt.</div>';
+    h += '<div class="flw-note">No steps yet. Click a vocabulary entry on the left to insert the first one — ' +
+         'greyed-out entries do not fit what is currently on the wire.</div>';
   }
 
   steps.forEach(function(raw, i){
     var s = _flStepShape(raw);
     var tools = '<span class="flw-tools">' +
-      '<button class="flw-t" data-fl-up="' + i + '"' + (i === 0 ? ' disabled' : '') + ' title="nach oben">↑</button>' +
-      '<button class="flw-t" data-fl-down="' + i + '"' + (i === steps.length - 1 ? ' disabled' : '') + ' title="nach unten">↓</button>' +
-      '<button class="flw-t del" data-fl-del="' + i + '" title="löschen">×</button></span>';
+      '<button class="flw-t" data-fl-up="' + i + '"' + (i === 0 ? ' disabled' : '') + ' title="move up">↑</button>' +
+      '<button class="flw-t" data-fl-down="' + i + '"' + (i === steps.length - 1 ? ' disabled' : '') + ' title="move down">↓</button>' +
+      '<button class="flw-t del" data-fl-del="' + i + '" title="delete">×</button></span>';
 
     h += _flInsHtml(i);
     if (s.kind !== 'op'){
       h += '<div class="flw-step gate' + (_flOpenSteps[i] ? ' open' : '') + '">' +
              '<div class="flw-step-h" data-fl-step="' + i + '">' +
              '<span class="flw-num">' + (i + 1) + '</span>' + FL_CHEV +
-             '<span class="flw-badge gate">' + (s.kind === 'gate' ? 'Freigabe' : 'Review') + '</span>' +
+             '<span class="flw-badge gate">' + (s.kind === 'gate' ? 'Approval' : 'Review') + '</span>' +
              '<span class="flw-step-s" data-fl-gsum="' + i + '">' + _flEsc(s.prompt) + '</span>' + tools +
            '</div>' +
            '<div class="flw-step-body">' + _flGateBody(i, s) + '</div></div>';
@@ -430,18 +432,18 @@ function _flRenderFlow(){
       if (k === 'id') return;
       var v = s.params[k];
       if (_flIsRef(v)) refs.push({ txt: k + ' ← ' + v.from, live: true });
-      else if (_flIsArg(v)) refs.push({ txt: k + ' ← Eingabe „' + v.arg + '"', live: true });
+      else if (_flIsArg(v)) refs.push({ txt: k + ' ← input "' + v.arg + '"', live: true });
       else if (k === 'in') refs.push(v === 'none'
-        ? { txt: 'kein Eingang', live: false }
-        : { txt: 'Eingang ← ' + (Array.isArray(v) ? v.join(', ') : v), live: true });
+        ? { txt: 'no input', live: false }
+        : { txt: 'input ← ' + (Array.isArray(v) ? v.join(', ') : v), live: true });
       else lits.push(k + '=' + v);
     });
     h += '<div class="flw-step' + (planned ? ' planned' : '') + (_flOpenSteps[i] ? ' open' : '') +
            '"><div class="flw-step-h" data-fl-step="' + i + '">' +
            '<span class="flw-num">' + (i + 1) + '</span>' + FL_CHEV +
            '<span class="flw-step-op">' + _flEsc(s.op) + '</span>' +
-           '<input class="flw-idin" data-fl-id="' + i + '" value="' + _flEsc(id) + '" title="Schritt-ID — darauf verweisen spätere Schritte">' +
-           (planned ? '<span class="flw-badge plan">geplant</span>' : '') +
+           '<input class="flw-idin" data-fl-id="' + i + '" value="' + _flEsc(id) + '" title="Step id — later steps refer to it">' +
+           (planned ? '<span class="flw-badge plan">planned</span>' : '') +
            '<span class="flw-step-s">' + _flEsc(lits.join('  ')) + '</span>' + tools +
          '</div>' +
          '<div class="flw-step-body">' + _flParamsHtml(i, op, s.params) + '</div>' +
@@ -530,7 +532,7 @@ function _flWire(main){
   main.querySelectorAll('[data-fl-ins]').forEach(function(d){
     d.addEventListener('click', function(){
       var at = +d.dataset.flIns;
-      _flInsertAt = (_flInsertIndex() === at) ? null : at;   // erneut klicken hebt auf
+      _flInsertAt = (_flInsertIndex() === at) ? null : at;   // clicking again cancels
       _flRenderFlow();
     });
   });
@@ -566,7 +568,7 @@ function _flSetGate(i, key, value){
   _flMarkDirty();
 }
 
-// Freigabe and review differ only in delivery, so switching between them is a
+// Approval and review differ only in delivery, so switching between them is a
 // key swap that keeps the question. Going back to a plain gate drops the
 // delivery params — a gate has nowhere to send to.
 function _flSetGateKind(i, kind){
@@ -584,29 +586,29 @@ function _flSetGateKind(i, kind){
 function _flGateBody(i, s){
   var raw = _flSteps()[i], kind = Object.keys(raw)[0];
   var cfg = (typeof raw[kind] === 'string') ? { prompt: raw[kind] } : (raw[kind] || {});
-  var h = '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Art</span></div>' +
+  var h = '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Kind</span></div>' +
             '<select class="flw-pin" data-fl-gkind="' + i + '">' +
-              _flOptions([{ v: 'gate', l: 'Freigabe — hält nur an und fragt' },
-                          { v: 'review', l: 'Review — stellt vorher zu (Signal) und fragt dann' }], kind) +
+              _flOptions([{ v: 'gate', l: 'Approval — only stops and asks' },
+                          { v: 'review', l: 'Review — delivers first (Signal), then asks' }], kind) +
             '</select>' +
-            '<div class="flw-p-d">Beide halten den Lauf an und werden in der INBOX entschieden. ' +
-              'Review schickt zusätzlich das Ergebnis des Schritts davor los.</div></div>' +
-          '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Frage an den Menschen</span></div>' +
+            '<div class="flw-p-d">Both stop the run and are decided in the INBOX. ' +
+              'Review additionally sends out the result of the step before.</div></div>' +
+          '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Question to the human</span></div>' +
             '<input class="flw-pin" data-fl-gk="' + i + '|prompt" value="' + _flEsc(cfg.prompt || '') + '">' +
             '<div class="flw-p-d">' + (kind === 'gate'
-              ? 'Der Lauf hält hier an, bis jemand in der INBOX entscheidet. Der Wert auf dem Draht geht unverändert weiter.'
-              : 'Das Ergebnis des Schritts davor wird zugestellt, dann wird gefragt. Ohne Ziel geht es an die Vorgabe aus der Konfiguration.') +
+              ? 'The run stops here until someone decides in the INBOX. The value on the wire continues unchanged.'
+              : 'The result of the step before is delivered, then the question is asked. Without a target it goes to the default from the configuration.') +
             '</div></div>';
   if (kind === 'review'){
-    h += '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Ziel</span></div>' +
-           '<input class="flw-pin" data-fl-gk="' + i + '|target" value="' + _flEsc(cfg.target || '') + '" placeholder="(Vorgabe aus der Konfiguration)">' +
-           '<div class="flw-p-d">Empfänger der Zustellung.</div></div>' +
-         '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Kanal</span></div>' +
-           '<input class="flw-pin" data-fl-gk="' + i + '|channel" value="' + _flEsc(cfg.channel || '') + '" placeholder="(Vorgabe)">' +
-           '<div class="flw-p-d">Weg der Zustellung, z.B. signal.</div></div>' +
-         '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Begleittext</span></div>' +
-           '<input class="flw-pin" data-fl-gk="' + i + '|message" value="' + _flEsc(cfg.message || '') + '" placeholder="(die Frage von oben)">' +
-           '<div class="flw-p-d">Text neben dem Medium; leer heißt: dieselbe Frage.</div></div>';
+    h += '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Target</span></div>' +
+           '<input class="flw-pin" data-fl-gk="' + i + '|target" value="' + _flEsc(cfg.target || '') + '" placeholder="(default from the configuration)">' +
+           '<div class="flw-p-d">Recipient of the delivery.</div></div>' +
+         '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Channel</span></div>' +
+           '<input class="flw-pin" data-fl-gk="' + i + '|channel" value="' + _flEsc(cfg.channel || '') + '" placeholder="(default)">' +
+           '<div class="flw-p-d">Delivery route, e.g. signal.</div></div>' +
+         '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">Caption</span></div>' +
+           '<input class="flw-pin" data-fl-gk="' + i + '|message" value="' + _flEsc(cfg.message || '') + '" placeholder="(the question above)">' +
+           '<div class="flw-p-d">Text next to the medium; empty means: the same question.</div></div>';
   }
   return h;
 }
@@ -615,7 +617,7 @@ function _flGateBody(i, s){
 function _flInsHtml(at){
   var active = (_flInsertIndex() === at);
   return '<div class="flw-ins' + (active ? ' active' : '') + '" data-fl-ins="' + at + '">' +
-           '<span>' + (active ? 'hier einfügen' : '+') + '</span></div>';
+           '<span>' + (active ? 'insert here' : '+') + '</span></div>';
 }
 
 // ---- running -------------------------------------------------------------
@@ -641,11 +643,11 @@ function _flCollectArgs(){
 
 function _flRunClicked(){
   if (!_flState.spec || !_flSteps().length){
-    _flRunSay('Ein Flow braucht mindestens einen Schritt.', true);
+    _flRunSay('A flow needs at least one step.', true);
     return;
   }
   if (_flState.dirty &&
-      !confirm('Es gibt ungespeicherte Änderungen. Der Lauf nimmt den Stand aus dem Editor — fortfahren?')) return;
+      !confirm('There are unsaved changes. The run takes the state from the editor — continue?')) return;
 
   var args = _flCollectArgs();
   if (!args.length){ _flRun({}); return; }
@@ -653,14 +655,14 @@ function _flRunClicked(){
   var panel = document.getElementById('fl-runpanel');
   panel.innerHTML =
     '<div class="flw-head" style="padding:13px 15px">' +
-      '<div class="flw-p-n" style="margin-bottom:6px">Lauf-Eingaben</div>' +
+      '<div class="flw-p-n" style="margin-bottom:6px">Run inputs</div>' +
       args.map(function(a){
         return '<div class="flw-p"><div class="flw-p-h"><span class="flw-p-n">' + _flEsc(a.name) + '</span></div>' +
                '<input class="flw-pin" data-fl-arg="' + _flEsc(a.name) + '" value="' + _flEsc(a.def) + '"></div>';
       }).join('') +
       '<div class="flw-bar"><span class="flw-hint" id="fl-runhint"></span>' +
-        '<button class="tool-btn tool-btn-secondary" data-fl-runcancel="1">Abbrechen</button>' +
-        '<button class="tool-btn tool-btn-primary" data-fl-rungo="1">Los</button></div>' +
+        '<button class="tool-btn tool-btn-secondary" data-fl-runcancel="1">Cancel</button>' +
+        '<button class="tool-btn tool-btn-primary" data-fl-rungo="1">Go</button></div>' +
     '</div>';
   panel.querySelector('[data-fl-runcancel]').addEventListener('click', function(){ panel.innerHTML = ''; });
   panel.querySelector('[data-fl-rungo]').addEventListener('click', function(){
@@ -676,7 +678,7 @@ function _flRunSay(msg, bad){
 }
 
 async function _flRun(args){
-  _flRunSay('Läuft… (Medien-Schritte dauern Minuten)');
+  _flRunSay('Running… (media steps take minutes)');
   var body = { spec: _flState.spec, title: _flState.spec.name || 'Flow' };
   if (args && Object.keys(args).length) body.args = args;
   // Through Pilot, NOT straight to script-runner: only this route files a pause
@@ -688,19 +690,19 @@ async function _flRun(args){
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     });
     var d = await r.json();
-    if (!r.ok){ _flRunSay('Abgelehnt: ' + (d.error || d.detail || ('HTTP ' + r.status)), true); return; }
+    if (!r.ok){ _flRunSay('Refused: ' + (d.error || d.detail || ('HTTP ' + r.status)), true); return; }
     var j = d.result || {};
     if (j.is_paused){
       _flRunSay(d.inbox_item
-        ? 'Hält bei einer Freigabe — der Vorgang liegt in der INBOX.'
-        : 'Hält bei einer Freigabe, konnte aber nicht in die INBOX gelegt werden.', !d.inbox_item);
+        ? 'Paused at an approval — the item is in the INBOX.'
+        : 'Paused at an approval, but could not be filed into the INBOX.', !d.inbox_item);
     } else if (j.ok === false || j.status === 'error'){
-      _flRunSay('Fehlgeschlagen: ' + ((j.error && (j.error.message || JSON.stringify(j.error))) || j.status || 'siehe RUNS'), true);
+      _flRunSay('Failed: ' + ((j.error && (j.error.message || JSON.stringify(j.error))) || j.status || 'see RUNS'), true);
     } else {
-      _flRunSay('Durchgelaufen (' + (j.status || 'fertig') + '). Details in RUNS.');
+      _flRunSay('Completed (' + (j.status || 'done') + '). Details in RUNS.');
     }
   } catch (e){
-    _flRunSay('Start fehlgeschlagen: ' + e.message, true);
+    _flRunSay('Start failed: ' + e.message, true);
   }
 }
 
@@ -726,7 +728,7 @@ function _flParamMode(v){
   if (_flIsArg(v)) return 'arg';
   return 'value';
 }
-var FL_MODES = { value: 'Wert', from: '← Schritt', arg: '← Eingabe' };
+var FL_MODES = { value: 'value', from: '← step', arg: '← input' };
 
 function _flOptions(list, selected){
   return list.map(function(o){
@@ -752,23 +754,23 @@ function _flParamRow(i, p, value){
           _flOptions(earlier.map(function(e){
             return { v: e.id, l: e.id + ' — ' + e.op + ' (' + _flTy(e.type) + ')' };
           }), value.from) + '</select>'
-      : '<div class="flw-p-d">Kein früherer Schritt vorhanden.</div>';
+      : '<div class="flw-p-d">No earlier step available.</div>';
   } else if (mode === 'arg'){
     field = '<input class="flw-pin ref" data-fl-pval="' + key + '" value="' + _flEsc(value.arg || '') +
-            '" placeholder="Name der Lauf-Eingabe">';
+            '" placeholder="name of the run input">';
   } else if (p.choices && p.choices.length){
     field = '<select class="flw-pin" data-fl-pval="' + key + '">' +
-              _flOptions([{ v: '', l: '(Vorgabe: ' + (p.default == null ? '—' : p.default) + ')' }]
+              _flOptions([{ v: '', l: '(default: ' + (p.default == null ? '—' : p.default) + ')' }]
                 .concat(p.choices), value == null ? '' : value) + '</select>';
   } else if (p.type === 'bool'){
     field = '<select class="flw-pin" data-fl-pval="' + key + '">' +
-              _flOptions([{ v: '', l: '(Vorgabe)' }, { v: 'true', l: 'ja' }, { v: 'false', l: 'nein' }],
+              _flOptions([{ v: '', l: '(default)' }, { v: 'true', l: 'yes' }, { v: 'false', l: 'no' }],
                 value == null ? '' : String(value)) + '</select>';
   } else {
     field = '<input class="flw-pin" data-fl-pval="' + key + '"' +
             (p.type === 'int' ? ' type="number"' : '') +
             ' value="' + _flEsc(value == null ? '' : value) + '"' +
-            ' placeholder="' + _flEsc(p.default == null ? '' : 'Vorgabe: ' + p.default) + '">';
+            ' placeholder="' + _flEsc(p.default == null ? '' : 'default: ' + p.default) + '">';
   }
 
   return '<div class="flw-p"><div class="flw-p-h">' +
@@ -780,7 +782,7 @@ function _flParamRow(i, p, value){
 }
 
 function _flParamsHtml(i, op, params){
-  if (!op || !op.params) return '<div class="flw-p-d">Diese Vokabel ist im Vokabular nicht bekannt.</div>';
+  if (!op || !op.params) return '<div class="flw-p-d">This entry is unknown to the vocabulary.</div>';
   var h = '';
 
   // What feeds this step's stdin. Here the type IS known (op.input_type), so the
@@ -791,13 +793,13 @@ function _flParamsHtml(i, op, params){
     });
     var cur = params['in'];
     var curStr = Array.isArray(cur) ? cur.join(',') : (cur == null ? '' : String(cur));
-    h += '<div class="flw-p flw-instep"><div class="flw-p-h"><span class="flw-p-n">Eingang</span></div>' +
+    h += '<div class="flw-p flw-instep"><div class="flw-p-h"><span class="flw-p-n">Input</span></div>' +
            '<select class="flw-pin" data-fl-in="' + i + '"' + (op.consumes === 'many' ? ' multiple size="4"' : '') + '>' +
-             _flOptions([{ v: '', l: '(vorheriger Schritt)' }, { v: 'none', l: 'kein Eingang' }]
+             _flOptions([{ v: '', l: '(previous step)' }, { v: 'none', l: 'no input' }]
                .concat(fit.map(function(e){ return { v: e.id, l: e.id + ' — ' + e.op + ' (' + _flTy(e.type) + ')' }; })),
                curStr) + '</select>' +
-           '<div class="flw-p-d">Erwartet ' + _flEsc(_flTy(op.input_type)) +
-             (op.consumes === 'many' ? ' (mehrere wählbar)' : '') + '.</div></div>';
+           '<div class="flw-p-d">Expects ' + _flEsc(_flTy(op.input_type)) +
+             (op.consumes === 'many' ? ' (several selectable)' : '') + '.</div></div>';
   }
 
   var basics = op.params.filter(function(p){ return !p.advanced; });
@@ -805,11 +807,11 @@ function _flParamsHtml(i, op, params){
   basics.forEach(function(p){ h += _flParamRow(i, p, params[p.name]); });
   if (adv.length){
     h += '<div class="flw-detail"><div class="flw-detail-h">' + FL_CHEV +
-           '<span>Detail-Einstellungen (' + adv.length + ')</span></div><div class="flw-detail-body">';
+           '<span>Detailed settings (' + adv.length + ')</span></div><div class="flw-detail-body">';
     adv.forEach(function(p){ h += _flParamRow(i, p, params[p.name]); });
     h += '</div></div>';
   }
-  if (!basics.length && !adv.length) h += '<div class="flw-p-d">Diese Vokabel hat keine Parameter.</div>';
+  if (!basics.length && !adv.length) h += '<div class="flw-p-d">This entry has no parameters.</div>';
   return h;
 }
 
@@ -866,7 +868,7 @@ function _flSetIn(i, sel){
 async function _flDeleteFlow(){
   var name = _flState.name;
   if (!name) return;
-  if (!confirm('Flow „' + name + '" endgültig löschen? Die Datei wird entfernt.')) return;
+  if (!confirm('Delete flow "' + name + '" for good? The file will be removed.')) return;
   try {
     var r = await fetch(FLOWS_API + '/pipeline/flow/' + encodeURIComponent(name), { method: 'DELETE' });
     var j = await r.json();
@@ -874,6 +876,6 @@ async function _flDeleteFlow(){
     _flLibrary();
   } catch (e){
     var el = document.getElementById('fl-savehint');
-    if (el){ el.textContent = 'Löschen fehlgeschlagen: ' + e.message; el.className = 'flw-hint bad'; }
+    if (el){ el.textContent = 'Delete failed: ' + e.message; el.className = 'flw-hint bad'; }
   }
 }
