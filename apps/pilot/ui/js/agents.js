@@ -188,6 +188,7 @@ function _agbRenderForm(){
   h += _agbField('description', 'Beschreibung', m.description || '', 'Steht in der Slash-Liste. Nennt bei einem Cloud-Modell den Preis und dass die Anfrage das Haus verlässt.', { textarea: true });
   h += _agbField('opening', 'Eröffnung', m.opening || '', 'Was ein nacktes /<id> ohne Text sendet. Leer, wenn der Agent eine Frage braucht.');
   h += '<label class="agb-ck" style="display:inline-flex;margin-top:6px"><input type="checkbox" data-agb-f="active" ' + (m.active !== false ? 'checked' : '') + '><div class="agb-ck-t"><div class="agb-ck-n">aktiv</div><div class="agb-ck-d">Im Chat aufrufbar. Inaktiv = angelegt, aber nicht angeboten.</div></div></label>';
+  h += '<label class="agb-ck" style="display:inline-flex;margin-top:6px"><input type="checkbox" data-agb-f="sensitive" ' + (m.sensitive === true ? 'checked' : '') + '><div class="agb-ck-t"><div class="agb-ck-n">sensibel</div><div class="agb-ck-d">Bekommt Daten, die das Haus nicht verlassen dürfen. Erzwingt ein lokales Modell — ein Cloud-Modell wird beim Speichern abgelehnt (ADR-029).</div></div></label>';
   h += '</div>';
 
   // model + timeout
@@ -391,7 +392,8 @@ function _agbToolHint(){
   var cloud = m.model && m.model.indexOf('llama-local/') !== 0;
   if (!allow.length){ el.className = 'agb-hint bad'; el.textContent = 'Leere Liste: der Gateway bricht einen Lauf ohne aufrufbares Werkzeug ab. Mindestens eines.'; return; }
   if (allow.indexOf('lobster') >= 0){ el.className = 'agb-hint bad'; el.textContent = 'lobster löst Freigaben selbst auf und kennt keinen input-Gate. Für Flows mora02__flow_run nehmen.'; return; }
-  if (risky.length && cloud){ el.className = 'agb-hint bad'; el.textContent = 'Ein Cloud-Modell mit handelnden Werkzeugen (' + risky.join(', ') + ') steuert das Haus von außen. Die Leitplanke sagt: Steuerung bleibt lokal.'; return; }
+  if (risky.length && cloud){ el.className = 'agb-hint bad'; el.textContent = 'Ein Cloud-Modell mit handelnden Werkzeugen (' + risky.join(', ') + ') steuert das Haus von außen. Steuerung bleibt lokal — wird beim Speichern abgelehnt.'; return; }
+  if (m.sensitive === true && cloud){ el.className = 'agb-hint bad'; el.textContent = 'Als sensibel markiert, aber ein Cloud-Modell: die Daten würden das Haus verlassen. Wird beim Speichern abgelehnt.'; return; }
   if (risky.length){ el.className = 'agb-hint warn'; el.textContent = allow.length + ' Werkzeug(e), davon handelnd: ' + risky.join(', ') + '.'; return; }
   el.className = 'agb-hint ok'; el.textContent = allow.length + ' Werkzeug(e), keines handelt über den Arbeitsbereich hinaus.';
 }

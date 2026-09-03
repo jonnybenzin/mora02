@@ -130,8 +130,55 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 MANIFEST_KEYS = {
     "label", "icon", "colour", "description", "opening", "active", "sort_order",
     "model", "timeout", "limits", "skills", "tools", "workspace",
-    "manage_workspace", "name", "soul_shared_with",
+    "manage_workspace", "name", "soul_shared_with", "sensitive",
 }
+
+# The model policy of ADR-029 (point 6), as a check rather than a sentence:
+# an agent that STEERS the house or handles SENSITIVE data runs on a local
+# model. Steering is read off the tool list -- any tool whose risk is "act"
+# reaches beyond the workspace, and an unrestricted list reaches everywhere.
+# Sensitivity cannot be read off anything; it is declared in the manifest
+# (`"sensitive": true`) by whoever knows what the agent will be handed.
+# Locality is decided by the model id's prefix: the gateway's own `local`
+# flag is false for llama-local (measured 2026-09-02), the prefix is not.
+LOCAL_PREFIX = "llama-local/"
+
+# The house's MCP tools that change the system. Everything else the MCP
+# server offers reads, searches or takes notes. agents.py paints the builder
+# from this same set, so the form and the check cannot disagree.
+MCP_ACT_TOOLS = {"flow_run"}
+
+
+def is_local_model(model: str | None) -> bool:
+    return str(model or "").startswith(LOCAL_PREFIX)
+
+
+def tool_risk(tool_id: str, rt: Roots | None = None) -> str:
+    """read / write / act for one allow-list entry. An MCP tool is judged by
+    its name behind the server prefix; a gateway tool by tools.json; an id
+    nobody knows is `act` -- the same reading the builder gives it, because an
+    unknown tool is the widest one, not the narrowest."""
+    if "__" in tool_id:
+        return "act" if tool_id.split("__", 1)[1] in MCP_ACT_TOOLS else "read"
+    for t in builtin_tools(rt):
+        if t.get("id") == tool_id:
+            return str(t.get("risk") or "act")
+    return "act"
+
+
+def local_reasons(manifest: dict, rt: Roots | None = None) -> list[str]:
+    """Why this agent must run on a local model. Empty means it need not."""
+    reasons: list[str] = []
+    if manifest.get("sensitive") is True:
+        reasons.append("it is marked sensitive (handles data that must not leave the house)")
+    tools = manifest.get("tools")
+    if tools == "unrestricted":
+        reasons.append("its tools are unrestricted")
+    elif isinstance(tools, dict) and isinstance(tools.get("allow"), list):
+        acting = [t for t in tools["allow"] if isinstance(t, str) and tool_risk(t, rt) == "act"]
+        if acting:
+            reasons.append(f"it holds acting tool(s): {', '.join(acting)}")
+    return reasons
 
 LIMIT_KEYS = {
     "page_chars", "max_urls", "max_queries", "snippet_chars",
@@ -569,6 +616,16 @@ def validate_manifest(manifest: dict, agent_id: str, rt: Roots | None = None) ->
     t = manifest.get("timeout")
     if t is not None and (not isinstance(t, int) or t <= 0):
         problems.append("timeout must be a positive integer (seconds)")
+    if "sensitive" in manifest and not isinstance(manifest["sensitive"], bool):
+        problems.append("sensitive must be true or false")
+    # ADR-029 point 6, enforced: steering or sensitive means local, and a cloud
+    # model is refused here at the form, not later at the rollout.
+    why = local_reasons(manifest, rt)
+    if why and not is_local_model(manifest.get("model")):
+        problems.append(
+            f"model {manifest.get('model')!r} is not local, but this agent must run locally: "
+            + "; ".join(why) + f". Choose a {LOCAL_PREFIX}* model, or drop the acting tools / the sensitive mark."
+        )
     return problems
 
 

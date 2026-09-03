@@ -76,7 +76,9 @@ from mora02_core.agents.store import (
     Roots,
     StoreError,
     find_skill,
+    is_local_model,
     load_roster,
+    local_reasons,
     roots,
     soul_source,
 )
@@ -222,6 +224,23 @@ def check_tools(roster: dict) -> None:
                 f"    The gateway stops a run that has no callable tool, so this "
                 f"agent would not answer at all.\n"
                 f"    Name at least one tool."
+            )
+
+
+def check_locality(roster: dict, rt: Roots) -> None:
+    """Refuse a roster in which a steering or sensitive agent runs in the cloud.
+
+    ADR-029 point 6 as mechanism. The builder refuses the same thing at the
+    form; this is the second door, for a manifest written by hand. The
+    letterbox has no model of its own and is not judged here.
+    """
+    for agent in roster.get("agents", []):
+        why = local_reasons(agent, rt)
+        if why and not is_local_model(agent.get("model")):
+            raise DeployError(
+                f"agent {agent.get('id', '<unnamed>')!r} runs on {agent.get('model')!r}, "
+                f"which is not local, but it must: " + "; ".join(why) + ".\n"
+                f"    Steering and sensitive agents stay in the house (ADR-029)."
             )
 
 
@@ -589,6 +608,7 @@ def run(*, check: bool = False, only: str | None = None,
         # surface unsaid is refused, check mode included. Checking a roster that
         # cannot be applied would report drift nobody may close.
         check_tools(roster)
+        check_locality(roster, rt)
         drift, agents_block, files, remove = plan(roster, only, rt)
     except (StoreError, DeployError) as e:
         result["error"] = str(e)

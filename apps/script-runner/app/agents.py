@@ -31,7 +31,7 @@ from mora02_core import auth, pricing
 from mora02_core.agents import AgentError, ask, listing, session_key
 from mora02_core.agents import models as gateway_models
 from mora02_core.agents import deploy as deploy_mod
-from mora02_core.agents.store import (StoreError, builtin_tools, effective_limits,
+from mora02_core.agents.store import (MCP_ACT_TOOLS, StoreError, builtin_tools, effective_limits,
                                       instance_detail, iter_instances, load_manifest,
                                       roots, save_instance, skill_detail,
                                       skills_catalog, trash_instance)
@@ -241,7 +241,7 @@ async def get_tools():
         pass
     mcp = [{
         "id": f"{server}__{t['name']}",
-        "risk": "act" if t["name"] in ("flow_run",) else "read",
+        "risk": "act" if t["name"] in MCP_ACT_TOOLS else "read",
         "what": t.get("description", "")[:220],
         "source": "mcp",
     } for t in _MCP_TOOLS]

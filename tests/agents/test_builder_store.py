@@ -120,6 +120,33 @@ def main() -> int:
         refuses(lambda: store.save_instance("zz-p2", {**BASE, "limits": {"same_as": "base-a", "page_chars": 1}}, rt=RT), "same_as plus own values refused", "drift")
         record(not (L / "instances/zz-p2").exists(), "a refused save leaves no folder behind")
 
+        # --- model policy (ADR-029 point 6): steering or sensitive means local ----------
+        CLOUD = "anthropic/claude-sonnet-4-6"
+        refuses(lambda: store.save_instance("zz-l1", {**BASE, "model": CLOUD, "tools": {"allow": ["read", "exec"]}}, rt=RT),
+                "cloud model with an acting gateway tool refused", "must run locally")
+        refuses(lambda: store.save_instance("zz-l1", {**BASE, "model": CLOUD, "tools": {"allow": ["read", "mora02__flow_run"]}}, rt=RT),
+                "cloud model with the MCP flow starter refused", "flow_run")
+        refuses(lambda: store.save_instance("zz-l1", {**BASE, "model": CLOUD, "tools": "unrestricted"}, rt=RT),
+                "cloud model with unrestricted tools refused", "unrestricted")
+        refuses(lambda: store.save_instance("zz-l1", {**BASE, "model": CLOUD, "sensitive": True}, rt=RT),
+                "cloud model on a sensitive agent refused", "sensitive")
+        refuses(lambda: store.save_instance("zz-l1", {**BASE, "sensitive": "ja"}, rt=RT),
+                "sensitive must be a boolean", "true or false")
+        store.save_instance("zz-l2", {**BASE, "model": CLOUD, "tools": {"allow": ["read", "mora02__web_search", "mora02__note"]}}, rt=RT)
+        record(store.load_manifest("zz-l2", RT)["model"] == CLOUD, "cloud model with reading tools only is allowed (the recherche-plus shape)")
+        store.save_instance("zz-l3", {**BASE, "tools": {"allow": ["read", "exec", "mora02__flow_run"]}, "sensitive": True}, rt=RT)
+        record(store.load_manifest("zz-l3", RT)["sensitive"] is True, "local model may steer and be sensitive")
+        record(store.tool_risk("nobody-knows-this", RT) == "act", "an unknown tool id counts as acting")
+        # the second door: a manifest written by hand, past the form
+        (L / "instances/zz-l2/agent.json").write_text(json.dumps({**BASE, "model": CLOUD, "tools": {"allow": ["read", "exec"]}}))
+        try:
+            deploy.check_locality(store.load_roster(RT), RT)
+            record(False, "rollout refuses a hand-written cloud+acting manifest", "was accepted")
+        except deploy.DeployError as e:
+            record("must" in str(e), "rollout refuses a hand-written cloud+acting manifest", str(e)[:80])
+        for aid in ("zz-l2", "zz-l3"):
+            shutil.rmtree(L / f"instances/{aid}")
+
         # --- borrowed limits ------------------------------------------------------------
         store.save_instance("twin", {**BASE, "limits": {"same_as": "base-a"}}, soul="# T\n", rt=RT)
         eff = store.effective_limits(store.load_manifest("twin", RT), RT)
