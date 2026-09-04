@@ -234,17 +234,47 @@ async def _kill_inside(docker_bin: str, container: str, key: str) -> None:
         pass
 
 
-async def listing() -> list[dict]:
-    """The agents the gateway knows, as name + workspace."""
+async def _gateway(*argv: str, what: str, timeout: int = 60) -> tuple[bytes, bytes]:
+    """Run one openclaw command in the gateway container. Raises AgentError.
+
+    The timeout is the point of it. Waiting on `communicate()` with no `try`
+    let an `asyncio.TimeoutError` -- which is not an AgentError -- out of a
+    route that only caught AgentError, so a wedged gateway answered 500 rather
+    than 502, and the `docker exec` child was left running: every poll of the
+    agent list leaked another one (review 2, finding 6).
+    """
     container = os.environ.get("MORA02_OPENCLAW_CONTAINER", _DEFAULT_CONTAINER)
     docker_bin = os.environ.get("MORA02_DOCKER_BIN", "docker")
-    proc = await asyncio.create_subprocess_exec(
-        docker_bin, "exec", container, "openclaw", "agents", "list",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-    if proc.returncode != 0:
-        raise AgentError(f"could not list agents: {(stderr or b'').decode()[:300]}")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            docker_bin, "exec", container, *argv,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as e:
+        raise AgentError(f"docker binary {docker_bin!r} not found") from e
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        if proc.returncode != 0:
+            raise AgentError(f"could not {what}: {(stderr or b'').decode()[:300]}")
+        return stdout, stderr
+    except asyncio.TimeoutError as e:
+        try:
+            proc.kill()
+            await proc.wait()
+        except ProcessLookupError:
+            pass
+        raise AgentError(f"the gateway did not answer within {timeout}s ({what})") from e
+    finally:
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+
+
+async def listing() -> list[dict]:
+    """The agents the gateway knows, as name + workspace."""
+    stdout, _ = await _gateway("openclaw", "agents", "list", what="list agents")
 
     agents: list[dict] = []
     for line in (stdout or b"").decode(errors="replace").splitlines():
@@ -274,15 +304,8 @@ async def models() -> list[dict]:
     weights are on this machine and the question never leaves it -- and that is
     the prefix. The same rule agents.py uses to decide which weights to report.
     """
-    container = os.environ.get("MORA02_OPENCLAW_CONTAINER", _DEFAULT_CONTAINER)
-    docker_bin = os.environ.get("MORA02_DOCKER_BIN", "docker")
-    proc = await asyncio.create_subprocess_exec(
-        docker_bin, "exec", container, "openclaw", "models", "list", "--json",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-    if proc.returncode != 0:
-        raise AgentError(f"could not list models: {(stderr or b'').decode()[:300]}")
+    stdout, _ = await _gateway("openclaw", "models", "list", "--json",
+                               what="list models")
     data = first_json_object((stdout or b"").decode(errors="replace")) or {}
     out: list[dict] = []
     for m in data.get("models") or []:

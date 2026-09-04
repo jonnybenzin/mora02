@@ -101,6 +101,16 @@ class DeployError(RuntimeError):
     pass
 
 
+class GatewayError(DeployError):
+    """The gateway could not be reached or refused a command.
+
+    Separated from the roster's own problems because the two need different
+    answers: a manifest nobody can deploy is the person's to fix, a container
+    that is down is not, and the builder showed "roster validation failed" for
+    a stopped gateway (review 2, finding 5).
+    """
+
+
 # ---------------------------------------------------------------------------
 # talking to the container
 # ---------------------------------------------------------------------------
@@ -133,17 +143,17 @@ def _config_key(key: str, *, required: bool = False) -> dict:
     rc, out = docker("openclaw", "config", "get", key, "--json")
     if rc != 0:
         if required:
-            raise DeployError(f"could not read the gateway config: {out.strip()[:300]}")
+            raise GatewayError(f"could not read the gateway config: {out.strip()[:300]}")
         return {}
     if "{" not in out:
         # No object at all (a key that reads as null): the same "not written
         # yet" state as a non-zero exit, and treated the same way.
         if required:
-            raise DeployError(f"`config get {key}` carried no object: {out.strip()[:200]}")
+            raise GatewayError(f"`config get {key}` carried no object: {out.strip()[:200]}")
         return {}
     data = first_json_object(out, accept=lambda _o: True)
     if data is None:
-        raise DeployError(f"unreadable answer from `config get {key}`: {out.strip()[:200]}")
+        raise GatewayError(f"unreadable answer from `config get {key}`: {out.strip()[:200]}")
     return data
 
 
@@ -172,7 +182,7 @@ def write_remote(path: str, body: str) -> None:
         stdin=body,
     )
     if rc != 0:
-        raise DeployError(f"could not write {path}: {out.strip()[:200]}")
+        raise GatewayError(f"could not write {path}: {out.strip()[:200]}")
 
 
 def remove_remote(path: str) -> None:
@@ -189,7 +199,7 @@ def remove_remote(path: str) -> None:
         f"{{ rmdir -p {shlex.quote(posixpath.dirname(path))} 2>/dev/null || true; }}",
     )
     if rc != 0:
-        raise DeployError(f"could not remove {path}: {out.strip()[:200]}")
+        raise GatewayError(f"could not remove {path}: {out.strip()[:200]}")
 
 
 # The rollout's own record of what it rendered into a workspace, one relative
@@ -708,7 +718,7 @@ def apply(roster: dict, p: Plan, only: str | None, rt: Roots,
             argv += ["--model", a["model"]]
         rc, out = docker(*argv)
         if rc != 0:
-            raise DeployError(f"could not create {a['id']}: {out.strip()[:300]}")
+            raise GatewayError(f"could not create {a['id']}: {out.strip()[:300]}")
 
     # 2. the workspace files, before the config that grants the skills -- an
     #    allow-listed skill whose file is not there yet is an avoidable warning
@@ -726,7 +736,7 @@ def apply(roster: dict, p: Plan, only: str | None, rt: Roots,
         # exists, which would make a second run an error rather than a no-op.
         rc, out = docker("openclaw", "mcp", "set", name, json.dumps(want))
         if rc != 0:
-            raise DeployError(f"could not register mcp/{name}: {out.strip()[:300]}")
+            raise GatewayError(f"could not register mcp/{name}: {out.strip()[:300]}")
 
     # 4. agents deleted in the builder -- BEFORE the config write. Measured on
     #    the first live T10 (2026-09-02): with the list already patched without
@@ -741,7 +751,7 @@ def apply(roster: dict, p: Plan, only: str | None, rt: Roots,
         say(f"deleting agent {aid} from the gateway")
         rc, out = docker("openclaw", "agents", "delete", aid, "--force", "--json")
         if rc != 0:
-            raise DeployError(f"could not delete {aid}: {out.strip()[:300]}")
+            raise GatewayError(f"could not delete {aid}: {out.strip()[:300]}")
         mark_trash_applied(rt, aid)
 
     # 5. the config, in one validated write
@@ -751,7 +761,7 @@ def apply(roster: dict, p: Plan, only: str | None, rt: Roots,
         stdin=json.dumps({"agents": p.agents_block}),
     )
     if rc != 0:
-        raise DeployError(f"config patch failed: {out.strip()[:400]}")
+        raise GatewayError(f"config patch failed: {out.strip()[:400]}")
 
     # 6. drop cached MCP runtimes so the next turn sees the new server. Cheap,
     #    and skipping it is a plausible reason for a tool to be "missing" right
@@ -772,7 +782,8 @@ def run(*, check: bool = False, only: str | None = None,
     Returns::
 
         {"ok": bool, "in_sync": bool, "applied": bool, "drift": [...],
-         "notes": [...], "left": [...], "log": [...], "error": str|None}
+         "notes": [...], "left": [...], "log": [...], "error": str|None,
+         "error_kind": "gateway"|"roster"|None}
 
     ``drift`` is what differed before; ``left`` is what still differs after an
     apply (empty when it took); ``notes`` is what was seen and left alone
@@ -788,8 +799,8 @@ def run(*, check: bool = False, only: str | None = None,
         if say:
             say(line)
 
-    result = {"ok": False, "in_sync": False, "applied": False,
-              "drift": [], "notes": [], "left": [], "log": log, "error": None}
+    result = {"ok": False, "in_sync": False, "applied": False, "drift": [],
+              "notes": [], "left": [], "log": log, "error": None, "error_kind": None}
     try:
         roster = load_roster(rt)
         # An empty roster at THIS door is a missing mount, not an empty house:
@@ -813,6 +824,7 @@ def run(*, check: bool = False, only: str | None = None,
         p = plan(roster, only, rt)
     except (StoreError, DeployError) as e:
         result["error"] = str(e)
+        result["error_kind"] = "gateway" if isinstance(e, GatewayError) else "roster"
         return result
 
     result["drift"] = p.drift
@@ -828,6 +840,7 @@ def run(*, check: bool = False, only: str | None = None,
         apply(roster, p, only, rt, _say)
     except DeployError as e:
         result["error"] = str(e)
+        result["error_kind"] = "gateway" if isinstance(e, GatewayError) else "roster"
         return result
     result["applied"] = True
 
@@ -836,6 +849,7 @@ def run(*, check: bool = False, only: str | None = None,
         left = plan(roster, only, rt).drift
     except (StoreError, DeployError) as e:
         result["error"] = f"applied, but could not verify: {e}"
+        result["error_kind"] = "gateway" if isinstance(e, GatewayError) else "roster"
         return result
     result["left"] = left
     result["ok"] = not left

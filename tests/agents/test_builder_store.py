@@ -521,6 +521,26 @@ def main() -> int:
         finally:
             deploy.docker = real_docker
 
+        # --- an unreachable gateway is not an unfit roster (review 2, finding 5) ----
+        store.save_instance("zz-gw", dict(BASE), soul="x", rt=RT)
+        try:
+            deploy.docker = fake([("config get agents", (1, "Cannot connect to the Docker daemon"))])
+            res = deploy.run(check=True, rt=RT)
+            record(res["error_kind"] == "gateway" and not res["ok"],
+                   "a gateway that cannot be read is reported as a gateway problem",
+                   f'{res["error_kind"]}: {str(res["error"])[:70]}')
+            record(isinstance(deploy.GatewayError("x"), deploy.DeployError),
+                   "a gateway problem is still a deploy problem for every old caller")
+        finally:
+            deploy.docker = real_docker
+        (L / "instances/zz-broken").mkdir()
+        (L / "instances/zz-broken/agent.json").write_text("{ not json")
+        res = deploy.run(check=True, rt=RT)
+        record(res["error_kind"] == "roster" and not res["ok"],
+               "a roster nobody can read is reported as a roster problem", str(res["error_kind"]))
+        shutil.rmtree(L / "instances/zz-broken")
+        shutil.rmtree(L / "instances/zz-gw")
+
         # --- a root that is not there is no root (review A4) ------------------------
         env_before = os.environ.get("MORA02_AGENTS_LOCAL_DIR")
         os.environ["MORA02_AGENTS_LOCAL_DIR"] = str(tmp / "never-mounted")

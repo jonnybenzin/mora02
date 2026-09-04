@@ -266,12 +266,23 @@ def get_tools():
     return {"tools": mcp + builtin}
 
 
+def _deploy_status(res: dict) -> int:
+    """502 when the gateway is the problem, 422 when the roster is.
+
+    Read off the kind the library reports, not guessed from what happened to
+    be in `drift`: a stopped container used to come back as 422, so the
+    builder showed a roster validation error for an outage nobody could fix
+    by editing an agent (review 2, finding 5).
+    """
+    return 502 if res.get("error_kind") == "gateway" else 422
+
+
 @router.get("/agents/drift")
 async def get_drift():
     """`agents-deploy.py --check` as a GET: what the rollout would change."""
     res = await asyncio.to_thread(deploy_mod.run, check=True, rt=ROOTS)
     if res["error"]:
-        raise HTTPException(status_code=422, detail=res["error"])
+        raise HTTPException(status_code=_deploy_status(res), detail=res["error"])
     return res
 
 
@@ -281,8 +292,7 @@ async def post_deploy(agent: Optional[str] = None):
     took; 502 when the gateway refused, 422 when the roster itself is unfit."""
     res = await asyncio.to_thread(deploy_mod.run, check=False, only=agent, rt=ROOTS)
     if res["error"]:
-        raise HTTPException(status_code=502 if res["applied"] or res["drift"] else 422,
-                            detail=res["error"])
+        raise HTTPException(status_code=_deploy_status(res), detail=res["error"])
     return res
 
 
