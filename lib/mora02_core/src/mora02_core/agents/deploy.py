@@ -85,6 +85,7 @@ from mora02_core.agents.store import (
     soul_source,
 )
 from mora02_core.agents.store import LETTERBOX_ID
+from mora02_core.agents.cli import first_json_object
 
 OC = os.environ.get("MORA02_OPENCLAW_CONTAINER", "mora02-openclaw")
 DOCKER = os.environ.get("MORA02_DOCKER_BIN", "docker")
@@ -117,29 +118,42 @@ def docker(*argv: str, stdin: str | None = None) -> tuple[int, str]:
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
-def _config_key(key: str) -> dict:
+def _config_key(key: str, *, required: bool = False) -> dict:
     """One config subtree, or {} if the gateway does not carry that key yet.
 
     Fetched key by key rather than as one whole document: `config get` with no
     key is the guided-setup entry point, and a section that has never been
     written (mcp, before the first rollout) is a normal state, not an error.
+    ``required`` makes that state fatal instead -- without `agents` every
+    comparison would be against a guess, and a check would report confident
+    nonsense.
+
+    An answer that CARRIES an object which cannot be read is always fatal.
+    Before review finding A2 (2026-09-03) the reader sliced from the first
+    brace and turned any parse error into {}: with the warning line the CLI
+    prints after its JSON, every plan was computed against an empty gateway,
+    "does not exist" for all, and a rollout that then re-created what was
+    already there. An empty gateway is a result; an unreadable one is an error.
     """
     rc, out = docker("openclaw", "config", "get", key, "--json")
     if rc != 0:
+        if required:
+            raise DeployError(f"could not read the gateway config: {out.strip()[:300]}")
         return {}
-    try:
-        return json.loads(out[out.index("{"):]) or {}
-    except (ValueError, IndexError):
+    if "{" not in out:
+        # No object at all (a key that reads as null): the same "not written
+        # yet" state as a non-zero exit, and treated the same way.
+        if required:
+            raise DeployError(f"`config get {key}` carried no object: {out.strip()[:200]}")
         return {}
+    data = first_json_object(out, accept=lambda _o: True)
+    if data is None:
+        raise DeployError(f"unreadable answer from `config get {key}`: {out.strip()[:200]}")
+    return data
 
 
 def read_config() -> dict:
-    # A failure to read `agents` IS fatal: without it every comparison below
-    # would be against a guess, and a check would report confident nonsense.
-    rc, out = docker("openclaw", "config", "get", "agents", "--json")
-    if rc != 0:
-        raise DeployError(f"could not read the gateway config: {out.strip()[:300]}")
-    return {"agents": _config_key("agents"), "mcp": _config_key("mcp"),
+    return {"agents": _config_key("agents", required=True), "mcp": _config_key("mcp"),
             "models": _config_key("models")}
 
 

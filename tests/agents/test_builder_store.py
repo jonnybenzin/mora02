@@ -298,6 +298,45 @@ def main() -> int:
                "a crafted path is one word to the shell, not three commands", cmds[2][:70] if len(cmds) > 2 else "")
         shutil.rmtree(L / "instances/zz-q"); shutil.rmtree(sk_dir)
 
+        # --- the gateway's answers are read, not guessed (review A2) --------------
+        # The CLI prints a warning line AFTER its JSON; the old reader turned
+        # that into {} and planned every rollout against an empty gateway.
+        def fake(answers):
+            def _docker(*argv, stdin=None):
+                calls.append((list(argv), stdin))
+                for needle, reply in answers:
+                    if needle in " ".join(argv):
+                        return reply
+                return (0, "")
+            return _docker
+        calls: list = []
+        real_docker = deploy.docker
+        LIVE = '{"list": [{"id": "main"}, {"id": "hand-made"}]}\nWarning: Detected unsettled top-level await\n'
+        try:
+            deploy.docker = fake([("config get agents", (0, LIVE))])
+            got = deploy._config_key("agents")
+            record([a["id"] for a in got.get("list", [])] == ["main", "hand-made"],
+                   "JSON followed by a warning line is read whole", str(got)[:60])
+            deploy.docker = fake([("config get agents", (0, "Warning: {broken\n"))])
+            try:
+                deploy._config_key("agents"); record(False, "unreadable object is an error, not {}", "returned")
+            except deploy.DeployError as e:
+                record("unreadable" in str(e), "unreadable object is an error, not {}", str(e)[:70])
+            deploy.docker = fake([("config get mcp", (1, "not set"))])
+            record(deploy._config_key("mcp") == {}, "a key the gateway does not carry reads as {}")
+            deploy.docker = fake([("config get agents", (1, "boom"))])
+            try:
+                deploy.read_config(); record(False, "unreadable agents section is fatal", "returned")
+            except deploy.DeployError as e:
+                record("could not read" in str(e), "unreadable agents section is fatal", str(e)[:60])
+            calls.clear()
+            deploy.docker = fake([("config get", (0, "{}"))])
+            deploy.read_config()
+            record(sum("config get agents" in " ".join(a) for a, _ in calls) == 1, "agents section is fetched once, not twice")
+
+        finally:
+            deploy.docker = real_docker
+
         # --- a folder without a manifest is an error, not a skip --------------
         (L / "instances/zz-half").mkdir()
         refuses(lambda: store.load_roster(RT), "instance folder without agent.json refused", "no agent.json")

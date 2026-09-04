@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import re
+from typing import Callable
 
 _DEFAULT_CONTAINER = "mora02-openclaw"
 _DEFAULT_TIMEOUT = 180
@@ -44,12 +45,18 @@ def session_key(agent: str, conversation: str) -> str:
     return f"agent:{_SAFE.sub('-', agent)}:{_SAFE.sub('-', conversation)[:64]}"
 
 
-def _first_json_object(out: str) -> dict | None:
-    """Pull the result object out of output that may carry other noise.
+def first_json_object(out: str, accept: Callable[[dict], bool] | None = None) -> dict | None:
+    """Pull the answer object out of CLI output that may carry other noise.
 
     Slicing from the first brace to the last breaks as soon as the CLI prints a
-    warning afterwards, or the answer text itself contains braces.
+    warning afterwards (measured in phase 0: "Detected unsettled top-level
+    await" follows the JSON), or the answer text itself contains braces.
+
+    ``accept`` says which object is the answer. The default is the shape of
+    `agent` and `models list` -- an object carrying ``result`` or ``models``.
+    A config subtree has no fixed key; deploy.py passes its own test.
     """
+    accept = accept or (lambda o: "result" in o or "models" in o)
     decoder = json.JSONDecoder()
     for i, ch in enumerate(out):
         if ch != "{":
@@ -58,7 +65,7 @@ def _first_json_object(out: str) -> dict | None:
             obj, _ = decoder.raw_decode(out[i:])
         except json.JSONDecodeError:
             continue
-        if isinstance(obj, dict) and ("result" in obj or "models" in obj):
+        if isinstance(obj, dict) and accept(obj):
             return obj
     return None
 
@@ -122,7 +129,7 @@ async def ask(
     if proc.returncode != 0:
         raise AgentError(f"openclaw agent failed: {out.strip()[:400]}")
 
-    data = _first_json_object(out)
+    data = first_json_object(out)
     if data is None:
         raise AgentError(f"unreadable answer from openclaw: {out[:300]}")
 
@@ -254,7 +261,7 @@ async def models() -> list[dict]:
     stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
     if proc.returncode != 0:
         raise AgentError(f"could not list models: {(stderr or b'').decode()[:300]}")
-    data = _first_json_object((stdout or b"").decode(errors="replace")) or {}
+    data = first_json_object((stdout or b"").decode(errors="replace")) or {}
     out: list[dict] = []
     for m in data.get("models") or []:
         key = str(m.get("key") or "")
