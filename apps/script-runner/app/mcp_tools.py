@@ -236,14 +236,45 @@ _REVIEWED: float = 0.0
 _SPENT: dict = {"pages": 0, "searches": 0}
 
 
+class TurnBusy(RuntimeError):
+    """A turn is already running and its registers are not free."""
+
+
+# Above this, a turn that never ended is a leak, not a long read. No real turn
+# comes close: the route's own timeout bounds it, and the longest configured
+# one is minutes. Without a ceiling, one turn whose end_turn never ran would
+# answer 409 to every turn after it, for the life of the process.
+_TURN_CEILING_S = 3600
+
+
+def turn_running() -> bool:
+    """Is a turn open right now? (started, not yet ended, not ancient)"""
+    return (_TURN_T0 > 0 and _TURN_END < _TURN_T0
+            and time.time() - _TURN_T0 < _TURN_CEILING_S)
+
+
 def begin_turn(limits: dict | None = None, session: str = "") -> float:
     """Called by the agent route when a turn starts.
 
     Carries the acting agent's payload limits, because the MCP surface has no
     way to know who is calling -- the same reason the turn boundary is stamped
-    here at all.
+    here at all. A JSON-RPC message carries no caller identity, so there is
+    exactly one set of registers, and one turn may hold them.
+
+    Starting a second turn over a running one is refused rather than done.
+    It used to overwrite them, and every consequence was silent: the running
+    turn's notes were stamped with the OTHER conversation and surfaced there
+    later as established fact, its page budget went back to full, its `verify`
+    of a page it had read was rejected as not-fetched-this-turn, and whichever
+    turn ended first reported both as finished (review 2, finding 1). The
+    agent route serialises turns; this is the guard under it.
     """
     global _TURN_T0, _LIMITS, _SPENT, _SESSION, _TURN_END
+    if turn_running():
+        raise TurnBusy(
+            f"a turn is already running (session {_SESSION or 'unknown'}, "
+            f"{time.time() - _TURN_T0:.0f}s ago)"
+        )
     _TURN_T0 = time.time()
     _TURN_END = 0.0
     _LIMITS = {**_DEFAULTS, **(limits or {})}
@@ -1056,6 +1087,13 @@ def _record_check(claim: str, src: str, res: str, detail: str = "") -> str:
 
 
 async def _call(name: str, arguments: dict) -> dict:
+    # A call can arrive with no turn open: an agent the gateway ran by itself
+    # (cron, the CLI, an inbound message), or one abandoned at a timeout whose
+    # process is still going. Opening a fresh turn for it keeps its notes and
+    # its budget out of the registers of the turn that ran BEFORE it, which is
+    # where they used to land.
+    if not turn_running():
+        begin_turn(None, session="")
     if name == "flows_list":
         return await _flows_list()
     if name == "flow_run":

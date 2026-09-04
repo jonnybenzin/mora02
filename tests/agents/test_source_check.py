@@ -98,6 +98,7 @@ def test_detection() -> None:
 def test_provenance() -> None:
     """A check is performed, not asserted."""
     print("\nprovenance")
+    m.end_turn()
     m.begin_turn({})
     url = "https://geizhals.de/evo"
 
@@ -128,6 +129,7 @@ def test_dead_page() -> None:
     honest outcome would be the one the machinery forbids.
     """
     print("\ndead pages")
+    m.end_turn()
     m.begin_turn({})
     dead = "https://www.home-appliances.philips/de/de/p/EP2333_40"
     m._remember("read", dead, ok=False)
@@ -145,6 +147,7 @@ def test_dead_page() -> None:
 def test_review_reports_open() -> None:
     """notes_review states the open points; it does not wait to be asked."""
     print("\nreview")
+    m.end_turn()
     t0 = m.begin_turn({})
     # Through the tool, not into the deque: a test that pokes the storage shape
     # breaks on the next change to it and proves nothing about the tool.
@@ -232,6 +235,8 @@ def test_notes_survive_a_follow_up() -> None:
     from mora02_core.agents import session_key
     sess, other = session_key("recherche", "conv-42"), session_key("recherche", "conv-99")
 
+    m.end_turn()
+
     m.begin_turn({}, session=sess)
     m._remember("read", "https://docs.comfy.org/req", ok=True)
     call("note", {"notes": [
@@ -244,6 +249,7 @@ def test_notes_survive_a_follow_up() -> None:
          "result": "confirmed", "detail": "'Python 3.13 is very well supported'"}]})
 
     time.sleep(0.01)
+    m.end_turn()
     m.begin_turn({}, session=sess)                      # the follow-up question
     r = call("notes_review", {})
     check("earlier notes are carried", len(r.get("earlier") or []) == 2,
@@ -255,9 +261,13 @@ def test_notes_survive_a_follow_up() -> None:
           "a figure confirmed two questions ago is still confirmed")
     check("this turn's own notes stay separate", r["notes"] == [])
 
+    m.end_turn()
+
     m.begin_turn({}, session=other)
     check("a different conversation sees nothing",
           not call("notes_review", {}).get("earlier"))
+
+    m.end_turn()
 
     m.begin_turn({}, session="")
     check("no session carries nothing rather than guessing",
@@ -284,6 +294,8 @@ def test_progress_is_visible_while_running() -> None:
     # same single set of registers is why two concurrent turns would blur.
     m.end_turn()
     check("nothing running between turns", m.turn_progress() == {"running": False})
+
+    m.end_turn()
 
     m.begin_turn({}, session="s-progress")
     check("a fresh turn is thinking", m.turn_progress()["phase"] == "thinking")
@@ -365,6 +377,7 @@ def test_check_rides_on_the_note() -> None:
     rule, which is why that rule lives in one function.
     """
     print("\nmerged check")
+    m.end_turn()
     m.begin_turn({}, session="merge")
     m._remember("read", "https://github.com/penpot/penpot/releases", ok=True)
     m._remember("read", "https://github.com/penpot/penpot/security/advisories/X", ok=False)

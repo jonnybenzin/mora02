@@ -153,6 +153,36 @@ def main() -> int:
             f.unlink()
         tmp.rmdir()
 
+    # --- one turn owns the registers (review 2, finding 1) -----------------
+    M.end_turn()
+    t_a = M.begin_turn({"max_pages_total": 4}, session="agent:x:a")
+    record(M.turn_running(), "a turn that started is running")
+    try:
+        M.begin_turn({}, session="agent:x:b")
+        record(False, "a second turn over a running one is refused", "was accepted")
+    except M.TurnBusy as e:
+        record("already running" in str(e), "a second turn over a running one is refused", str(e)[:60])
+    record(M._SESSION == "agent:x:a" and M._TURN_T0 == t_a,
+           "the running turn keeps its session and its start", M._SESSION)
+    M._SPENT["pages"] = 3
+    call("note", {"claim": "mine", "source": "https://a.example/"})
+    record(M._SPENT["pages"] == 3 and M._TURN_T0 == t_a,
+           "a tool call inside the turn does not reset its budget")
+    M.end_turn()
+    record(not M.turn_running(), "the turn is over once the route says so")
+
+    # a call arriving with no turn open opens its own, rather than writing into
+    # the registers of the turn that has just finished
+    before_notes = len(M._NOTES)
+    call("note", {"claim": "orphan", "source": "https://o.example/"})
+    record(M.turn_running() and M._TURN_T0 > t_a and M._SESSION == "",
+           "a call with no turn open starts a fresh one", f"session={M._SESSION!r}")
+    record(len(M._NOTES) - before_notes == 1 and M._NOTES[-1][1] == "",
+           "and its note is stamped with no session, not the previous one",
+           repr(M._NOTES[-1][1]))
+    M.end_turn()
+    M.begin_turn({}, session="agent:probe:1")
+
     # --- a gate that could not be filed keeps its run id -------------------
     class FakeRes:
         ok, status, is_paused = True, "paused", True

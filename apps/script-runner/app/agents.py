@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException
 import httpx
 from pydantic import BaseModel
 
-from mcp_tools import (begin_turn, checks_earlier, checks_since, end_turn,
+from mcp_tools import (TurnBusy, begin_turn, checks_earlier, checks_since, end_turn,
                        notes_earlier,
                        notes_since, open_notes, reviewed_this_turn,
                        single_source_notes, turn_progress, urls_since)
@@ -61,6 +61,15 @@ AGENTS_DIR = ROOTS.platform
 # exactly like a broken agent. An agent that needs longer says so in its
 # agent.json rather than everyone waiting for the slowest.
 _DEFAULT_TURN_TIMEOUT = 180
+
+# One turn at a time. The MCP surface has ONE set of turn registers, because a
+# JSON-RPC call from the gateway names no caller: a second turn starting while
+# the first is still reading overwrites its budget, its session stamp and its
+# start time, and none of it is visible afterwards (review 2, finding 1).
+# Waiting is friendlier than refusing -- two browser tabs is a normal thing to
+# do, and the second turn is merely slower -- but the wait is bounded, so a
+# hung turn does not swallow every request behind it.
+_TURN_LOCK = asyncio.Lock()
 
 # USD per million tokens, (input, output). Only the models openclaw's bundled
 # catalogue actually offers here; a model not in this table simply reports no
@@ -386,14 +395,29 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     # same way the gateway session is, so a follow-up question finds what the
     # previous one wrote down -- the thread held, the notes did not.
     sess = session_key(agent_id, req.conversation or "")
-    started = begin_turn(limits if isinstance(limits, dict) else None, session=sess)
+    seconds = req.timeout or agent_timeout(agent_id)
+    try:
+        await asyncio.wait_for(_TURN_LOCK.acquire(), timeout=seconds)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"another agent turn is still running; this one waited {seconds}s "
+                   f"for it. Try again when it has finished.",
+        )
+    try:
+        started = begin_turn(limits if isinstance(limits, dict) else None, session=sess)
+    except TurnBusy as e:
+        # The lock says otherwise, so this is a turn nobody is waiting for any
+        # more -- an abandoned one whose registers were never released.
+        _TURN_LOCK.release()
+        raise HTTPException(status_code=409, detail=str(e))
     try:
         result = await ask(
             agent_id,
             req.message,
             conversation=req.conversation,
             model=req.model,
-            timeout=req.timeout or agent_timeout(agent_id),
+            timeout=seconds,
         )
     except AgentError as e:
         log.warning("agent %s failed: %s", agent_id, e)
@@ -401,6 +425,7 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     finally:
         # Every exit, so a failed turn stops reporting itself as running.
         end_turn()
+        _TURN_LOCK.release()
 
     # What the web tools really touched during this turn. Not decoration: a
     # citation that is not in `sources.read` was not read, and that is a fact
