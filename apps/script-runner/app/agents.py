@@ -31,7 +31,8 @@ from mora02_core import auth, pricing
 from mora02_core.agents import AgentError, ask, listing, session_key
 from mora02_core.agents import models as gateway_models
 from mora02_core.agents import deploy as deploy_mod
-from mora02_core.agents.store import (StoreError, builtin_tools, effective_limits,
+from mora02_core.agents.store import (NoRoot, NotFound, StoreError,
+                                      builtin_tools, effective_limits,
                                       instance_detail, is_local_model, iter_instances,
                                       load_manifest, mcp_tool_risk,
                                       roots, save_instance, skill_detail,
@@ -188,9 +189,22 @@ def get_roster(include_inactive: bool = False):
 # ---------------------------------------------------------------------------
 
 def _store_error(e: StoreError) -> HTTPException:
-    # 422 for a manifest the store refuses, 404 for an agent that is not there.
-    # The message is the store's own: it names the field and says what is wrong.
-    code = 404 if str(e).startswith("no agent") else 422
+    """One rule for every store failure, read off its kind.
+
+    404 for something that is not there, 503 for a missing installation root
+    (an operator's problem, not a caller's), 422 for everything the store
+    refuses to store. The message is the store's own: it names the field and
+    says what is wrong. This used to sniff the message text in one route and
+    hard-code a different status in two others, so rewording a message moved a
+    status code and a stray folder made the skill pages answer 404 (review 2,
+    section D).
+    """
+    if isinstance(e, NotFound):
+        code = 404
+    elif isinstance(e, NoRoot):
+        code = 503
+    else:
+        code = 422
     return HTTPException(status_code=code, detail=str(e))
 
 
@@ -225,7 +239,7 @@ def get_skills():
     try:
         return {"skills": skills_catalog(ROOTS)}
     except StoreError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise _store_error(e)
 
 
 @router.get("/agents/skills/{name}")
@@ -234,7 +248,7 @@ def get_skill(name: str):
     try:
         return skill_detail(name, ROOTS)
     except StoreError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise _store_error(e)
 
 
 @router.get("/agents/tools")

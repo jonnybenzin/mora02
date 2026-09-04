@@ -246,7 +246,26 @@ _PREVIEW_MAX = 200_000
 
 
 class StoreError(RuntimeError):
-    pass
+    """Something the store refuses. The three kinds below say what to do about
+    it, so a caller does not have to read the message to find out.
+
+    The HTTP layer used to decide by sniffing the text
+    (``startswith("no agent")``) in one place and by hard-coding a status in
+    two others -- three rules for one question, and rewording a message
+    silently changed a status code (review 2, section D).
+    """
+
+
+class NotFound(StoreError):
+    """The agent, skill or file asked for is not there."""
+
+
+class Invalid(StoreError):
+    """What was asked for cannot be stored, or what is stored cannot be read."""
+
+
+class NoRoot(StoreError):
+    """There is nowhere to keep agents: no installation root is configured."""
 
 
 def _r(rt: Roots | None) -> Roots:
@@ -314,7 +333,7 @@ def find_skill(name: str, rt: Roots | None = None) -> tuple[str, Path] | None:
     hits = [(n, root / "skills" / name) for n, root in _r(rt).skill_roots()
             if (root / "skills" / name / "SKILL.md").is_file()]
     if len(hits) > 1:
-        raise StoreError(f"skill {name!r} exists in both agents/skills and data/agents/skills — rename or remove one")
+        raise Invalid(f"skill {name!r} exists in both agents/skills and data/agents/skills — rename or remove one")
     return hits[0] if hits else None
 
 
@@ -385,10 +404,10 @@ def load_letterbox(rt: Roots | None = None) -> dict | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        raise StoreError(f"cannot read gateway.json: {e}") from e
+        raise Invalid(f"cannot read gateway.json: {e}") from e
     entry = data.get("letterbox")
     if not isinstance(entry, dict):
-        raise StoreError("gateway.json has no 'letterbox' object")
+        raise Invalid("gateway.json has no 'letterbox' object")
     entry = dict(entry)
     entry.setdefault("id", LETTERBOX_ID)
     entry["manage_workspace"] = False
@@ -410,18 +429,18 @@ def load_roster(rt: Roots | None = None) -> dict:
     """
     rt = _r(rt)
     if not rt.platform.is_dir():
-        raise StoreError(f"no platform root at {rt.platform}")
+        raise NotFound(f"no platform root at {rt.platform}")
 
     agents: list[dict] = []
     for name in stray_instance_names(rt):
-        raise StoreError(
+        raise Invalid(
             f"instances/{name}: not a valid agent id (lowercase letters, digits "
             f"and dashes, 2-64 characters) -- rename the folder. It cannot be "
             f"deployed: nothing could look it up again afterwards."
         )
     for folder in iter_instances(rt):
         if folder.name == LETTERBOX_ID:
-            raise StoreError(
+            raise Invalid(
                 f"instances/{LETTERBOX_ID} is not an agent — the reception desk is "
                 f"configured in agents/gateway.json. Remove the folder."
             )
@@ -431,14 +450,14 @@ def load_roster(rt: Roots | None = None) -> dict:
             # likely a half-finished agent than a deliberate placeholder, and a
             # silently ignored agent is the failure this layer keeps guarding
             # against.
-            raise StoreError(
+            raise Invalid(
                 f"instances/{folder.name} has no agent.json — an instance folder "
                 f"without one cannot be deployed. Remove the folder or give it a manifest."
             )
         try:
             agent = json.loads(manifest.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
-            raise StoreError(f"cannot read instances/{folder.name}/agent.json: {e}") from e
+            raise Invalid(f"cannot read instances/{folder.name}/agent.json: {e}") from e
 
         # The id is the folder name, never a field. Two sources for one identity
         # is one source too many, and a manifest whose id disagrees with its
@@ -446,7 +465,7 @@ def load_roster(rt: Roots | None = None) -> dict:
         agent["id"] = folder.name
         bad_ws = workspace_problem(agent, folder.name)
         if bad_ws:
-            raise StoreError(f"instances/{folder.name}: {bad_ws}")
+            raise Invalid(f"instances/{folder.name}: {bad_ws}")
         agent.setdefault("workspace", default_workspace(folder.name))
         agent.setdefault("manage_workspace", True)
         agent["_dir"] = str(folder)
@@ -458,7 +477,7 @@ def load_roster(rt: Roots | None = None) -> dict:
     # rule is the form's rule (reference_problems): one wording at both doors.
     for agent in agents:
         for why in reference_problems(agent, agent["id"], rt):
-            raise StoreError(f"instances/{agent['id']}: {why}")
+            raise Invalid(f"instances/{agent['id']}: {why}")
 
     mcp: dict = {}
     mcp_file = rt.platform / "mcp.json"
@@ -466,7 +485,7 @@ def load_roster(rt: Roots | None = None) -> dict:
         try:
             mcp = json.loads(mcp_file.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
-            raise StoreError(f"cannot read mcp.json: {e}") from e
+            raise Invalid(f"cannot read mcp.json: {e}") from e
 
     return {"agents": agents, "letterbox": load_letterbox(rt), "mcp": mcp}
 
@@ -489,7 +508,7 @@ def skills_catalog(rt: Roots | None = None) -> list[dict]:
             if not folder.is_dir() or folder.name.startswith(".") or not sk.is_file():
                 continue
             if folder.name in seen:
-                raise StoreError(f"skill {folder.name!r} exists in both agents/skills and data/agents/skills — rename or remove one")
+                raise Invalid(f"skill {folder.name!r} exists in both agents/skills and data/agents/skills — rename or remove one")
             seen[folder.name] = root_name
             meta = _front_matter(sk.read_text(encoding="utf-8", errors="replace"))
             out.append({
@@ -539,7 +558,7 @@ def instance_detail(agent_id: str, rt: Roots | None = None) -> dict:
     SOUL it is, the other workspace files."""
     folder = find_instance(agent_id, rt)
     if folder is None or not (folder / "agent.json").is_file():
-        raise StoreError(f"no agent {agent_id!r}")
+        raise NotFound(f"no agent {agent_id!r}")
     manifest = load_manifest(agent_id, rt)
     shared, soul_path = soul_source(agent_id, rt)
     soul = soul_path.read_text(encoding="utf-8", errors="replace") if soul_path else ""
@@ -573,7 +592,7 @@ def skill_detail(name: str, rt: Roots | None = None) -> dict:
     """
     hit = find_skill(name, rt)
     if hit is None:
-        raise StoreError(f"no skill {name!r}")
+        raise NotFound(f"no skill {name!r}")
     root_name, folder = hit
     meta = _front_matter((folder / "SKILL.md").read_text(encoding="utf-8", errors="replace"))
     files = []
@@ -733,15 +752,15 @@ def save_instance(agent_id: str, manifest: dict, *, soul: str | None = None,
     """
     rt = _r(rt)
     if not ID_RE.match(agent_id):
-        raise StoreError("id: 2–64 characters, lowercase letters, digits and hyphens, starting with a letter or digit")
+        raise Invalid("id: 2–64 characters, lowercase letters, digits and hyphens, starting with a letter or digit")
     if agent_id == LETTERBOX_ID:
-        raise StoreError(f"{LETTERBOX_ID!r} is the gateway's reception desk, not an agent — "
+        raise Invalid(f"{LETTERBOX_ID!r} is the gateway's reception desk, not an agent — "
                          f"its tool list lives in agents/gateway.json")
     if soul is not None and soul_shared_with:
-        raise StoreError("either a SOUL text or a SOUL to share, not both")
+        raise Invalid("either a SOUL text or a SOUL to share, not both")
     for name, body in (files or {}).items():
         if name not in WORKSPACE_EXTRA:
-            raise StoreError(f"{name!r} is not a workspace file an agent may carry "
+            raise Invalid(f"{name!r} is not a workspace file an agent may carry "
                              f"(one of {', '.join(WORKSPACE_EXTRA)})")
         # Checked HERE, with the names, and not where the file is written: the
         # manifest and SOUL.md are replaced first, so a value that only fails
@@ -749,14 +768,14 @@ def save_instance(agent_id: str, manifest: dict, *, soul: str | None = None,
         # read as "rejected" (review 2, finding 8). Everything this function
         # can refuse, it refuses before it writes anything.
         if not isinstance(body, str):
-            raise StoreError(
+            raise Invalid(
                 f"{name}: a workspace file is text — leave the key out to keep "
                 f"the file as it is, or pass \"\" to remove it "
                 f"(got {type(body).__name__})"
             )
     inst = instances_dir(rt)
     if inst is None:
-        raise StoreError("no installation root configured (MORA02_AGENTS_LOCAL_DIR) — "
+        raise NoRoot("no installation root configured (MORA02_AGENTS_LOCAL_DIR) — "
                          "nowhere to put an agent")
 
     # The reference lives in the manifest so the rollout sees it too.
@@ -767,7 +786,7 @@ def save_instance(agent_id: str, manifest: dict, *, soul: str | None = None,
         clean.pop("soul_shared_with", None)
     problems = validate_manifest(clean, agent_id, rt)
     if problems:
-        raise StoreError("; ".join(problems))
+        raise Invalid("; ".join(problems))
 
     folder = inst / agent_id
     created = not folder.exists()
@@ -817,11 +836,11 @@ def trash_instance(agent_id: str, rt: Roots | None = None) -> dict:
     rt = _r(rt)
     folder = find_instance(agent_id, rt)
     if folder is None:
-        raise StoreError(f"no agent {agent_id!r}")
+        raise NotFound(f"no agent {agent_id!r}")
     dependants = sorted(f.name for f in iter_instances(rt)
                         if f.name != agent_id and soul_source(f.name, rt)[0] == agent_id)
     if dependants:
-        raise StoreError(
+        raise Invalid(
             f"{agent_id!r} lends its SOUL to {', '.join(dependants)} — give them "
             f"their own first, or delete them first"
         )

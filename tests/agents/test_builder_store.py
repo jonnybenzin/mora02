@@ -521,6 +521,27 @@ def main() -> int:
         finally:
             deploy.docker = real_docker
 
+        # --- a failure says what kind it is (review 2, section D) -------------------
+        def kind(fn):
+            try:
+                fn()
+            except store.StoreError as e:
+                return type(e).__name__
+            return "no error"
+        record(kind(lambda: store.instance_detail("nobody", RT)) == "NotFound",
+               "an agent that is not there is NotFound",
+               kind(lambda: store.instance_detail("nobody", RT)))
+        record(store.load_manifest("nobody", RT) == {},
+               "load_manifest still answers {} rather than raising (it hides a broken one)")
+        record(kind(lambda: store.skill_detail("nothing", RT)) == "NotFound",
+               "a skill that is not there is NotFound")
+        record(kind(lambda: store.save_instance("zz-k", dict(BASE), rt=NOLOCAL)) == "NoRoot",
+               "no installation root is NoRoot")
+        record(kind(lambda: store.save_instance("zz-k", {**BASE, "skils": []}, rt=RT)) == "Invalid",
+               "a manifest the store refuses is Invalid")
+        record(all(issubclass(c, store.StoreError) for c in (store.NotFound, store.Invalid, store.NoRoot)),
+               "all three are still a StoreError for callers that only know that")
+
         # --- a refused save changes nothing (review 2, finding 8) -------------------
         store.save_instance("zz-half-save", dict(BASE), soul="# one\n", rt=RT)
         keep_m = (L / "instances/zz-half-save/agent.json").read_bytes()
