@@ -153,6 +153,39 @@ def main() -> int:
             f.unlink()
         tmp.rmdir()
 
+    # --- a gate that could not be filed keeps its run id -------------------
+    class FakeRes:
+        ok, status, is_paused = True, "paused", True
+        resume_token, output, error, runner = "secret", None, None, "lobster"
+        requires_input, requires_approval = False, True
+        run_id = "run-42"
+
+    async def fake_run(target, args=None):
+        return FakeRes()
+
+    real_run, real_specs = M.run_pipeline_spec, M._SPECS_DIR
+    tmp2 = Path(tempfile.mkdtemp(prefix="mcp-flow-"))
+    try:
+        (tmp2 / "gated.json").write_text(json.dumps({"name": "gated", "steps": []}))
+        M._SPECS_DIR = str(tmp2)
+        M.run_pipeline_spec = fake_run
+        old_url = M._PILOT_URL
+        M._PILOT_URL = "http://127.0.0.1:9"  # nothing listens there
+        try:
+            out = call("flow_run", {"flow": "gated"})
+        finally:
+            M._PILOT_URL = old_url
+        record(out.get("run_id") == "run-42" and out.get("status") == "paused",
+               "a gate the inbox refused still reports the run id", str(out.get("run_id")))
+        record(bool(out.get("inbox_error")) and "not" in (out.get("note") or "").lower(),
+               "and says plainly that nobody was notified", (out.get("note") or "")[:70])
+        record("secret" not in json.dumps(out), "the gate key never reaches the answer")
+    finally:
+        M.run_pipeline_spec, M._SPECS_DIR = real_run, real_specs
+        for f in tmp2.iterdir():
+            f.unlink()
+        tmp2.rmdir()
+
     # --- a JSON-RPC batch carrying something that is not a message ---------
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

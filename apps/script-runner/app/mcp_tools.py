@@ -846,11 +846,24 @@ async def _flow_run(flow: str, args: dict | None) -> dict:
         out["waiting_for_human"] = (
             "approval" if res.requires_approval else "input" if res.requires_input else "a decision"
         )
-        out["note"] = (
-            "This run is paused at a gate. The decision has been placed in the "
-            "human's inbox. You cannot open it; say that it is waiting."
-        )
-        await _refile_gate(res, flow)
+        filed = await _refile_gate(res, flow)
+        if filed is None:
+            out["note"] = (
+                "This run is paused at a gate. The decision has been placed in "
+                "the human's inbox. You cannot open it; say that it is waiting."
+            )
+        else:
+            # The run EXISTS and is holding. Saying "the tool failed" here would
+            # be false and expensive: the model retries, and a second run does
+            # the same GPU work and waits at its own gate (review 2, finding 3).
+            out["inbox_error"] = filed
+            out["note"] = (
+                f"This run is paused at a gate, but it could NOT be put in the "
+                f"human's inbox ({filed}). The run itself started and is "
+                f"holding as {run_id}. Do NOT start the flow again -- say that "
+                f"the run is waiting and that nobody has been notified, and "
+                f"give the run id."
+            )
     else:
         out["output"] = res.output
 
@@ -858,13 +871,16 @@ async def _flow_run(flow: str, args: dict | None) -> dict:
     return out
 
 
-async def _refile_gate(res, flow: str) -> None:
-    """Put the pending decision in front of the human.
+async def _refile_gate(res, flow: str) -> str | None:
+    """Put the pending decision in front of the human. None means it landed.
 
     Without this the run pauses and nobody learns of it: the Pilot files its own
     inbox item only for runs IT started, and this one was started by an agent.
     A failure here is reported into the answer rather than swallowed -- a gate
-    nobody can see is worse than a flow that did not start.
+    nobody can see is worse than a flow that did not start. It used to say that
+    and then re-raise, which lost the answer, the run id with it, and had the
+    model start the flow a second time (review 2, finding 3). It returns the
+    reason instead, and the caller carries it into the answer.
     """
     payload = {
         "ok": res.ok,
@@ -883,11 +899,18 @@ async def _refile_gate(res, flow: str) -> None:
     }
     try:
         async with httpx.AsyncClient(timeout=10.0) as c:
-            await c.post(f"{_PILOT_URL}/inbox/refile", json=payload)
-    except Exception:
+            r = await c.post(f"{_PILOT_URL}/inbox/refile", json=payload)
+        # A 4xx/5xx used to count as success: the item was never filed and the
+        # model was told the decision was waiting for someone.
+        if r.status_code >= 400:
+            log.error("inbox refused the gate for run %s: HTTP %s %s",
+                      getattr(res, "run_id", None), r.status_code, r.text[:200])
+            return f"the inbox answered HTTP {r.status_code}"
+    except Exception as e:
         log.exception("could not file the gate for run %s into the inbox",
                       getattr(res, "run_id", None))
-        raise
+        return f"{type(e).__name__}: {e}"[:200]
+    return None
 
 
 async def _run_status(run_id: str) -> dict:
