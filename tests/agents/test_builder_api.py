@@ -184,7 +184,15 @@ def main() -> int:
         # schema does not (a number in tools.allow) must stop the rollout at
         # the dry run, and an agent trashed in the same rollout must survive
         # in the gateway: before the fix, `agents delete --force` ran first.
-        st, j = call("PUT", f"/agents/{BOGUS_ID}", {"manifest": {**base, "tools": {"allow": ["read", 42]}}, "soul": "# bogus\n"})
+        # Its OWN limits, not BASE_ID's: this agent outlives the one the next
+        # line trashes, and a borrow left dangling would make the roster refuse
+        # the rollout for that instead -- which is what happened the first time
+        # this ran (2026-09-04), and it proved nothing about the dry run.
+        bogus = {**base, "tools": {"allow": ["read", 42]},
+                 "limits": {"page_chars": 4000, "max_urls": 3, "max_queries": 5,
+                            "snippet_chars": 160, "results_per_query": 5,
+                            "max_pages_total": 12, "max_searches_total": 6}}
+        st, j = call("PUT", f"/agents/{BOGUS_ID}", {"manifest": bogus, "soul": "# bogus\n"})
         record("PASS" if st == 200 else "FAIL", "T11a store accepts what only the gateway can judge", f"HTTP {st}")
         st, j = call("DELETE", f"/agents/{BASE_ID}")
         record("PASS" if st == 200 else "FAIL", "T11b scratch base agent trashed beside it")

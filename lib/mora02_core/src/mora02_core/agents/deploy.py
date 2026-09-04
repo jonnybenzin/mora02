@@ -485,6 +485,9 @@ class Plan:
     drift: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     agents_block: dict = field(default_factory=dict)
+    # The same list plus the entries this run is about to delete, for the dry
+    # run. See apply() step 0 for why it cannot be agents_block itself.
+    dry_block: dict = field(default_factory=dict)
     files: dict[str, str] = field(default_factory=dict)
     stale: list[str] = field(default_factory=list)
     remove: list[str] = field(default_factory=list)
@@ -635,8 +638,19 @@ def plan(roster: dict, only: str | None, rt: Roots) -> Plan:
                 drift.append(f"catalog/{a['id']}: {what}")
                 files[path] = json.dumps(want, ensure_ascii=False, indent=2) + "\n"
 
+    # What the dry run may show the gateway. Measured live on 2026-09-04:
+    # `config patch` refuses a list that would drop an entry the gateway still
+    # has ("it would remove existing entries ... use --merge or --replace"). At
+    # dry-run time the agents this run deletes are still there, so the rendered
+    # list looks like a removal and the whole rollout was refused before it
+    # deleted anything. Dry-running the rendered list PLUS those entries
+    # removes nothing, so the check does what it is for -- every entry we
+    # author is schema-checked before a single thing is destroyed -- without
+    # asking the gateway to accept a removal that has not happened yet.
+    dry = rendered + [live_agents[aid] for aid in remove if aid in live_agents]
+
     return Plan(drift=drift, notes=notes, agents_block={"list": rendered},
-                files=files, stale=stale, remove=remove)
+                dry_block={"list": dry}, files=files, stale=stale, remove=remove)
 
 
 # Written into a trash folder once the gateway has actually forgotten the
@@ -691,9 +705,14 @@ def apply(roster: dict, p: Plan, only: str | None, rt: Roots,
     #    A3, 2026-09-03). The dry run checks the schema, not the outcome
     #    (measured 2026-09-02), which is exactly the part a later step cannot
     #    repair.
+    #
+    #    It runs against `dry_block`, not the list that will actually be
+    #    written: the gateway refuses a list that drops an entry it still has,
+    #    and at this moment it still has the agents step 4 is about to delete.
+    #    Deletion is the one thing this check is NOT trying to validate.
     rc, out = docker(
         "openclaw", "config", "patch", "--stdin", "--dry-run",
-        stdin=json.dumps({"agents": p.agents_block}),
+        stdin=json.dumps({"agents": p.dry_block or p.agents_block}),
     )
     if rc != 0:
         raise DeployError(

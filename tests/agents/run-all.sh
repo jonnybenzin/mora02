@@ -55,7 +55,17 @@ if python3 -c "import fastapi" 2>/dev/null; then
     run python3 tests/agents/test_source_check.py
     run python3 tests/agents/test_mcp_input.py
 else
-    echo; echo "=== test_source_check.py + test_mcp_input.py: skipped (no fastapi in this python; run them where mcp_tools imports, e.g. inside the script-runner image) ==="
+    echo
+    echo "=== test_source_check.py + test_mcp_input.py: SKIPPED ==="
+    echo "    This python has no fastapi, and both suites import mcp_tools."
+    echo "    They are not optional: test_mcp_input covers the MCP surface"
+    echo "    against what a model sends. Run them where the dependency is,"
+    echo "    e.g. in the script-runner image with the repo mounted:"
+    echo
+    echo "      docker run --rm -v /opt/mora02:/repo -w /repo \\"
+    echo "        -e PYTHONPATH=lib/mora02_core/src:apps/script-runner/app \\"
+    echo "        script-runner:latest python3 tests/agents/test_mcp_input.py"
+    echo
     SKIPPED=$((SKIPPED + 2))
 fi
 

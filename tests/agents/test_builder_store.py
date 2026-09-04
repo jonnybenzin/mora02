@@ -467,6 +467,31 @@ def main() -> int:
             deploy.docker = fake([])
             deploy.apply(roster, deploy.Plan(agents_block={"list": []}, remove=["zz-doomed"]), None, RT, lambda _l: None)
             record("zz-doomed" not in deploy.trashed_ids(RT), "B6 apply marks the trash once the gateway deleted the agent")
+
+            # A3 (live 2026-09-04): the gateway refuses a list that drops an
+            # entry it still has, and at dry-run time the agents this run
+            # deletes are still there. So the dry run shows it a list that
+            # removes nothing, and the REAL patch writes the smaller one.
+            # (The apply above spent the trash; unspend it for this case.)
+            for _f in (L / "instances/.trash").iterdir():
+                if _f.name.startswith("zz-doomed-"):
+                    (_f / deploy.TRASH_APPLIED).unlink(missing_ok=True)
+            deploy.docker = fake([("config get agents", (0, json.dumps(LIVE)))])
+            pl = deploy.plan(roster, None, RT)
+            dry_ids = [e["id"] for e in pl.dry_block["list"]]
+            real_ids = [e["id"] for e in pl.agents_block["list"]]
+            record("zz-doomed" in dry_ids and "zz-doomed" not in real_ids and pl.remove == ["zz-doomed"],
+                   "A3 the dry-run list keeps what the real one drops", str(dry_ids))
+            record(set(e["id"] for e in LIVE["list"]) <= set(dry_ids),
+                   "A3 the dry-run list removes nothing the gateway has")
+            calls.clear()
+            deploy.docker = fake([])
+            deploy.apply(roster, pl, None, RT, lambda _l: None)
+            sent = [stdin for argv, stdin in calls if "--dry-run" in " ".join(argv)]
+            real = [stdin for argv, stdin in calls
+                    if "config patch" in " ".join(argv) and "--dry-run" not in " ".join(argv)]
+            record(sent and "zz-doomed" in sent[0] and real and "zz-doomed" not in real[0],
+                   "A3 apply dry-runs the wider list and writes the narrower one")
         finally:
             deploy.docker = real_docker
         for aid in ("zz-new", "zz-live"):
