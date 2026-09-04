@@ -54,6 +54,7 @@ os.environ["MORA02_SCRIPT_RUNNER_DATA"] = str(DATA)
 os.environ["MORA02_PIPELINE_LOG_DIR"] = str(DATA / "logs")
 
 import main  # noqa: E402
+import speech  # noqa: E402
 import httpx  # noqa: E402
 
 results: list[tuple[str, str, str]] = []
@@ -92,8 +93,8 @@ def main_() -> int:
         time.sleep(BLOCK_S)          # a real, thread-blocking sleep
         return _Asset()
 
-    real = main.tts_lib.generate
-    main.tts_lib.generate = slow_tts
+    real = speech.tts_lib.generate
+    speech.tts_lib.generate = slow_tts
     try:
         async def busy():
             transport = httpx.ASGITransport(app=main.app)
@@ -103,7 +104,7 @@ def main_() -> int:
 
         served, waited = asyncio.run(_probe_while(busy(), "tts"))
     finally:
-        main.tts_lib.generate = real
+        speech.tts_lib.generate = real
 
     record(bool(calls), "the blocking call really was reached", f"{len(calls)} call(s)")
     record(served, "the service answers a health check during a speech render")
@@ -147,7 +148,7 @@ def main_() -> int:
         seen.append(threading.get_ident())
         return _Asset()
 
-    main.tts_lib.generate = note_thread
+    speech.tts_lib.generate = note_thread
     try:
         async def one():
             transport = httpx.ASGITransport(app=main.app)
@@ -157,7 +158,7 @@ def main_() -> int:
 
         loop_thread = asyncio.run(one())
     finally:
-        main.tts_lib.generate = real
+        speech.tts_lib.generate = real
     record(bool(seen) and seen[0] != loop_thread,
            "the work ran on another thread than the loop",
            f"loop={loop_thread} work={seen[0] if seen else '-'}")

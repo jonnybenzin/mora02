@@ -53,6 +53,7 @@ DATA = Path(tempfile.mkdtemp(prefix="sr-paths-"))
 os.environ["MORA02_SCRIPT_RUNNER_DATA"] = str(DATA)
 
 import main  # noqa: E402
+import steps  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from mora02_core.pipeline import runlog  # noqa: E402
@@ -142,7 +143,7 @@ def main_() -> int:
         if value == "":
             continue  # empty means "use the generated name", tested below
         try:
-            main.step_out_path(store, value, "gen.mp4")
+            steps.step_out_path(store, value, "gen.mp4")
         except ValueError:
             pass
         else:
@@ -151,10 +152,10 @@ def main_() -> int:
     else:
         record(True, "a step output name may not escape its store",
                f"{len(ESCAPES) - 1} forms refused")
-    got = main.step_out_path(store, None, "gen.mp4")
-    record(got.name == "gen.mp4" and got.parent == main.asset_refs.store_root(store),
+    got = steps.step_out_path(store, None, "gen.mp4")
+    record(got.name == "gen.mp4" and got.parent == steps.asset_refs.store_root(store),
            "without a name the generated one is used, in the store", str(got.name))
-    got = main.step_out_path(store, "wanted.mp4", "gen.mp4")
+    got = steps.step_out_path(store, "wanted.mp4", "gen.mp4")
     record(got.name == "wanted.mp4", "a plain name is honoured", str(got.name))
 
     # --- a run id is a run id, in both places ------------------------------

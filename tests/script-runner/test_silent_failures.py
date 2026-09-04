@@ -61,6 +61,7 @@ os.environ["MORA02_SCRIPT_RUNNER_DATA"] = str(DATA)
 os.environ["MORA02_PIPELINE_LOG_DIR"] = str(LOGS)
 
 import main  # noqa: E402
+import steps  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from mora02_core import pricing  # noqa: E402
 from mora02_core.db import api as db_api  # noqa: E402
@@ -150,7 +151,7 @@ def main_() -> int:
     real = with_db_response(FakeResponse(404, {}, "not found"))
     try:
         try:
-            asyncio.run(main._step_db_get([], {"table": "sb_assets", "row_id": "7"}))
+            asyncio.run(steps._step_db_get([], {"table": "sb_assets", "row_id": "7"}))
         except ValueError as e:
             record("no row" in str(e), "db.get on a missing row is a failed STEP", str(e)[:50])
         else:
@@ -160,7 +161,7 @@ def main_() -> int:
 
     real = with_db_response(FakeResponse(200, {"id": 5, "Name": "x"}))
     try:
-        out = asyncio.run(main._step_db_get([], {"table": "sb_assets", "row_id": "5"}))
+        out = asyncio.run(steps._step_db_get([], {"table": "sb_assets", "row_id": "5"}))
         record(out["ok"] and json.loads(out["out"])["id"] == 5,
                "a row that IS there still comes back", out["out"][:40])
     finally:
@@ -196,7 +197,7 @@ def main_() -> int:
     record(got.get("runs") == 1,
            "with window_days=1 only the run inside the window is counted",
            f"runs={got.get('runs')} (six in the log, five of them 90 days old)")
-    main._VOCAB_STATS_CACHE.update(signature=None, payload=None)
+    steps._VOCAB_STATS_CACHE.update(signature=None, payload=None)
     r = client.get("/pipeline/vocab-stats?window_days=365")
     got = r.json().get("ops", {}).get("image.generate", {})
     record(got.get("runs") == 6, "with a wide window all six are counted",
@@ -226,7 +227,7 @@ def main_() -> int:
     record(_assets.wire_type(".gif") == _assets.wire_type("/a/b.gif") == "image",
            "a .gif has ONE wire type now, wherever it is asked",
            "two tables called it image and video")
-    record(main._step_kind_for_suffix(".avi") == "video",
+    record(steps._step_kind_for_suffix(".avi") == "video",
            "and a type only one of the two tables knew still resolves")
 
     from mora02_core.pipeline.base import PipelineResult
@@ -266,8 +267,8 @@ def main_() -> int:
         ("I would say **BETA**.", "BETA", "emphasis around the answer"),
         ("nothing here at all", None, "no label anywhere"),
     ]
-    wrong = [(why, main._label_from(t, L), want) for t, want, why in cases
-             if main._label_from(t, L) != want]
+    wrong = [(why, steps._label_from(t, L), want) for t, want, why in cases
+             if steps._label_from(t, L) != want]
     record(not wrong, "the label is read from the END of the answer, not the start",
            str(wrong)[:90] or f"{len(cases)} shapes")
 
@@ -275,27 +276,27 @@ def main_() -> int:
         return ("Here's a thinking process:\n1. ALPHA or BETA?\n\nBETA",
                 {"tokens_out": 40, "truncated": False})
 
-    real_q = main.complete_qwen_usage
-    main.complete_qwen_usage = thinking
+    real_q = steps.complete_qwen_usage
+    steps.complete_qwen_usage = thinking
     try:
-        out = asyncio.run(main._step_llm_classify(["text"], {"labels": "ALPHA,BETA"}))
+        out = asyncio.run(steps._step_llm_classify(["text"], {"labels": "ALPHA,BETA"}))
         record(out["out"] == "BETA", "and a reasoning answer classifies", str(out["out"]))
     finally:
-        main.complete_qwen_usage = real_q
+        steps.complete_qwen_usage = real_q
 
     async def cut(*a, **k):
         return ("Here's a thinking process:\n1. Analyze the user in",
                 {"tokens_out": 32, "truncated": True})
 
-    main.complete_qwen_usage = cut
+    steps.complete_qwen_usage = cut
     try:
-        asyncio.run(main._step_llm_classify(["text"], {"labels": "ALPHA,BETA"}))
+        asyncio.run(steps._step_llm_classify(["text"], {"labels": "ALPHA,BETA"}))
         record(False, "a cut-off answer says so, rather than blaming the model", "no error")
     except ValueError as e:
         record("cut off" in str(e), "a cut-off answer says so, rather than blaming the model",
                str(e)[:64])
     finally:
-        main.complete_qwen_usage = real_q
+        steps.complete_qwen_usage = real_q
 
     fails = [r for r in results if r[0] == "FAIL"]
     print(f"\n{len(results) - len(fails)} passed, {len(fails)} failed")
