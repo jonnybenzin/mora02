@@ -61,7 +61,10 @@ from mcp_tools import router as mcp_router
 
 _log = get_logger("script-runner")
 
-DATA_DIR = Path("/data")
+# The mount the media service works in. Overridable so the file can be imported
+# outside the container -- a test cannot create /data, and until it could be
+# pointed elsewhere there was no way to test any of this without a container.
+DATA_DIR = Path(os.environ.get("MORA02_SCRIPT_RUNNER_DATA", "/data"))
 WIP_DIR = DATA_DIR / "wip"
 FINAL_DIR = DATA_DIR / "final"
 
@@ -183,10 +186,40 @@ def create_session() -> str:
     (session_dir / "output").mkdir(parents=True, exist_ok=True)
     return session_id
 
+# A session id is what create_session() makes: a timestamp, an underscore and six
+# hex characters. Checked rather than trusted, because this one function resolves
+# the path for all nine callers -- two of which hand it to shutil.rmtree.
+#
+# MEASURED 2026-09-04: `DELETE /session/%2e%2e` arrives here with session_id ".."
+# (uvicorn percent-decodes before routing; a literal ".." is normalised away by
+# clients, the encoded form is not). `Path("/data/wip/..").exists()` is true, so
+# the old check passed it straight through and rmtree emptied /data -- which
+# carries, by bind mount, the flow library, every run log and run bucket, the
+# agent definitions and the gateway's workspace. The Pilot forwards /sr/<path>
+# to this service verbatim and listens on every interface, so that was reachable
+# from the house network without any credential.
+_SESSION_ID_RE = re.compile(r"^[0-9]{10}_[0-9a-f]{6}$")
+
+
 def get_session_dir(session_id: str) -> Path:
-    """Get session directory, raise if not exists"""
+    """The directory of one session. Raises 422 for anything that is not an id,
+    404 for an id with no directory."""
+    if not _SESSION_ID_RE.match(session_id or ""):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{session_id!r} is not a session id (ten digits, an "
+                   f"underscore, six hex characters)",
+        )
     session_dir = WIP_DIR / session_id
-    if not session_dir.exists():
+    # Second net, and not redundant: the pattern above cannot see a symlink.
+    # Whatever the name resolves to has to sit inside the wip directory.
+    try:
+        session_dir.resolve().relative_to(WIP_DIR.resolve())
+    except (ValueError, OSError):
+        raise HTTPException(status_code=422, detail=f"session {session_id} is not inside the session directory")
+    # is_dir, not exists: a FILE of that name would pass exists() and then fail
+    # inside rmtree, after the caller had been told the session was found.
+    if not session_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     return session_dir
 
