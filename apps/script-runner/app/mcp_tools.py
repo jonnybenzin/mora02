@@ -10,16 +10,20 @@ from the inside. ``exec`` is worse: the tool bench measured five models reaching
 for five different tools to force a gate, and a shell was the commonest. MCP is
 the only path that adds exactly one capability and nothing else.
 
-So this server offers ``flows_list``, ``flow_run`` and ``run_status`` -- and no
-resume, no approve, no cancel.
+So of the pipeline this server offers ``flows_list``, ``flow_run`` and
+``run_status`` -- and no resume, no approve, no cancel.
 
-Two more were added for the research agent: ``web_search`` and ``web_read``,
-both against the LOCAL metasearch engine and the open web via
-``mora02_core.web``. They are granted separately, so an agent can read the web
-without touching pipelines and vice versa -- the line that lets a
-reading-only agent later run on a cloud model while a steering one may not. Pillar 6 of the plan ("the agent does not release
-a gate") stops being a request to the model and becomes a property of its tool
-surface. ``flow_run`` therefore also DROPS the ``resume_token`` that
+The research agent added ``web_search`` and ``web_read``, both against the
+LOCAL metasearch engine and the open web via ``mora02_core.web``, and the
+notebook that keeps a long turn honest: ``note``, ``notes_review`` and
+``verify``. Eight in all; ``agents/tools.json`` says which of them merely read
+and which act.
+
+They are granted separately, so an agent can read the web without touching
+pipelines and vice versa -- the line that lets a reading-only agent run on a
+cloud model while a steering one may not. Pillar 6 of the plan ("the agent
+does not release a gate") stops being a request to the model and becomes a
+property of its tool surface. ``flow_run`` therefore also DROPS the ``resume_token`` that
 ``/pipeline/run-spec`` hands back: whoever holds that token can open the gate,
 so it must not travel into a model's context.
 

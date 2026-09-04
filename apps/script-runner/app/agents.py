@@ -14,16 +14,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
-from pathlib import Path
 from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 import httpx
 from pydantic import BaseModel
 
-from mcp_tools import (TurnBusy, begin_turn, checks_earlier, checks_since, end_turn,
+from mcp_tools import (TOOLS, TurnBusy, begin_turn, checks_earlier, checks_since,
+                       end_turn,
                        notes_earlier,
                        notes_since, open_notes, reviewed_this_turn,
                        single_source_notes, turn_progress, urls_since)
@@ -140,13 +139,13 @@ def get_roster(include_inactive: bool = False):
     # skipped by the store and refused where it matters, at the rollout. The
     # chat's agent list is not the place to fail over someone else's typo.
     for folder in iter_instances(ROOTS):
-        manifest = folder / "agent.json"
-        if not manifest.is_file():
+        # The store's reader, not a second one: it answers {} for a manifest
+        # that is missing or unreadable, which is the "hides itself, never the
+        # others" rule this loop used to spell out again -- and a schema check
+        # added there would never have reached this copy.
+        data = load_manifest(folder.name, ROOTS)
+        if not data:
             continue
-        try:
-            data = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue  # a broken manifest hides itself, never the others
         if not data.get("active", True) and not include_inactive:
             continue
         agents.append({
@@ -272,7 +271,6 @@ def get_tools():
     curated, because only a person can write what `exec` means for an agent.
     Ids are what the allow list wants: MCP tools carry the server prefix.
     """
-    from mcp_tools import TOOLS as _MCP_TOOLS  # local: the module is heavy at import
     server = "mora02"
     try:
         servers = json.loads((AGENTS_DIR / "mcp.json").read_text(encoding="utf-8"))
@@ -286,7 +284,7 @@ def get_tools():
         "risk": mcp_tool_risk(t["name"], ROOTS),
         "what": t.get("description", "")[:220],
         "source": "mcp",
-    } for t in _MCP_TOOLS]
+    } for t in TOOLS]
     builtin = [{**t, "source": "gateway"} for t in builtin_tools(ROOTS)]
     return {"tools": mcp + builtin}
 
