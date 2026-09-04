@@ -243,12 +243,28 @@ def instances_dir(rt: Roots | None = None) -> Path | None:
 
 
 def iter_instances(rt: Roots | None = None) -> list[Path]:
-    """Every instance folder. Tolerant: does not read manifests, does not judge
-    them. Dot folders (.trash) skipped."""
+    """Every instance folder. Does not read manifests, does not judge them --
+    but does judge the NAME. Dot folders (.trash) skipped.
+
+    A folder whose name is not an id used to be listed here and refused by
+    every lookup: ``instances/Recherche_DE/`` was rolled out, and the detail
+    view said "no agent" (review B10, 2026-09-03). The name is the id, and an
+    id that cannot be looked up is an error at the door, not later.
+    """
     inst = instances_dir(rt)
     if inst is None or not inst.is_dir():
         return []
-    return [f for f in sorted(inst.iterdir()) if f.is_dir() and not f.name.startswith(".")]
+    out: list[Path] = []
+    for f in sorted(inst.iterdir()):
+        if not f.is_dir() or f.name.startswith("."):
+            continue
+        if not ID_RE.match(f.name):
+            raise StoreError(
+                f"instances/{f.name}: not a valid agent id (lowercase letters, "
+                f"digits and dashes, 2-64 characters) -- rename the folder"
+            )
+        out.append(f)
+    return out
 
 
 def find_instance(agent_id: str, rt: Roots | None = None) -> Path | None:

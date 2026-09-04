@@ -135,7 +135,11 @@ async def get_roster(include_inactive: bool = False):
         )
 
     agents = []
-    for folder in iter_instances(ROOTS):
+    try:
+        folders = iter_instances(ROOTS)
+    except StoreError as e:
+        raise _store_error(e)
+    for folder in folders:
         manifest = folder / "agent.json"
         if not manifest.is_file():
             continue

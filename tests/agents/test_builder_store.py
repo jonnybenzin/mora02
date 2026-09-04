@@ -307,6 +307,13 @@ def main() -> int:
         record(not re.search(cli.kill_pattern("agent:x:1.2"), line.replace("agent:x:1", "agent:x:1x2")),
                "B5 a dot in the key is a dot, not a wildcard")
 
+        # B10: a folder whose name is not an id is refused at the door
+        (L / "instances/Recherche_DE").mkdir()
+        (L / "instances/Recherche_DE/agent.json").write_text(json.dumps(BASE))
+        refuses(lambda: store.iter_instances(RT), "B10 instances/Recherche_DE refused when listed", "not a valid agent id")
+        refuses(lambda: store.load_roster(RT), "B10 ... and therefore by the roster", "not a valid agent id")
+        shutil.rmtree(L / "instances/Recherche_DE")
+
         # --- the gateway's answers are read, not guessed (review A2) --------------
         # The CLI prints a warning line AFTER its JSON; the old reader turned
         # that into {} and planned every rollout against an empty gateway.
