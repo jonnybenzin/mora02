@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -52,8 +53,26 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# A run id becomes a file name, and it arrives from the query string of
+# /pipeline/step/<op> — baked in by the compiler, but nothing stopped a caller
+# from sending its own. Checked here rather than at each caller: this function
+# and its twin in runbucket are the only two places a run id becomes a path
+# (review 3, 2026-09-04). The shape is what new_run_id() makes.
+RUN_ID_RE = re.compile(r"^[0-9]{8}_[0-9]{6}_[0-9a-f]{8}$")
+
+
+class BadRunId(ValueError):
+    """A run id that cannot name a log file."""
+
+
+def check_run_id(run_id: str) -> str:
+    if not RUN_ID_RE.match(str(run_id or "")):
+        raise BadRunId(f"{str(run_id)[:80]!r} is not a run id")
+    return run_id
+
+
 def _path(run_id: str) -> str:
-    return os.path.join(log_dir(), f"{run_id}.jsonl")
+    return os.path.join(log_dir(), f"{check_run_id(run_id)}.jsonl")
 
 
 def log_event(run_id: str | None, kind: str, **fields: Any) -> None:
@@ -78,6 +97,12 @@ def log_event(run_id: str | None, kind: str, **fields: Any) -> None:
         # Logging must never break a run — a disk/mount problem degrades to
         # "no logs", not to a failed pipeline.
         pass
+    except BadRunId:
+        # A run id that cannot name a file was not made here. Dropping the
+        # event is the whole response: the promise above is that logging never
+        # breaks a run, and an event nobody can correlate is worth less than
+        # that promise.
+        pass
 
 
 def read_events(run_id: str) -> list[dict[str, Any]]:
@@ -90,7 +115,7 @@ def read_events(run_id: str) -> list[dict[str, Any]]:
     """
     out: list[dict[str, Any]] = []
     try:
-        with open(os.path.join(log_dir(), f"{run_id}.jsonl"), encoding="utf-8") as fh:
+        with open(_path(run_id), encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:

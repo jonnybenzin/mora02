@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import os
+
+from mora02_core.pipeline import runlog
 from typing import Any
 
 from mora02_core._common import get_logger
@@ -35,7 +37,9 @@ def bucket_dir() -> str:
 
 
 def _path(run_id: str) -> str:
-    return os.path.join(bucket_dir(), f"{run_id}.json")
+    # Same guard as the run log's, and for the same reason: this is the second
+    # place a run id becomes a path (review 3, 2026-09-04).
+    return os.path.join(bucket_dir(), f"{runlog.check_run_id(run_id)}.json")
 
 
 def _load(run_id: str) -> dict[str, Any]:

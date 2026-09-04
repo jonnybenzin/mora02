@@ -16,7 +16,7 @@ import httpx
 from pathlib import Path
 from datetime import datetime, timezone
 from contextlib import nullcontext
-from typing import Optional, List
+from typing import Any, List, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -199,6 +199,103 @@ def create_session() -> str:
 # to this service verbatim and listens on every interface, so that was reachable
 # from the house network without any credential.
 _SESSION_ID_RE = re.compile(r"^[0-9]{10}_[0-9a-f]{6}$")
+
+# A flow name is a file name under pipelines/specs/. Defined here with the other
+# patterns rather than beside its first user: four places build a path from it.
+_FLOW_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
+
+
+def _segment_problem(value: Any) -> str | None:
+    """Why ``value`` cannot be one path segment, or None if it can.
+
+    Permissive about what a name may CONTAIN -- a real filename has spaces and
+    brackets in it -- and airtight about what would make it a path.
+    """
+    v = "" if value is None else str(value)
+    if not v:
+        return "is empty"
+    if len(v) > 255:
+        return "is longer than 255 characters"
+    if v in (".", ".."):
+        return "is not a name"
+    if "/" in v or "\\" in v or "\x00" in v:
+        return "contains a path separator"
+    return None
+
+
+def safe_segment(value: Any, what: str) -> str:
+    """One path segment, from an HTTP caller. 422 for anything that is not a name.
+
+    Review 3 (2026-09-04) found six endpoints and five step handlers building a
+    path out of a request field and then WRITING to it. That is reachable
+    without a credential: apps/pilot/app.py forwards /sr/<path> to this service
+    verbatim and listens on every interface. And the container writes into
+    /opt/mora02/pipelines (the flow library and every run log), /opt/mora02/agents
+    (what an agent may hold) and /llm-switch, whose mailbox a root unit on the
+    HOST consumes -- so a free choice of path does not stay in the container.
+
+    Permissive about what a name may contain -- a real filename has spaces and
+    brackets in it -- and airtight about what makes it a path: no separator, no
+    `.` or `..`, nothing empty.
+    """
+    problem = _segment_problem(value)
+    if problem:
+        raise HTTPException(status_code=422,
+                            detail=f"{what}: {str(value)[:80]!r} {problem}")
+    return str(value)
+
+
+def step_segment(value: Any, what: str) -> str:
+    """The same rule inside a pipeline step. ValueError rather than
+    HTTPException, so the step endpoint's funnel records it as a failed STEP in
+    the run log instead of raising past it."""
+    problem = _segment_problem(value)
+    if problem:
+        raise ValueError(f"{what}: {str(value)[:80]!r} {problem}")
+    return str(value)
+
+
+def step_out_path(store: str, name: Any, default: str) -> Path:
+    """Where a step writes its output: the caller's name, or a generated one.
+
+    Four handlers built this by hand as `store_root(store) / params["name"]`,
+    and `name` is a declared vocabulary parameter that `validate_op` puts no
+    pattern on -- so a compiled flow, whose params a model may have composed,
+    chose the write path (review 3, 2026-09-04). One helper so a fifth handler
+    cannot forget.
+    """
+    root = asset_refs.store_root(store)
+    out_name = step_segment(name, "name") if name else default
+    path = root / out_name
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        raise ValueError(f"name: {out_name!r} points outside store {store!r}")
+    return path
+
+
+def inside(root: Path, candidate: Path, what: str) -> Path:
+    """``candidate``, proven to resolve inside ``root``. The net under
+    safe_segment: a pattern cannot see a symlink, this can."""
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        raise HTTPException(status_code=422, detail=f"{what} points outside {root}")
+    return candidate
+
+
+def _checked_run_id(run_id: str, what: str = "run_id") -> str:
+    """A run id from a caller, refused as a 422 rather than a 500.
+
+    The library refuses one that cannot name a log file; three endpoints take
+    one straight from a request, and before review 3 they handed it through
+    unchecked -- `/pipeline/rerun`, `/pipeline/rerun-plan` and `/pipeline/replay`
+    would read any .jsonl or .json the container can see.
+    """
+    try:
+        return pipeline_runlog.check_run_id(run_id)
+    except pipeline_runlog.BadRunId as e:
+        raise HTTPException(status_code=422, detail=f"{what}: {e}")
 
 
 def get_session_dir(session_id: str) -> Path:
@@ -502,8 +599,14 @@ async def finalize_session(request: FinalizeSessionRequest):
     session_short = request.session_id.split("_")[-1][:6] if "_" in request.session_id else request.session_id[:6]
     folder_name = f"{timestamp}_{session_short}"
     
-    # Create final directory
-    final_path = FINAL_DIR / request.script_type / folder_name
+    # Create final directory. The channel is a caller-supplied segment, and
+    # this path is created and then written into -- the same class as
+    # /publish-asset, which validates its target against a known list.
+    final_path = inside(
+        FINAL_DIR,
+        FINAL_DIR / safe_segment(request.script_type, "script_type") / folder_name,
+        "script_type",
+    )
     final_path.mkdir(parents=True, exist_ok=True)
     
     # Copy output files
@@ -568,7 +671,16 @@ async def publish_asset(request: PublishAssetRequest):
         }
     
     # Build source path
-    source_path = FINAL_DIR / request.source_type / request.source_folder / request.source_file
+    # Every one of the three is a caller-supplied segment, and the result is
+    # both read from and written to. Before review 3 this reached the read-only
+    # customer library and copied out of it into the folder nginx serves.
+    source_path = inside(
+        FINAL_DIR,
+        FINAL_DIR / safe_segment(request.source_type, "source_type")
+                  / safe_segment(request.source_folder, "source_folder")
+                  / safe_segment(request.source_file, "source_file"),
+        "source",
+    )
     
     if not source_path.exists():
         return {"success": False, "error": f"Source file not found: {source_path}"}
@@ -578,7 +690,7 @@ async def publish_asset(request: PublishAssetRequest):
     dest_dir.mkdir(parents=True, exist_ok=True)
     
     # Copy file to destination
-    dest_file = dest_dir / request.source_file
+    dest_file = inside(dest_dir, dest_dir / safe_segment(request.source_file, "source_file"), "destination")
     shutil.copy2(source_path, dest_file)
     
     # Return the filename (this is what goes into SM_content.media_path)
@@ -596,7 +708,7 @@ async def publish_asset(request: PublishAssetRequest):
 async def finalize_file(request: FinalizeRequest):
     """Move file to final directory and return permanent URL (legacy)"""
     session_dir = get_session_dir(request.session_id)
-    source_file = session_dir / "output" / request.filename
+    source_file = session_dir / "output" / safe_segment(request.filename, "filename")
     
     if not source_file.exists():
         raise HTTPException(status_code=404, detail="File not found")
@@ -604,7 +716,7 @@ async def finalize_file(request: FinalizeRequest):
     final_subdir = FINAL_DIR / request.script_type
     final_subdir.mkdir(parents=True, exist_ok=True)
     
-    dest_file = final_subdir / request.filename
+    dest_file = final_subdir / safe_segment(request.filename, "filename")
     shutil.copy2(source_file, dest_file)
     
     final_url = f"/final/{request.script_type}/{request.filename}"
@@ -767,7 +879,12 @@ async def search_pixabay(request: StockSearchRequest):
 @app.post("/download/stock")
 async def download_stock_image(request: StockDownloadRequest):
     """Download a stock image and save to final directory"""
-    
+    # Checked before the fetch, not after it: these two become the folder and
+    # the file name, and a request that cannot be stored should not cost a
+    # download first.
+    src = safe_segment(request.source, "source")
+    img_id = safe_segment(request.image_id, "image_id")
+
     try:
         # Download image
         async with httpx.AsyncClient() as client:
@@ -791,11 +908,11 @@ async def download_stock_image(request: StockDownloadRequest):
         
         # Create filename and folder: img_YYMMDD-HHMM_source_id.ext
         timestamp = create_timestamp()
-        folder_name = f"img_{timestamp}_{request.source}_{request.image_id}"
-        filename = f"img_{timestamp}_{request.source}_{request.image_id}{ext}"
-        
+        folder_name = f"img_{timestamp}_{src}_{img_id}"
+        filename = f"img_{timestamp}_{src}_{img_id}{ext}"
+
         # Save to final directory
-        final_path = FINAL_DIR / request.source / folder_name
+        final_path = inside(FINAL_DIR, FINAL_DIR / src / folder_name, "source")
         final_path.mkdir(parents=True, exist_ok=True)
         
         filepath = final_path / filename
@@ -822,7 +939,12 @@ async def download_stock_image(request: StockDownloadRequest):
             "preview_url": preview_url,
             "photographer": request.photographer
         }
-        
+
+    except HTTPException:
+        # A refused request is not a failed download. Without this the catch-all
+        # below turns a 422 into HTTP 200 with success=false, and a caller that
+        # reads the status cannot tell a rejection from a success.
+        raise
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -1128,6 +1250,12 @@ async def pipeline_run_spec(req: PipelineRunSpecRequest):
         # only the silence goes.
         target = pipeline_spec.materialize_wiring(req.spec)
     elif req.name:
+        # The same pattern the flow-library endpoints apply to a name before
+        # they build a path from it. This sibling did not, so a name with `..`
+        # in it chose which spec file to compile AND RUN (review 3).
+        stem = req.name[:-len(Path(req.name).suffix)] if Path(req.name).suffix else req.name
+        if not _FLOW_NAME_RE.fullmatch(stem):
+            raise HTTPException(status_code=422, detail=f"name: {req.name!r} is not a flow name")
         base = Path(_PIPELINE_SPECS_DIR) / req.name
         cands = [base] if base.suffix else [
             base.with_suffix(ext) for ext in (".json", ".yaml", ".yml")
@@ -1163,7 +1291,7 @@ async def pipeline_rerun(req: PipelineRerunRequest):
     spec = req.spec
     if spec is None:
         start = next(
-            (e for e in pipeline_runlog.read_events(req.source_run_id)
+            (e for e in pipeline_runlog.read_events(_checked_run_id(req.source_run_id, "source_run_id"))
              if e.get("kind") == "run_start"),
             None,
         )
@@ -1198,7 +1326,7 @@ async def pipeline_rerun_plan(req: PipelineRerunRequest):
     spec = req.spec
     if spec is None:
         start = next(
-            (e for e in pipeline_runlog.read_events(req.source_run_id)
+            (e for e in pipeline_runlog.read_events(_checked_run_id(req.source_run_id, "source_run_id"))
              if e.get("kind") == "run_start"),
             None,
         )
@@ -1263,7 +1391,6 @@ async def pipeline_flow(name: str):
 # A flow name doubles as its file name, so it has to survive both a file system
 # and a URL. The authoring UI slugifies before it posts; this is the guard for
 # every other caller.
-_FLOW_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 
 
 @app.post("/pipeline/flow/{name}")
@@ -1578,7 +1705,17 @@ async def _step_source_file(inputs: List[str], params: dict) -> dict:
     root = asset_refs.store_root(store)
     name = params.get("name")
     if name:
+        # A relative path inside the store is allowed -- stores have folders --
+        # but it has to STAY inside. Its sibling source.find checks the same
+        # thing and says why in its own comment; this one did not, so
+        # `name=/etc/hostname` passed is_file() and ref_for_path then fell back
+        # to the bare basename, yielding a ref pointing at a different file
+        # (review 3, 2026-09-04).
         target = root / name
+        try:
+            target.resolve().relative_to(root.resolve())
+        except (ValueError, OSError):
+            raise ValueError(f"{name!r} points outside store {store!r}")
         if not target.is_file():
             raise ValueError(f"{name!r} not found in store {store!r}")
     else:
@@ -2333,8 +2470,8 @@ async def _step_clip_generate(inputs: List[str], params: dict) -> dict:
         raise ValueError("clip.generate needs at least one input ref on stdin")
     input_paths = [asset_refs.resolve_ref(r) for r in inputs if r.strip()]
     out_store = "clipper"
-    out_name = params.get("name") or f"pipe_{uuid.uuid4().hex[:8]}.mp4"
-    out_path = asset_refs.store_root(out_store) / out_name
+    out_path = step_out_path(out_store, params.get("name"), f"pipe_{uuid.uuid4().hex[:8]}.mp4")
+    out_name = out_path.name
     clip = await asyncio.to_thread(
         create_clip,
         input_paths,
@@ -2350,7 +2487,7 @@ async def _step_clip_generate(inputs: List[str], params: dict) -> dict:
         audio_path = asset_refs.resolve_ref(soundtrack)
         if not audio_path.is_file():
             raise ValueError(f"clip.generate: soundtrack not found for ref {soundtrack!r}")
-        muxed = asset_refs.store_root(out_store) / f"snd_{out_name}"
+        muxed = step_out_path(out_store, None, f"snd_{out_name}")
         await asyncio.to_thread(mux_audio, clip.path, audio_path, muxed)
         out_ref = asset_refs.ref_for_path(muxed, out_store)
     else:
@@ -2371,8 +2508,7 @@ async def _step_text_overlay(inputs: List[str], params: dict) -> dict:
     if not text:
         raise ValueError("text.overlay needs text (?text= or on stdin)")
     out_store = "typer"
-    out_name = params.get("name") or f"txt_{uuid.uuid4().hex[:8]}.png"
-    out_path = asset_refs.store_root(out_store) / out_name
+    out_path = step_out_path(out_store, params.get("name"), f"txt_{uuid.uuid4().hex[:8]}.png")
     asset = await asyncio.to_thread(
         create_text_frame, text, out_path,
         size=params.get("size", "1080x1080"),
@@ -2396,8 +2532,7 @@ async def _step_gif_create(inputs: List[str], params: dict) -> dict:
         raise ValueError("gif.create needs at least one image ref on stdin")
     input_paths = [asset_refs.resolve_ref(r) for r in inputs if r.strip()]
     out_store = "gifer"
-    out_name = params.get("name") or f"gif_{uuid.uuid4().hex[:8]}.gif"
-    out_path = asset_refs.store_root(out_store) / out_name
+    out_path = step_out_path(out_store, params.get("name"), f"gif_{uuid.uuid4().hex[:8]}.gif")
     asset = await asyncio.to_thread(
         create_gif, input_paths, out_path,
         params.get("durations", "1"),
@@ -2687,7 +2822,7 @@ async def _step_stock_download(inputs: List[str], params: dict) -> dict:
     image_url = params.get("image_url")
     if not source or not image_url:
         raise ValueError("stock.download needs ?source= and ?image_url=")
-    image_id = params.get("image_id") or uuid.uuid4().hex[:8]
+    image_id = step_segment(params.get("image_id"), "image_id") if params.get("image_id") else uuid.uuid4().hex[:8]
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         resp = await client.get(image_url, headers={"User-Agent": "Mozilla/5.0 (mora02 pipeline)"})
         resp.raise_for_status()
@@ -2695,8 +2830,8 @@ async def _step_stock_download(inputs: List[str], params: dict) -> dict:
         data = resp.content
     ext = ".png" if "png" in ctype else (".webp" if "webp" in ctype else ".jpg")
     out_store = "stock"
-    out_name = f"stock_{source}_{image_id}{ext}"
-    out_path = asset_refs.store_root(out_store) / out_name
+    out_name = f"stock_{step_segment(source, 'source')}_{image_id}{ext}"
+    out_path = step_out_path(out_store, out_name, out_name)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(data)
     out_ref = asset_refs.make_ref(out_store, out_name)
@@ -3241,7 +3376,7 @@ async def pipeline_replay(from_run: str, step: str, run_id: str = None,
     log, where the step is marked ``replayed``.
     """
     try:
-        out = pipeline_runbucket.get(from_run, step)
+        out = pipeline_runbucket.get(_checked_run_id(from_run, "from_run"), step)
     except KeyError:
         # Not a crash-worthy bug: the earlier run may have been pruned, or never
         # got that far. Say which run and which step -- curl surfaces the body.

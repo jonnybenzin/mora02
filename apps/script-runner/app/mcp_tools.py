@@ -953,7 +953,14 @@ async def _refile_gate(res, flow: str) -> str | None:
 
 
 async def _run_status(run_id: str) -> dict:
-    events = await asyncio.to_thread(pipeline_runlog.read_events, os.path.basename(run_id))
+    # A model composes this argument, so it may be anything. The library refuses
+    # an id that cannot name a log file; here that is the same answer as "no
+    # such run" -- a tool result, never a 500 the model reads as a broken tool.
+    try:
+        events = await asyncio.to_thread(
+            pipeline_runlog.read_events, os.path.basename(run_id))
+    except pipeline_runlog.BadRunId:
+        return {"error": f"no run named {run_id!r}"}
     if not events:
         return {"error": f"no run named {run_id!r}"}
     start = next((e for e in events if e.get("kind") == "run_start"), {})
