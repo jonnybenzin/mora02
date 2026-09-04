@@ -529,6 +529,23 @@ def trashed_ids(rt: Roots) -> set[str]:
 
 def apply(roster: dict, agents_block: dict, files: dict[str, str],
           remove: list[str], only: str | None, say: Callable[[str], None]) -> None:
+    # 0. the config write as a dry run, BEFORE anything is created or deleted.
+    #    Step 5 is the only step the gateway validates, and step 4 cannot be
+    #    undone: a rollout that deleted first and was refused after left the
+    #    gateway without the agent while the roster still named it (review
+    #    A3, 2026-09-03). The dry run checks the schema, not the outcome
+    #    (measured 2026-09-02), which is exactly the part a later step cannot
+    #    repair.
+    rc, out = docker(
+        "openclaw", "config", "patch", "--stdin", "--dry-run",
+        stdin=json.dumps({"agents": agents_block}),
+    )
+    if rc != 0:
+        raise DeployError(
+            f"the gateway refused the agents list before anything was changed "
+            f"(dry run): {out.strip()[:400]}"
+        )
+
     # 1. the agents themselves must exist before a config entry can name them
     existing = gateway_agent_ids()
     for a in roster["agents"]:

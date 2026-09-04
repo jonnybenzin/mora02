@@ -334,6 +334,25 @@ def main() -> int:
             deploy.read_config()
             record(sum("config get agents" in " ".join(a) for a, _ in calls) == 1, "agents section is fetched once, not twice")
 
+            # --- nothing is deleted before the gateway has validated the list (review A3) --
+            calls.clear()
+            deploy.docker = fake([("--dry-run", (1, "schema: agents.list[1].name must be a string"))])
+            try:
+                deploy.apply({"agents": []}, {"list": []}, {}, ["doomed"], None, lambda _l: None)
+                record(False, "a refused dry run stops the rollout", "apply returned")
+            except deploy.DeployError as e:
+                record("before anything was changed" in str(e), "a refused dry run stops the rollout", str(e)[:70])
+            flat = [" ".join(a) for a, _ in calls]
+            record(flat and "--dry-run" in flat[0] and not any("agents delete" in c for c in flat),
+                   "dry run is the first call and no delete follows a refusal", str(len(flat)) + " call(s)")
+            calls.clear()
+            deploy.docker = fake([])
+            deploy.apply({"agents": []}, {"list": []}, {}, ["doomed"], None, lambda _l: None)
+            flat = [" ".join(a) for a, _ in calls]
+            i_dry = next(i for i, c in enumerate(flat) if "--dry-run" in c)
+            i_del = next(i for i, c in enumerate(flat) if "agents delete doomed" in c)
+            i_patch = next(i for i, c in enumerate(flat) if "config patch --stdin" in c and "--dry-run" not in c)
+            record(i_dry < i_del < i_patch, "accepted dry run: delete, then the real patch", " -> ".join(c[9:40] for c in flat))
         finally:
             deploy.docker = real_docker
 

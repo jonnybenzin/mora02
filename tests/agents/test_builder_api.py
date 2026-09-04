@@ -12,6 +12,8 @@ agents/instances/ and reads the drift. It does NOT roll out. With
 
   T6   rollout twice -> the second run is a no-op (in_sync, nothing applied)
   T10  delete in the builder -> after rollout the gateway no longer lists it
+  T11  a list the gateway's schema refuses stops the rollout at the dry run,
+       before any `agents delete` (review A3)
 
 Usage:
     python3 tests/agents/test_builder_api.py [--deploy]
@@ -31,6 +33,7 @@ import urllib.request
 RUNNER = os.environ.get("SCRIPT_RUNNER_URL", "http://127.0.0.1:8096")
 PROBE = "zz-builder-probe"
 BASE_ID = "zz-builder-base"
+BOGUS_ID = "zz-builder-bogus"
 
 results: list[tuple[str, str, str]] = []
 
@@ -176,6 +179,31 @@ def main() -> int:
         st, j = call("GET", "/agents", timeout=90)
         record("PASS" if PROBE in [a["id"] for a in j.get("agents", [])] else "FAIL", "gateway lists the new agent")
 
+        # T11 -- nothing is deleted before the gateway has validated the list
+        # (review A3, 2026-09-03). A manifest the store accepts but the gateway's
+        # schema does not (a number in tools.allow) must stop the rollout at
+        # the dry run, and an agent trashed in the same rollout must survive
+        # in the gateway: before the fix, `agents delete --force` ran first.
+        st, j = call("PUT", f"/agents/{BOGUS_ID}", {"manifest": {**base, "tools": {"allow": ["read", 42]}}, "soul": "# bogus\n"})
+        record("PASS" if st == 200 else "FAIL", "T11a store accepts what only the gateway can judge", f"HTTP {st}")
+        st, j = call("DELETE", f"/agents/{BASE_ID}")
+        record("PASS" if st == 200 else "FAIL", "T11b scratch base agent trashed beside it")
+        st, j = call("POST", "/agents/deploy", timeout=300)
+        refused = st != 200 or not j.get("ok")
+        detail = (j.get("detail") or j.get("error") or str(j))[:160]
+        if refused and "dry run" in detail:
+            record("PASS", "T11c rollout refused at the dry run", detail)
+        elif refused:
+            record("FAIL", "T11c rollout refused, but not by the dry run", detail)
+        else:
+            record("WARN", "T11c gateway accepted a number in tools.allow; the guard could not be exercised", detail)
+        st, j = call("GET", "/agents", timeout=90)
+        live = [a["id"] for a in j.get("agents", [])]
+        record("PASS" if (BASE_ID in live) == refused else "FAIL",
+               "T11d trashed agent survives a refused rollout", f"{BASE_ID} live={BASE_ID in live} refused={refused}")
+        st, j = call("DELETE", f"/agents/{BOGUS_ID}")
+        record("PASS" if st == 200 else "FAIL", "T11e bogus agent trashed again; T10 takes it out")
+
     # --- delete moves ----------------------------------------------------------
     st, j = call("DELETE", f"/agents/{PROBE}")
     record("PASS" if st == 200 and ".trash/" in j.get("moved_to", "") else "FAIL", "DELETE moves to .trash", j.get("moved_to", str(j))[-40:])
@@ -184,7 +212,7 @@ def main() -> int:
     st, j = call("DELETE", f"/agents/{PROBE}")
     record("PASS" if st == 404 else "FAIL", "deleting twice is 404", f"HTTP {st}")
     st, j = call("DELETE", f"/agents/{BASE_ID}")
-    record("PASS" if st == 200 else "FAIL", "scratch base agent removed", str(j)[-40:])
+    record("PASS" if st == 200 or (deploy and st == 404) else "FAIL", "scratch base agent removed", str(j)[-40:])
 
     if deploy:
         # T10 -- after rollout the gateway no longer lists it
@@ -195,14 +223,16 @@ def main() -> int:
         record("PASS" if st == 200 and j.get("ok") else "FAIL", "T10b rollout removes it",
                (j.get("detail") or str(j.get("log", [])))[-160:])
         st, j = call("GET", "/agents", timeout=90)
-        record("PASS" if PROBE not in [a["id"] for a in j.get("agents", [])] and BASE_ID not in [a["id"] for a in j.get("agents", [])] else "FAIL", "T10c gateway no longer lists them")
+        live = [a["id"] for a in j.get("agents", [])]
+        record("PASS" if not {PROBE, BASE_ID, BOGUS_ID} & set(live) else "FAIL", "T10c gateway no longer lists them",
+               ", ".join(sorted({PROBE, BASE_ID, BOGUS_ID} & set(live))) or "all gone")
     else:
         record("WARN", "T6/T10 skipped", "pass --deploy to roll out against the gateway")
 
     # the trash folder keeps the probe; say so rather than clean up silently --
     # a test that deletes files outside its own scratch space is a test nobody
     # wants to run twice.
-    print(f"\nnote: data/agents/instances/.trash/ now holds '{PROBE}-…' and '{BASE_ID}-…' folders; remove them by hand when convenient")
+    print(f"\nnote: data/agents/instances/.trash/ now holds '{PROBE}-…', '{BASE_ID}-…' and (with --deploy) '{BOGUS_ID}-…' folders; remove them by hand when convenient")
 
     fails = [r for r in results if r[0] == "FAIL"]
     warns = [r for r in results if r[0] == "WARN"]
