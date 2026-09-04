@@ -19,7 +19,7 @@
 # A cut found in the code but missing here fails the test. Classify it, give the
 # reason in one line, and the entry becomes the record of the decision.
 
-apps/script-runner/app/main.py | x[:_LOG_VALUE_MAX] | announced | run-log value budget; the record carries truncated=True and the true length
+apps/script-runner/app/steps.py | x[:_LOG_VALUE_MAX] | announced | run-log value budget; the record carries truncated=True and the true length
 lib/mora02_core/src/mora02_core/web/client.py | text = text[:max_chars] | data-limit | web.fetch page ceiling; adjustable via ?max_chars=, and the cut is announced in the note above it
 apps/script-runner/app/main.py | reverse=True)[:40] | listing | number of run files listed, not the inside of one
 apps/pilot/app.py | caption_master | listing | Baserow list preview column, the full caption stays in the row

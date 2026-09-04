@@ -35,7 +35,12 @@ REPO = Path(__file__).resolve().parents[2]
 INVENTORY = Path(__file__).resolve().parent / "truncation-inventory.txt"
 
 SCAN = [
+    # main.py was split in September 2026; the pieces are scanned too, or a cut
+    # would leave the inventory simply by moving to another file.
     "apps/script-runner/app/main.py",
+    "apps/script-runner/app/steps.py",
+    "apps/script-runner/app/runtime.py",
+    "apps/script-runner/app/speech.py",
     "apps/pilot/app.py",
     "apps/pilot/bot_bridge.py",
     "apps/pilot/ui/js/runs.js",

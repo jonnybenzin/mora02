@@ -40,7 +40,9 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-MAIN_PY = REPO / "apps/script-runner/app/main.py"
+# The step handlers moved out of main.py into steps.py when that 3400-line file
+# was split (September 2026). This audit reads the dispatch table, so it follows.
+MAIN_PY = REPO / "apps/script-runner/app/steps.py"
 PAYLOAD = Path(__file__).resolve().parent / "payload.txt"
 RUNNER = os.environ.get("SCRIPT_RUNNER_URL", "http://127.0.0.1:8096")
 LOG_DIR = Path(os.environ.get("MORA02_PIPELINE_LOG_DIR", "/opt/mora02/pipelines/logs"))
@@ -70,7 +72,7 @@ def load_vocab() -> dict:
 
 
 def handler_sources() -> tuple[dict, dict]:
-    """(op -> handler source, function name -> source) from main.py."""
+    """(op -> handler source, function name -> source) from steps.py."""
     src = MAIN_PY.read_text(encoding="utf-8")
     tree = ast.parse(src)
     funcs = {
@@ -117,7 +119,7 @@ def audit_static() -> None:
     vocab_ops = load_vocab()
     handlers, funcs = handler_sources()
     if not handlers:
-        record(False, "static audit", "no _PIPELINE_STEPS mapping found in main.py")
+        record(False, "static audit", "no _PIPELINE_STEPS mapping found in steps.py")
         return
 
     for op, handler in sorted(handlers.items()):
