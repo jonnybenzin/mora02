@@ -91,12 +91,6 @@ from mora02_core.agents.cli import first_json_object
 OC = os.environ.get("MORA02_OPENCLAW_CONTAINER", "mora02-openclaw")
 DOCKER = os.environ.get("MORA02_DOCKER_BIN", "docker")
 
-# Workspace files an agent may carry in its own folder. Only these are rendered:
-# a stray file in an instance directory should not silently become part of a
-# prompt. AGENTS.md is deliberately NOT in this list -- the house rules are
-# shared and come from agents/AGENTS.md, the same text for every agent.
-WORKSPACE_FILES = ["SOUL.md", *WORKSPACE_EXTRA]
-
 # The written opt-out. An agent may be unrestricted, but only if somebody typed
 # the word -- the same shape as .boundaryignore beside the boundary guard: the
 # exception is allowed and on the record, the oversight is not.
@@ -286,8 +280,11 @@ def check_locality(roster: dict, rt: Roots) -> None:
     """Refuse a roster in which a steering or sensitive agent runs in the cloud.
 
     ADR-029 point 6 as mechanism. The builder refuses the same thing at the
-    form; this is the second door, for a manifest written by hand. The
-    letterbox has no model of its own and is not judged here.
+    form; this is the second door, for a manifest written by hand -- and the
+    only door for the reception desk, which has no form. The desk usually
+    names no model and runs on whatever the gateway defaults to; that is fine
+    while its tools only read, and not a moment longer: a desk that steers
+    on an unknown model is the gap the rule exists to close.
     """
     for agent in roster.get("agents", []):
         why = local_reasons(agent, rt)
@@ -296,6 +293,20 @@ def check_locality(roster: dict, rt: Roots) -> None:
                 f"agent {agent.get('id', '<unnamed>')!r} runs on {agent.get('model')!r}, "
                 f"which is not local, but it must: " + "; ".join(why) + ".\n"
                 f"    Steering and sensitive agents stay in the house (ADR-029)."
+            )
+    desk = roster.get("letterbox")
+    if desk:
+        why = local_reasons(desk, rt)
+        if why and not desk.get("model"):
+            raise DeployError(
+                f"the reception desk ({desk.get('id')}) must run locally -- " + "; ".join(why) + " -- "
+                f"but names no model of its own, so it runs on whatever the gateway defaults to.\n"
+                f"    Give it a local model in agents/gateway.json, or narrow its tool list."
+            )
+        if why and not is_local_model(desk.get("model")):
+            raise DeployError(
+                f"the reception desk ({desk.get('id')}) runs on {desk.get('model')!r}, "
+                f"which is not local, but it must: " + "; ".join(why) + " (ADR-029)."
             )
 
 

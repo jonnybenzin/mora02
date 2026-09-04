@@ -21,6 +21,8 @@ import os
 import re
 from typing import Callable
 
+from mora02_core.agents.store import is_local_model
+
 _DEFAULT_CONTAINER = "mora02-openclaw"
 _DEFAULT_TIMEOUT = 180
 
@@ -286,7 +288,7 @@ async def models() -> list[dict]:
             "key": key,
             "name": m.get("name") or key,
             "context_window": m.get("contextWindow"),
-            "local": key.startswith("llama-local/"),
+            "local": is_local_model(key),
             "available": bool(m.get("available", True)),
             "tags": m.get("tags") or [],
         })

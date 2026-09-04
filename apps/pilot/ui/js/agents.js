@@ -20,6 +20,8 @@
  * Every string a person sees here is English — house rule for the whole Pilot UI.
  */
 
+// A model id that starts with this runs in the house (mora02_core.agents.store.LOCAL_PREFIX).
+var LOCAL_PREFIX = 'llama-local/';
 var AGB_API = (typeof LLM_API_BASE !== 'undefined') ? LLM_API_BASE : 'http://mora02.local:8098/sr';
 
 var _agb = {
@@ -104,7 +106,7 @@ function _agbRenderList(){
   if (!el) return;
   var h = '<div class="agb-list-h">Instances<span class="agb-list-n">' + _agb.roster.length + '</span></div>';
   _agb.roster.forEach(function(a){
-    var cloud = a.model && a.model.indexOf('llama-local/') !== 0;
+    var cloud = a.model && a.model.indexOf(LOCAL_PREFIX) !== 0;
     h += '<div class="agb-row' + (a.id === _agb.id ? ' sel' : '') + (a.active ? '' : ' off') + '" data-agb-open="' + _agbEsc(a.id) + '">'
       + '<span class="agb-ico">' + _agbEsc(a.icon || '·') + '</span>'
       + '<div class="agb-row-t"><div class="agb-row-n">' + _agbEsc(a.label || a.id) + '</div>'
@@ -374,7 +376,7 @@ function _agbModelHint(){
   if (!el) return;
   var k = _agb.manifest.model || '';
   if (!k){ el.textContent = ''; return; }
-  if (k.indexOf('llama-local/') === 0){
+  if (k.indexOf(LOCAL_PREFIX) === 0){
     el.className = 'agb-hint ok';
     var lm = _agb.models.filter(function(x){ return x.key === k; })[0];
     el.textContent = 'Local on llama-server' + (lm && lm.loaded ? ', loaded: ' + lm.loaded : '') + '. The request stays in the house.';
@@ -391,7 +393,7 @@ function _agbToolHint(){
   if (m.tools === 'unrestricted'){ el.className = 'agb-hint bad'; el.textContent = 'Unrestricted.'; return; }
   var allow = (m.tools && m.tools.allow) || [];
   var risky = allow.filter(function(a){ var t = _agb.tools.filter(function(x){ return x.id === a; })[0]; return t && t.risk === 'act'; });
-  var cloud = m.model && m.model.indexOf('llama-local/') !== 0;
+  var cloud = m.model && m.model.indexOf(LOCAL_PREFIX) !== 0;
   if (!allow.length){ el.className = 'agb-hint bad'; el.textContent = 'Empty list: the gateway aborts a run without a callable tool. At least one.'; return; }
   if (allow.indexOf('lobster') >= 0){ el.className = 'agb-hint bad'; el.textContent = 'lobster resolves approvals itself and knows no input gate. For flows, use mora02__flow_run.'; return; }
   if (risky.length && cloud){ el.className = 'agb-hint bad'; el.textContent = 'A cloud model with acting tools (' + risky.join(', ') + ') steers the house from outside. Steering stays local — refused on save.'; return; }
@@ -571,7 +573,7 @@ async function _agbTest(){
   if (_agb.dirty){ _agbSay('Save (and deploy) first, then test.', 'bad'); return; }
   var q = prompt('Test message to ' + _agb.id + ':', _agb.manifest.opening || 'Who are you, and what can you do for me? Two sentences.');
   if (q == null || !q.trim()) return;
-  var cloud = _agb.manifest.model && _agb.manifest.model.indexOf('llama-local/') !== 0;
+  var cloud = _agb.manifest.model && _agb.manifest.model.indexOf(LOCAL_PREFIX) !== 0;
   if (cloud && !confirm('This agent runs on a cloud model: the test leaves the house and costs money. Continue anyway?')) return;
   var t0 = Date.now();
   _agbOut('<div class="agb-card"><div class="agb-card-h">Test</div><div class="agb-note">The agent is working… (timeout ' + (_agb.manifest.timeout || 180) + ' s)</div></div>');

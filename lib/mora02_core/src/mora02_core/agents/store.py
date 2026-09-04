@@ -123,8 +123,6 @@ def roots(platform: Path | str | None = None, local: Path | str | None = None) -
     )
 
 
-AGENTS_DIR = _default_platform()
-
 # An id is a folder name, a config key, half a session key and part of a URL.
 # The same alphabet the flow names use, for the same reasons.
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
@@ -171,24 +169,37 @@ def workspace_problem(manifest: dict, agent_id: str) -> str | None:
 # flag is false for llama-local (measured 2026-09-02), the prefix is not.
 LOCAL_PREFIX = "llama-local/"
 
-# The house's MCP tools that change the system. Everything else the MCP
-# server offers reads, searches or takes notes. agents.py paints the builder
-# from this same set, so the form and the check cannot disagree.
-MCP_ACT_TOOLS = {"flow_run"}
+# The house's MCP tools that only read, search or take notes. Everything
+# else the MCP server offers -- and everything it will offer that nobody has
+# classified yet -- counts as acting: an unknown tool is the widest one, not
+# the narrowest (ADR-029). The set used to be the other way round (the acting
+# tools, listed), and a tool added to mcp_tools.py without a second edit was a
+# reading tool by default. agents.py paints the builder from this same rule,
+# so the form and the check cannot disagree.
+MCP_READ_TOOLS = {"flows_list", "web_search", "web_read", "note", "notes_review", "verify", "run_status"}
+
+
+def mcp_tool_risk(name: str) -> str:
+    """read / act for one of the house's MCP tools, by its bare name."""
+    return "read" if name in MCP_READ_TOOLS else "act"
 
 
 def is_local_model(model: str | None) -> bool:
     return str(model or "").startswith(LOCAL_PREFIX)
 
 
-def tool_risk(tool_id: str, rt: Roots | None = None) -> str:
+def tool_risk(tool_id: str, rt: Roots | None = None, builtin: list[dict] | None = None) -> str:
     """read / write / act for one allow-list entry. An MCP tool is judged by
     its name behind the server prefix; a gateway tool by tools.json; an id
     nobody knows is `act` -- the same reading the builder gives it, because an
-    unknown tool is the widest one, not the narrowest."""
+    unknown tool is the widest one, not the narrowest.
+
+    ``builtin`` is tools.json already read; a caller judging a whole list
+    passes it once rather than having the file read per entry.
+    """
     if "__" in tool_id:
-        return "act" if tool_id.split("__", 1)[1] in MCP_ACT_TOOLS else "read"
-    for t in builtin_tools(rt):
+        return mcp_tool_risk(tool_id.split("__", 1)[1])
+    for t in builtin if builtin is not None else builtin_tools(rt):
         if t.get("id") == tool_id:
             return str(t.get("risk") or "act")
     return "act"
@@ -203,7 +214,8 @@ def local_reasons(manifest: dict, rt: Roots | None = None) -> list[str]:
     if tools == "unrestricted":
         reasons.append("its tools are unrestricted")
     elif isinstance(tools, dict) and isinstance(tools.get("allow"), list):
-        acting = [t for t in tools["allow"] if isinstance(t, str) and tool_risk(t, rt) == "act"]
+        builtin = builtin_tools(rt)
+        acting = [t for t in tools["allow"] if isinstance(t, str) and tool_risk(t, rt, builtin) == "act"]
         if acting:
             reasons.append(f"it holds acting tool(s): {', '.join(acting)}")
     return reasons
@@ -214,7 +226,7 @@ LIMIT_KEYS = {
 }
 
 # Per-agent workspace files besides SOUL.md. The rollout renders exactly these
-# (deploy.WORKSPACE_FILES); the builder edits exactly these. One list, two
+# (deploy.desired_workspace_files); the builder edits exactly these. One list, two
 # readers -- a fifth file added here alone would be edited and never rendered.
 WORKSPACE_EXTRA = ["TOOLS.md", "USER.md", "IDENTITY.md"]
 
@@ -416,29 +428,11 @@ def load_roster(rt: Roots | None = None) -> dict:
 
     # References must point somewhere. Checked on every read of the roster, so
     # a rollout refuses a dangling borrow instead of quietly running the agent
-    # on defaults sized for a different model, or without a personality.
+    # on defaults sized for a different model, or without a personality. The
+    # rule is the form's rule (reference_problems): one wording at both doors.
     for agent in agents:
-        aid = agent["id"]
-        lim = agent.get("limits")
-        if isinstance(lim, dict) and lim.get("same_as"):
-            ref = str(lim["same_as"])
-            if ref == aid:
-                raise StoreError(f"instances/{aid}: limits.same_as points at itself")
-            if effective_limits(agent, rt) is None:
-                raise StoreError(
-                    f"instances/{aid}: limits.same_as = {ref!r}, but that "
-                    f"agent does not exist or has no limits of its own"
-                )
-        ref = agent.get("soul_shared_with")
-        if ref:
-            if str(ref) == aid:
-                raise StoreError(f"instances/{aid}: soul_shared_with points at itself")
-            _, path = soul_source(aid, rt)
-            if path is None:
-                raise StoreError(
-                    f"instances/{aid}: soul_shared_with = {ref!r}, but that agent "
-                    f"does not exist or has no SOUL.md of its own"
-                )
+        for why in reference_problems(agent, agent["id"], rt):
+            raise StoreError(f"instances/{agent['id']}: {why}")
 
     mcp: dict = {}
     mcp_file = rt.platform / "mcp.json"
@@ -598,11 +592,41 @@ def _inherit_owner(path: Path) -> None:
         pass
 
 
+def reference_problems(manifest: dict, agent_id: str, rt: Roots | None = None) -> list[str]:
+    """Why the manifest's borrows do not resolve. Empty means they do.
+
+    ``limits.same_as`` and ``soul_shared_with`` name another agent; a borrow
+    that points nowhere, at itself, or at another borrower is refused. One
+    function for both doors -- the form (validate_manifest) and the roster
+    (load_roster) -- because two wordings of one rule drift apart.
+    """
+    problems: list[str] = []
+    lim = manifest.get("limits")
+    if isinstance(lim, dict) and lim.get("same_as"):
+        ref = str(lim["same_as"])
+        if ref == agent_id:
+            problems.append("limits.same_as cannot point at the agent itself")
+        elif effective_limits({"limits": {"same_as": ref}}, rt) is None:
+            problems.append(f"limits.same_as = {ref!r}: that agent does not exist or has no limits of its own")
+    ref = manifest.get("soul_shared_with")
+    if ref:
+        ref = str(ref)
+        if ref == agent_id:
+            problems.append("soul_shared_with cannot point at the agent itself")
+        else:
+            other_shared, path = soul_source(ref, rt)
+            if find_instance(ref, rt) is None or path is None:
+                problems.append(f"soul_shared_with = {ref!r}: that agent does not exist or has no SOUL.md")
+            elif other_shared:
+                problems.append(f"soul_shared_with = {ref!r}: that agent borrows its SOUL itself — point at the original ({other_shared})")
+    return problems
+
+
 def validate_manifest(manifest: dict, agent_id: str, rt: Roots | None = None) -> list[str]:
     """Reasons a manifest cannot be saved. Empty means it can.
 
     Refuses the same things the rollout would refuse, so the builder fails at
-    the form and not at "Speichern → Rollout → Fehler". The messages are for
+    the form and not at "Save → Deploy → Error". The messages are for
     people, not logs: they name the field and say what is wrong with it.
     """
     problems: list[str] = []
@@ -638,11 +662,6 @@ def validate_manifest(manifest: dict, agent_id: str, rt: Roots | None = None) ->
         if not isinstance(lim, dict):
             problems.append("limits must be an object")
         elif lim.get("same_as"):
-            ref = str(lim["same_as"])
-            if ref == agent_id:
-                problems.append("limits.same_as cannot point at the agent itself")
-            elif effective_limits({"limits": {"same_as": ref}}, rt) is None:
-                problems.append(f"limits.same_as = {ref!r}: that agent does not exist or has no limits of its own")
             extra = [k for k in lim if k != "same_as"]
             if extra:
                 problems.append("limits.same_as cannot be combined with own values — that is the drift it exists to prevent")
@@ -652,17 +671,7 @@ def validate_manifest(manifest: dict, agent_id: str, rt: Roots | None = None) ->
                     problems.append(f"unknown limit {k!r}")
                 elif not isinstance(v, int) or v <= 0:
                     problems.append(f"limit {k} must be a positive integer")
-    ref = manifest.get("soul_shared_with")
-    if ref:
-        ref = str(ref)
-        if ref == agent_id:
-            problems.append("soul_shared_with cannot point at the agent itself")
-        else:
-            other_shared, path = soul_source(ref, rt)
-            if find_instance(ref, rt) is None or path is None:
-                problems.append(f"soul_shared_with = {ref!r}: that agent does not exist or has no SOUL.md")
-            elif other_shared:
-                problems.append(f"soul_shared_with = {ref!r}: that agent borrows its SOUL itself — point at the original ({other_shared})")
+    problems += reference_problems(manifest, agent_id, rt)
     t = manifest.get("timeout")
     if t is not None and (not isinstance(t, int) or t <= 0):
         problems.append("timeout must be a positive integer (seconds)")

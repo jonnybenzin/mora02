@@ -299,6 +299,38 @@ def main() -> int:
                "a crafted path is one word to the shell, not three commands", cmds[2][:70] if len(cmds) > 2 else "")
         shutil.rmtree(L / "instances/zz-q"); shutil.rmtree(sk_dir)
 
+        # --- section C of the review: design ---------------------------------------
+        record(store.tool_risk("mora02__nobody-classified-this", RT) == "act", "C an unclassified MCP tool counts as acting")
+        record(store.tool_risk("mora02__web_read", RT) == "read" and store.mcp_tool_risk("flow_run") == "act",
+               "C the known MCP tools keep their reading / acting")
+        gw = P / "gateway.json"
+        gw_before = gw.read_text()
+        try:
+            desk = json.loads(gw_before)
+            desk["letterbox"]["tools"] = {"allow": ["read", "exec"]}
+            gw.write_text(json.dumps(desk))
+            try:
+                deploy.check_locality(store.load_roster(RT), RT)
+                record(False, "C a steering reception desk without a model is refused", "was accepted")
+            except deploy.DeployError as e:
+                record("reception desk" in str(e) and "names no model" in str(e), "C a steering reception desk without a model is refused", str(e)[:80])
+            desk["letterbox"]["model"] = "anthropic/claude-sonnet-4-6"
+            gw.write_text(json.dumps(desk))
+            refused = False
+            try:
+                deploy.check_locality(store.load_roster(RT), RT)
+            except deploy.DeployError as e:
+                refused = "reception desk" in str(e) and "not local" in str(e)
+            record(refused, "C a steering reception desk on a cloud model is refused")
+            desk["letterbox"]["model"] = "llama-local/current"
+            gw.write_text(json.dumps(desk))
+            deploy.check_locality(store.load_roster(RT), RT)
+            record(True, "C a steering reception desk on a local model passes")
+        finally:
+            gw.write_text(gw_before)
+        deploy.check_locality(store.load_roster(RT), RT)
+        record(True, "C the shipped reception desk (reading tools, no model) passes")
+
         # --- group B (review 2026-09-03, findings 5-10) --------------------------------
         # A stand-in for docker(): records every call, answers by substring, and
         # says (0, "") to everything else -- so remote_file() reads "absent".

@@ -31,8 +31,9 @@ from mora02_core import auth, pricing
 from mora02_core.agents import AgentError, ask, listing, session_key
 from mora02_core.agents import models as gateway_models
 from mora02_core.agents import deploy as deploy_mod
-from mora02_core.agents.store import (MCP_ACT_TOOLS, StoreError, builtin_tools, effective_limits,
-                                      instance_detail, iter_instances, load_manifest,
+from mora02_core.agents.store import (StoreError, builtin_tools, effective_limits,
+                                      instance_detail, is_local_model, iter_instances,
+                                      load_manifest, mcp_tool_risk,
                                       roots, save_instance, skill_detail,
                                       skills_catalog, trash_instance)
 from mora02_core._common import get_logger
@@ -111,8 +112,12 @@ async def get_agents():
         raise HTTPException(status_code=502, detail=str(e))
 
 
+# The endpoints below read and write files and never await anything. They are
+# plain `def` on purpose: FastAPI runs those in its threadpool, whereas an
+# `async def` doing file I/O runs ON the event loop and stalls every other
+# request -- a chat turn included -- for as long as the disk takes.
 @router.get("/agents/roster")
-async def get_roster(include_inactive: bool = False):
+def get_roster(include_inactive: bool = False):
     """The agents as people see them: label, icon, colour, description.
 
     Read by looking, exactly as the rollout does — one folder under
@@ -199,7 +204,7 @@ async def get_models():
 
 
 @router.get("/agents/roots")
-async def get_roots():
+def get_roots():
     """Where things live, so the builder can say where an agent goes -- and say
     plainly when there is nowhere (no installation root mounted)."""
     return {"platform": str(ROOTS.platform),
@@ -208,7 +213,7 @@ async def get_roots():
 
 
 @router.get("/agents/skills")
-async def get_skills():
+def get_skills():
     try:
         return {"skills": skills_catalog(ROOTS)}
     except StoreError as e:
@@ -216,7 +221,7 @@ async def get_skills():
 
 
 @router.get("/agents/skills/{name}")
-async def get_skill(name: str):
+def get_skill(name: str):
     """One skill with its files, readable. What the agent reads, a person can."""
     try:
         return skill_detail(name, ROOTS)
@@ -225,7 +230,7 @@ async def get_skill(name: str):
 
 
 @router.get("/agents/tools")
-async def get_tools():
+def get_tools():
     """Every tool an allow list may name, with what each one does.
 
     Two sources, deliberately. The house's MCP tools come from the live server
@@ -245,7 +250,7 @@ async def get_tools():
         pass
     mcp = [{
         "id": f"{server}__{t['name']}",
-        "risk": "act" if t["name"] in MCP_ACT_TOOLS else "read",
+        "risk": mcp_tool_risk(t["name"]),
         "what": t.get("description", "")[:220],
         "source": "mcp",
     } for t in _MCP_TOOLS]
@@ -274,7 +279,7 @@ async def post_deploy(agent: Optional[str] = None):
 
 
 @router.get("/agents/{agent_id}/detail")
-async def get_detail(agent_id: str):
+def get_detail(agent_id: str):
     try:
         return instance_detail(agent_id, ROOTS)
     except StoreError as e:
@@ -290,7 +295,7 @@ class AgentSave(BaseModel):
 
 
 @router.put("/agents/{agent_id}")
-async def put_agent(agent_id: str, req: AgentSave):
+def put_agent(agent_id: str, req: AgentSave):
     """Write one agent's folder. Saving does NOT roll out: the drift view shows
     what changed, and the person decides when the gateway follows. Two steps
     on purpose -- a form that deploys on every keystroke's save is a form that
@@ -304,7 +309,7 @@ async def put_agent(agent_id: str, req: AgentSave):
 
 
 @router.delete("/agents/{agent_id}")
-async def delete_agent(agent_id: str):
+def delete_agent(agent_id: str):
     """Move the folder to instances/.trash/. The gateway's copy goes at the next
     rollout, which reads the trash as the record of intent."""
     try:
@@ -426,7 +431,7 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     declared = str(_manifest(agent_id).get("model") or "")
     reported = str(result.get("model") or "")
     result["model_declared"] = declared or reported
-    if declared.startswith("llama-local/"):
+    if is_local_model(declared):
         result["model_real"] = await _loaded_weights() or declared
     else:
         result["model_real"] = reported or declared
