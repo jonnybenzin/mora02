@@ -166,7 +166,19 @@ def main() -> int:
         record("FAIL", "drift", f"HTTP {st}: {str(j)[:120]}")
     else:
         named = [d for d in j.get("drift", []) if f"agent/{PROBE}" in d]
-        record("PASS" if named else "FAIL", "drift names the unrolled agent", (named or ["-"])[0][:80])
+        if named:
+            record("PASS", "drift names the unrolled agent", named[0][:80])
+        else:
+            # A --deploy run that failed before T10 leaves the scratch agents
+            # IN the gateway; re-created identically, they are then in sync and
+            # there is no drift to name. That is residue, not a defect -- said
+            # as a warning rather than a red line nobody can act on.
+            st2, live = call("GET", "/agents", timeout=90)
+            residue = PROBE in [a["id"] for a in live.get("agents", [])]
+            record("WARN" if residue else "FAIL", "drift names the unrolled agent",
+                   "the gateway still carries it from an earlier --deploy run that "
+                   "did not reach T10; the case cannot be exercised until it is gone"
+                   if residue else "-")
 
     if deploy:
         # T6 -- rollout twice, second is a no-op
@@ -193,6 +205,13 @@ def main() -> int:
                             "snippet_chars": 160, "results_per_query": 5,
                             "max_pages_total": 12, "max_searches_total": 6}}
         st, j = call("PUT", f"/agents/{BOGUS_ID}", {"manifest": bogus, "soul": "# bogus\n"})
+        # The probe borrows ITS limits from BASE_ID too, and BASE_ID is trashed
+        # on the next line. A dangling borrow makes the roster refuse the
+        # rollout before the gateway ever sees the bogus tool list, which is a
+        # different refusal and proves nothing (measured 2026-09-04). Give the
+        # probe its own numbers for the rest of this suite.
+        call("PUT", f"/agents/{PROBE}", {"manifest": {**base, "limits": dict(own_limits)},
+                                         "soul": "# Builder probe\n"})
         record("PASS" if st == 200 else "FAIL", "T11a store accepts what only the gateway can judge", f"HTTP {st}")
         st, j = call("DELETE", f"/agents/{BASE_ID}")
         record("PASS" if st == 200 else "FAIL", "T11b scratch base agent trashed beside it")
