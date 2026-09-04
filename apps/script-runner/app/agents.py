@@ -17,7 +17,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 import httpx
@@ -308,8 +308,12 @@ class AgentSave(BaseModel):
     manifest: dict
     soul: Optional[str] = None
     soul_shared_with: Optional[str] = None
-    # TOOLS.md / USER.md / IDENTITY.md: absent = untouched, "" = removed
-    files: Optional[dict] = None
+    # TOOLS.md / USER.md / IDENTITY.md: absent = untouched, "" = removed.
+    # Typed down to the value, so a null from a client that reads "absent" and
+    # "empty" as the same thing is a 422 here rather than a half-written agent
+    # further in. The store refuses it a second time, for callers with no
+    # model in front of them.
+    files: Optional[Dict[str, str]] = None
 
 
 @router.put("/agents/{agent_id}")

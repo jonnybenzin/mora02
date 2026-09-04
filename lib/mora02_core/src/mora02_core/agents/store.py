@@ -739,10 +739,21 @@ def save_instance(agent_id: str, manifest: dict, *, soul: str | None = None,
                          f"its tool list lives in agents/gateway.json")
     if soul is not None and soul_shared_with:
         raise StoreError("either a SOUL text or a SOUL to share, not both")
-    for name in (files or {}):
+    for name, body in (files or {}).items():
         if name not in WORKSPACE_EXTRA:
             raise StoreError(f"{name!r} is not a workspace file an agent may carry "
                              f"(one of {', '.join(WORKSPACE_EXTRA)})")
+        # Checked HERE, with the names, and not where the file is written: the
+        # manifest and SOUL.md are replaced first, so a value that only fails
+        # at the writing step left the agent changed behind a 500 the caller
+        # read as "rejected" (review 2, finding 8). Everything this function
+        # can refuse, it refuses before it writes anything.
+        if not isinstance(body, str):
+            raise StoreError(
+                f"{name}: a workspace file is text — leave the key out to keep "
+                f"the file as it is, or pass \"\" to remove it "
+                f"(got {type(body).__name__})"
+            )
     inst = instances_dir(rt)
     if inst is None:
         raise StoreError("no installation root configured (MORA02_AGENTS_LOCAL_DIR) — "

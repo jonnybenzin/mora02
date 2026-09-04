@@ -521,6 +521,22 @@ def main() -> int:
         finally:
             deploy.docker = real_docker
 
+        # --- a refused save changes nothing (review 2, finding 8) -------------------
+        store.save_instance("zz-half-save", dict(BASE), soul="# one\n", rt=RT)
+        keep_m = (L / "instances/zz-half-save/agent.json").read_bytes()
+        keep_s = (L / "instances/zz-half-save/SOUL.md").read_bytes()
+        for bad, why in ((None, "null"), (42, "a number"), ({"a": 1}, "an object")):
+            refuses(lambda b=bad: store.save_instance(
+                "zz-half-save", {**BASE, "label": "CHANGED"}, soul="# two\n",
+                files={"TOOLS.md": b}, rt=RT), f"a workspace file that is {why} is refused", "is text")
+        record(keep_m == (L / "instances/zz-half-save/agent.json").read_bytes()
+               and keep_s == (L / "instances/zz-half-save/SOUL.md").read_bytes(),
+               "and the manifest and SOUL are exactly as they were")
+        store.save_instance("zz-half-save", dict(BASE), files={"TOOLS.md": "notes\n"}, rt=RT)
+        record((L / "instances/zz-half-save/TOOLS.md").read_text() == "notes\n",
+               "a workspace file that IS text still lands")
+        shutil.rmtree(L / "instances/zz-half-save")
+
         # --- an unreachable gateway is not an unfit roster (review 2, finding 5) ----
         store.save_instance("zz-gw", dict(BASE), soul="x", rt=RT)
         try:
