@@ -642,6 +642,18 @@ def run(*, check: bool = False, only: str | None = None,
               "drift": [], "left": [], "log": log, "error": None}
     try:
         roster = load_roster(rt)
+        # An empty roster at THIS door is a missing mount, not an empty house:
+        # the platform ships no agents, so the only way to have none is an
+        # installation root that is not there (review A4, 2026-09-03 --
+        # successor of the "no agents found" guard from 19a6ba0). Checking or
+        # applying it would compare the gateway against nothing and call every
+        # hand-made agent stray.
+        if not roster["agents"]:
+            raise DeployError(
+                f"no agents found under {rt.local}" if rt.local is not None else
+                "no installation root is configured (MORA02_AGENTS_LOCAL_DIR) "
+                "-- nothing to roll out"
+            )
         # Before anything is read from the gateway: a roster that leaves a tool
         # surface unsaid is refused, check mode included. Checking a roster that
         # cannot be applied would report drift nobody may close.

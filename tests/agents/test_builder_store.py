@@ -356,6 +356,27 @@ def main() -> int:
         finally:
             deploy.docker = real_docker
 
+        # --- a root that is not there is no root (review A4) ------------------------
+        env_before = os.environ.get("MORA02_AGENTS_LOCAL_DIR")
+        os.environ["MORA02_AGENTS_LOCAL_DIR"] = str(tmp / "never-mounted")
+        try:
+            record(store.roots().local is None, "MORA02_AGENTS_LOCAL_DIR pointing nowhere reads as no root")
+        finally:
+            if env_before is None:
+                os.environ.pop("MORA02_AGENTS_LOCAL_DIR", None)
+            else:
+                os.environ["MORA02_AGENTS_LOCAL_DIR"] = env_before
+        empty = tmp / "empty-root"
+        (empty / "instances").mkdir(parents=True)
+        deploy.docker = lambda *a, stdin=None: (_ for _ in ()).throw(AssertionError("gateway touched"))
+        try:
+            res = deploy.run(check=True, rt=store.roots(P, empty))
+            record(not res["ok"] and "no agents found" in (res["error"] or ""), "empty roster is refused before the gateway is read", str(res["error"])[:60])
+            res = deploy.run(check=True, rt=NOLOCAL)
+            record(not res["ok"] and "no installation root" in (res["error"] or ""), "no root at all is refused with its name", str(res["error"])[:60])
+        finally:
+            deploy.docker = real_docker
+
         # --- a folder without a manifest is an error, not a skip --------------
         (L / "instances/zz-half").mkdir()
         refuses(lambda: store.load_roster(RT), "instance folder without agent.json refused", "no agent.json")

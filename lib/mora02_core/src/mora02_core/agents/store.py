@@ -89,7 +89,13 @@ def _default_platform() -> Path:
 def _default_local() -> Path | None:
     env = os.environ.get("MORA02_AGENTS_LOCAL_DIR")
     if env:
-        return Path(env)
+        # Only if it exists: the variable names a bind mount, and a mount that
+        # is not there must read as "no root" (the 503 the API already gives),
+        # not as an empty root the builder writes into -- into the container
+        # layer, gone with the next `up -d`, while the rollout reports ok
+        # (review A4, 2026-09-03).
+        p = Path(env)
+        return p if p.is_dir() else None
     for cand in (Path("/data/agents-local"), _REPO / "data" / "agents"):
         if cand.is_dir():
             return cand
