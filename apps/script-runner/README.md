@@ -56,8 +56,13 @@ Base URL: `http://mora02.local:8096`
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/preview/{session_id}/{filename}` | Preview output |
-| POST | `/finalize` | Move to final directory |
-| GET | `/final/{script_type}/{filename}` | Get finalized file |
+| POST | `/finalize-session` | Move a whole session to the final directory |
+
+Finished files are served by nginx directly from `/final/...` (see the URL
+`get_nginx_url` builds), not by this service. The single-file `/finalize` and
+the three `/final/...` routes were removed in September 2026: nothing called
+them, and a code review found four copies of the same MIME table among them,
+already disagreeing.
 
 ## Example: Create GIF
 
@@ -108,11 +113,10 @@ Response:
 ### 4. Finalize
 
 ```bash
-curl -X POST http://mora02.local:8096/finalize \
+curl -X POST http://mora02.local:8096/finalize-session \
   -H "Content-Type: application/json" \
   -d '{
     "session_id": "2501241530_a3f2b1",
-    "filename": "2501241530_gifer.gif",
     "script_type": "gifer"
   }'
 ```
