@@ -133,6 +133,28 @@ MANIFEST_KEYS = {
     "manage_workspace", "name", "soul_shared_with", "sensitive",
 }
 
+# Where the gateway keeps every agent's workspace. The manifest may name the
+# workspace, but only THIS one: the value reaches a shell inside the gateway
+# container, and a path that is not the agent's own is either a typo or an
+# attempt -- both are refused, at save time and on every read of the roster.
+WORKSPACE_ROOT = "/data/openclaw/agents"
+
+
+def default_workspace(agent_id: str) -> str:
+    return f"{WORKSPACE_ROOT}/{agent_id}/workspace"
+
+
+def workspace_problem(manifest: dict, agent_id: str) -> str | None:
+    """Why the manifest's ``workspace`` is not acceptable, or None."""
+    ws = manifest.get("workspace")
+    if ws is None:
+        return None
+    want = default_workspace(agent_id)
+    if ws != want:
+        return f"workspace must be {want!r} or left out (got {str(ws)[:80]!r})"
+    return None
+
+
 # The model policy of ADR-029 (point 6), as a check rather than a sentence:
 # an agent that STEERS the house or handles SENSITIVE data runs on a local
 # model. Steering is read off the tool list -- any tool whose risk is "act"
@@ -362,7 +384,10 @@ def load_roster(rt: Roots | None = None) -> dict:
         # is one source too many, and a manifest whose id disagrees with its
         # folder is a bug waiting for someone to rename one of them.
         agent["id"] = folder.name
-        agent.setdefault("workspace", f"/data/openclaw/agents/{folder.name}/workspace")
+        bad_ws = workspace_problem(agent, folder.name)
+        if bad_ws:
+            raise StoreError(f"instances/{folder.name}: {bad_ws}")
+        agent.setdefault("workspace", default_workspace(folder.name))
         agent.setdefault("manage_workspace", True)
         agent["_dir"] = str(folder)
         agents.append(agent)
@@ -566,6 +591,9 @@ def validate_manifest(manifest: dict, agent_id: str, rt: Roots | None = None) ->
         problems.append("label is required")
     if not str(manifest.get("model") or "").strip():
         problems.append("model is required")
+    bad_ws = workspace_problem(manifest, agent_id)
+    if bad_ws:
+        problems.append(bad_ws)
     tools = manifest.get("tools")
     if tools != "unrestricted":
         if not isinstance(tools, dict) or not isinstance(tools.get("allow"), list):

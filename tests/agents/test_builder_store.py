@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sys
 import tempfile
@@ -259,6 +260,43 @@ def main() -> int:
         record("apiKey" not in deploy.desired_catalog(cfg, None)["providers"]["llama-local"],
                "redacted key and no catalog: the field is left out, never the marker")
         record(deploy.desired_catalog(cfg, want) == want, "rendering is idempotent")
+
+        # --- paths that reach a shell in the gateway (review A1, 2026-09-03) ----
+        # The workspace is bound to the id: any other value is refused at the
+        # form and again on every read of the roster (the hand-written door).
+        refuses(lambda: store.save_instance("zz-ws", {**BASE, "workspace": "/tmp/x; echo pwned"}, rt=RT),
+                "crafted workspace refused at save time", "workspace must be")
+        store.save_instance("zz-ws", {**BASE, "workspace": store.default_workspace("zz-ws")}, soul="x", rt=RT)
+        record(store.load_manifest("zz-ws", RT)["workspace"] == "/data/openclaw/agents/zz-ws/workspace",
+               "the agent's own workspace path is accepted")
+        (L / "instances/zz-ws/agent.json").write_text(json.dumps({**BASE, "workspace": "/data/openclaw/agents/other/workspace"}))
+        refuses(lambda: store.load_roster(RT), "hand-written foreign workspace refused on read", "workspace must be")
+        shutil.rmtree(L / "instances/zz-ws")
+        # A skill file whose name carries a space and parentheses must reach the
+        # shell as ONE word. The command string is inspected, never executed.
+        sk_dir = L / "skills" / "zz-quote"
+        sk_dir.mkdir(parents=True)
+        (sk_dir / "SKILL.md").write_text("---\nname: zz-quote\ndescription: probe\n---\n# q\n")
+        (sk_dir / "Fragen (alt).md").write_text("# alt\n")
+        store.save_instance("zz-q", {**BASE, "skills": ["zz-quote"]}, soul="x", rt=RT)
+        agent = next(a for a in store.load_roster(RT)["agents"] if a["id"] == "zz-q")
+        odd = [p for p in deploy.desired_workspace_files(agent, RT) if "Fragen (alt)" in p]
+        record(len(odd) == 1, "skill file with a space is part of the rollout", odd[0] if odd else "missing")
+        seen: list[list[str]] = []
+        real_docker = deploy.docker
+        deploy.docker = lambda *argv, stdin=None: (seen.append(list(argv)), (0, ""))[1]
+        try:
+            deploy.write_remote(odd[0], "x")
+            deploy.remote_file(odd[0])
+            deploy.write_remote("/tmp/x; echo pwned", "x")
+        finally:
+            deploy.docker = real_docker
+        cmds = [argv[-1] for argv in seen if argv[:2] == ["sh", "-c"]]
+        record(len(cmds) == 3 and all(odd[0] in shlex.split(c) for c in cmds[:2]),
+               "write and read pass the odd path to the shell as one word", cmds[0][:70] if cmds else "")
+        record(len(cmds) == 3 and "/tmp/x; echo pwned" in shlex.split(cmds[2]) and ";" not in shlex.split(cmds[2])[:3],
+               "a crafted path is one word to the shell, not three commands", cmds[2][:70] if len(cmds) > 2 else "")
+        shutil.rmtree(L / "instances/zz-q"); shutil.rmtree(sk_dir)
 
         # --- a folder without a manifest is an error, not a skip --------------
         (L / "instances/zz-half").mkdir()

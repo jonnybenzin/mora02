@@ -67,6 +67,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Callable
@@ -142,7 +144,10 @@ def read_config() -> dict:
 
 
 def remote_file(path: str) -> str | None:
-    rc, out = docker("sh", "-c", f"cat {path} 2>/dev/null")
+    # Quoted, here and below: a path reaches the shell from a manifest field or
+    # a file name in a skill folder. Unquoted, a space breaks the rollout and a
+    # crafted value runs as root in the gateway (review finding A1, 2026-09-03).
+    rc, out = docker("sh", "-c", f"cat {shlex.quote(path)} 2>/dev/null")
     return out if rc == 0 and out else None
 
 
@@ -153,7 +158,9 @@ def write_remote(path: str, body: str) -> None:
     Markdown files that may legitimately contain anything.
     """
     rc, out = docker(
-        "sh", "-c", f"mkdir -p $(dirname {path}) && cat > {path}", stdin=body,
+        "sh", "-c",
+        f"mkdir -p {shlex.quote(posixpath.dirname(path))} && cat > {shlex.quote(path)}",
+        stdin=body,
     )
     if rc != 0:
         raise DeployError(f"could not write {path}: {out.strip()[:200]}")
