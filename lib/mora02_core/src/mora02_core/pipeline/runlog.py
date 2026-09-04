@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import json
 import os
+
+from mora02_core._common import segment_problem
 import re
 import uuid
 from datetime import datetime, timezone
@@ -58,16 +60,21 @@ def _now_iso() -> str:
 # from sending its own. Checked here rather than at each caller: this function
 # and its twin in runbucket are the only two places a run id becomes a path
 # (review 3, 2026-09-04). The shape is what new_run_id() makes.
-RUN_ID_RE = re.compile(r"^[0-9]{8}_[0-9]{6}_[0-9a-f]{8}$")
-
-
 class BadRunId(ValueError):
     """A run id that cannot name a log file."""
 
 
 def check_run_id(run_id: str) -> str:
-    if not RUN_ID_RE.match(str(run_id or "")):
-        raise BadRunId(f"{str(run_id)[:80]!r} is not a run id")
+    """The run id, or BadRunId if it cannot be a file name.
+
+    It checks what makes an id DANGEROUS, not what makes it ours: callers other
+    than new_run_id() name their runs (the test suites do, `test-wiring-<epoch>`),
+    and a guard that enforced this module's own format refused them -- which is
+    a guard doing something other than its job.
+    """
+    problem = segment_problem(run_id)
+    if problem:
+        raise BadRunId(f"{str(run_id)[:80]!r} {problem}")
     return run_id
 
 

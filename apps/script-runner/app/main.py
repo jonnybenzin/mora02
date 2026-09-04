@@ -27,7 +27,7 @@ from mora02_core import auth
 from mora02_core import assets as asset_refs
 from mora02_core import pricing
 from mora02_core.llm import models as llm_models
-from mora02_core._common import get_logger
+from mora02_core._common import get_logger, segment_problem
 from mora02_core.db import api as db_api
 from mora02_core.comfyui import (
     generate_images,
@@ -205,22 +205,10 @@ _SESSION_ID_RE = re.compile(r"^[0-9]{10}_[0-9a-f]{6}$")
 _FLOW_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 
 
-def _segment_problem(value: Any) -> str | None:
-    """Why ``value`` cannot be one path segment, or None if it can.
-
-    Permissive about what a name may CONTAIN -- a real filename has spaces and
-    brackets in it -- and airtight about what would make it a path.
-    """
-    v = "" if value is None else str(value)
-    if not v:
-        return "is empty"
-    if len(v) > 255:
-        return "is longer than 255 characters"
-    if v in (".", ".."):
-        return "is not a name"
-    if "/" in v or "\\" in v or "\x00" in v:
-        return "contains a path separator"
-    return None
+# The rule itself lives in mora02_core._common, because the library turns
+# caller-supplied text into file names too (a run id is one). One rule, two
+# users, no second copy to drift.
+_segment_problem = segment_problem
 
 
 def safe_segment(value: Any, what: str) -> str:
@@ -346,6 +334,9 @@ async def create_baserow_entry(script_type: str, folder: str, files: List[str], 
         }
         return await db_api.insert("sb_assets", data)
     except Exception as e:
+        # Deliberately swallowed, and the only place in this file where that is
+        # right: this is a record ABOUT a finished media job, not part of it.
+        # A database that is down must not lose the clip that was just made.
         _log.warning("baserow insert failed: %s", e)
         return None
 
@@ -1617,16 +1608,34 @@ async def _bg_resume_and_refile(req: "PipelineResumeRequest") -> None:
             req.token, response=req.response, approve=req.approve,
             cancel=req.cancel, runner=req.runner, run_id=req.run_id,
         )
-    except Exception:
+    except Exception as e:
+        # The caller was told "resuming" before any of this was attempted, and
+        # the Pilot cleared the inbox item on that answer. So a failure here is
+        # invisible everywhere: no inbox item, no HTTP error, and — until now —
+        # nothing in the run log either, so the RUNS view showed a flow that
+        # simply stops after its last step (review 3, 2026-09-04). The run log
+        # is where a run's fate belongs, so that is where this goes.
         _log.exception("background resume failed")
+        pipeline_runlog.log_event(
+            req.run_id, "run_result", ok=False, status="failed",
+            error=f"background resume failed: {e}",
+        )
         return
     d = _pipeline_result_to_dict(res)
     if d.get("is_paused") and d.get("resume_token"):
         try:
             async with httpx.AsyncClient(timeout=10.0) as c:
-                await c.post(f"{_PILOT_URL}/inbox/refile", json=d)
-        except Exception:
-            _log.warning("could not re-file the next gate into the inbox")
+                r = await c.post(f"{_PILOT_URL}/inbox/refile", json=d)
+            if r.status_code >= 400:
+                raise RuntimeError(f"the inbox answered HTTP {r.status_code}")
+        except Exception as e:
+            # Same reasoning: a gate nobody can see is a run that waits for ever.
+            _log.warning("could not re-file the next gate into the inbox: %s", e)
+            pipeline_runlog.log_event(
+                req.run_id or d.get("run_id"), "run_result", ok=False,
+                status="paused_unfiled",
+                error=f"paused at a further gate, but the inbox did not take it: {e}",
+            )
 
 
 @app.post("/pipeline/resume")
@@ -2677,6 +2686,12 @@ async def _step_db_get(inputs: List[str], params: dict) -> dict:
     if not table or not rid:
         raise ValueError("db.get needs ?table= and ?row_id=")
     row = await db_api.get(table, int(rid))
+    # A row that is not there is not a green step: the next step would read
+    # "null" and fail on it, blaming itself. The library raises DbError when the
+    # database could not answer at all, which the step funnel records as a
+    # failed step with the reason (review 3, 2026-09-04).
+    if row is None:
+        raise ValueError(f"db.get: no row {rid} in {table!r}")
     return {"ok": True, "op": "db.get", "type": "text",
             "out": json.dumps(row, ensure_ascii=False)}
 
@@ -2703,6 +2718,8 @@ async def _step_db_update(inputs: List[str], params: dict) -> dict:
     if not isinstance(data, dict):
         raise ValueError("db.update needs JSON field values (?data= or on stdin)")
     row = await db_api.update(table, int(rid), data)
+    if row is None:
+        raise ValueError(f"db.update: no row {rid} in {table!r}")
     return {"ok": True, "op": "db.update", "type": "text",
             "out": json.dumps(row, ensure_ascii=False)}
 
@@ -2712,9 +2729,10 @@ async def _step_db_delete(inputs: List[str], params: dict) -> dict:
     table, rid = params.get("table"), params.get("row_id")
     if not table or not rid:
         raise ValueError("db.delete needs ?table= and ?row_id=")
-    ok = await db_api.delete(table, int(rid))
+    if not await db_api.delete(table, int(rid)):
+        raise ValueError(f"db.delete: no row {rid} in {table!r}")
     return {"ok": True, "op": "db.delete", "type": "text",
-            "out": json.dumps({"deleted": ok})}
+            "out": json.dumps({"deleted": True})}
 
 
 async def _step_db_list_fields(inputs: List[str], params: dict) -> dict:
@@ -3104,6 +3122,7 @@ async def pipeline_vocab_stats(window_days: int = 30):
         return _VOCAB_STATS_CACHE["payload"]
 
     cutoff = time.time() - window_days * 86400
+    cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
     stats: dict = {}
     scanned = 0
     for path in files:
@@ -3121,6 +3140,16 @@ async def pipeline_vocab_stats(window_days: int = 30):
                 continue
             op = event.get("op")
             if not op:
+                continue
+            # The window applies to EVERYTHING reported under it. It used to
+            # filter the spend alone, so a `?window_days=1` answer put three
+            # months of runs and failures next to one day of cost — and the
+            # question this endpoint exists to answer is "should I put this op
+            # in a loop", which is exactly the judgement that gets wrong
+            # (review 3, 2026-09-04). Same cheap comparison as before: the log
+            # stamps are ISO, so a string compare needs no parsing.
+            stamp = event.get("ts") or ""
+            if stamp and stamp < cutoff_iso:
                 continue
             entry = stats.setdefault(op, {"runs": 0, "ok": 0, "failed": 0, "last_ok": None,
                                           "durations": [], "spend_usd": 0.0, "stores": []})
@@ -3142,11 +3171,7 @@ async def pipeline_vocab_stats(window_days: int = 30):
                 entry["failed"] += 1
             cost = event.get("cost_usd")
             if isinstance(cost, (int, float)):
-                stamp = event.get("ts") or ""
-                # Cheap window check: the log stamps are ISO, so a string compare
-                # against the cutoff's ISO form is enough and needs no parsing.
-                if not stamp or stamp >= datetime.fromtimestamp(cutoff, timezone.utc).isoformat():
-                    entry["spend_usd"] += float(cost)
+                entry["spend_usd"] += float(cost)
 
     usage = _spec_op_usage()
     ops_out = {}
@@ -3265,6 +3290,12 @@ async def pipeline_step(op: str, request: Request):
     # the handler — pop them so they don't reach the op as stray params.
     run_id = params.pop("run_id", None)
     step_id = params.pop("step_id", op)
+    # Checked HERE, before any work: the run log and the run bucket both turn
+    # this into a file name, and the bucket write happens AFTER the error
+    # funnel below has closed — so an id it cannot use came back as a bare
+    # HTTP 500 with no message, instead of a step that says what was wrong.
+    if run_id:
+        _checked_run_id(run_id)
     # The customer/project axis. Baked by the compiler like run_id, not a param
     # the op sees: it narrows which library paths this step may touch at all,
     # and it does that below the ops rather than inside each of them (see

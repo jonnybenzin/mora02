@@ -71,3 +71,24 @@ async def request_with_retry(
             raise last_exc
         assert resp is not None
         return resp
+
+
+def segment_problem(value: object) -> str | None:
+    """Why ``value`` cannot be ONE path segment, or None if it can.
+
+    Permissive about what a name may contain -- a real file name has spaces and
+    brackets in it -- and airtight about what would make it a path. Lives here
+    because both the service and the library turn caller-supplied text into
+    file names, and one rule written twice is one rule that drifts (review 3,
+    2026-09-04).
+    """
+    v = "" if value is None else str(value)
+    if not v:
+        return "is empty"
+    if len(v) > 255:
+        return "is longer than 255 characters"
+    if v in (".", ".."):
+        return "is not a name"
+    if "/" in v or "\\" in v or "\x00" in v:
+        return "contains a path separator"
+    return None

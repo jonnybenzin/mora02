@@ -161,24 +161,44 @@ def main_() -> int:
     record(got.name == "wanted.mp4", "a plain name is honoured", str(got.name))
 
     # --- a run id is a run id, in both places ------------------------------
-    for probe in ("../../etc/x", "x", "", "20260627_131450_zzzzzzzz"):
+    # The guard blocks what is DANGEROUS in a file name, not what is unlike the
+    # generator's own format: the pipeline suites name their runs themselves
+    # ("test-wiring-<epoch>"), and a guard that refused those would be doing
+    # something other than its job. That is exactly what the first version did,
+    # and six pipeline suites went red saying so.
+    for probe in ("../../etc/x", "x/y", "", "..", "a\\b"):
         try:
             runlog.read_events(probe)
         except runlog.BadRunId:
             pass
         else:
-            record(False, "the run log refuses an id that is not one", repr(probe))
+            record(False, "the run log refuses an id that could leave its directory", repr(probe))
             break
     else:
-        record(True, "the run log refuses an id that is not one", "4 forms refused")
-    record(runlog.check_run_id("20260627_131450_406add02") == "20260627_131450_406add02",
-           "a real run id still passes")
+        record(True, "the run log refuses an id that could leave its directory", "5 forms refused")
+    for good in ("20260627_131450_406add02", "test-passthrough-1788537623", "x"):
+        if runlog.check_run_id(good) != good:
+            record(False, "a name that is merely unusual still passes", repr(good))
+            break
+    else:
+        record(True, "a name that is merely unusual still passes",
+               "the generator's own, a suite's, and a bare letter")
     runlog.log_event("../../evil", "probe")
     record(True, "writing the log with a bad id does not raise (its standing promise)")
     for probe in ("../../x", "20260627_131450_ffffffff"):
         r = client.post("/pipeline/rerun", json={"source_run_id": probe, "changed": []})
         record(r.status_code in (404, 422),
                f"/pipeline/rerun refuses {probe[:18]!r}", f"HTTP {r.status_code}")
+
+    # The step endpoint must answer, not fall over: the bucket write happens
+    # after its error funnel closes, so an id it cannot use used to come back as
+    # a bare 500 (found while re-running the pipeline suites, 2026-09-04).
+    r = client.post("/pipeline/step/db.list_fields?table=sb_assets&run_id=../../x")
+    record(r.status_code in (400, 422), "a step with a walking run_id answers, not 500",
+           f"HTTP {r.status_code}")
+    r = client.post("/pipeline/step/db.list_fields?table=sb_assets&run_id=test-suite-1788")
+    record(r.status_code != 422, "a step with a suite-style run_id is accepted",
+           f"HTTP {r.status_code}")
 
     fails = [r for r in results if r[0] == "FAIL"]
     print(f"\n{len(results) - len(fails)} passed, {len(fails)} failed")

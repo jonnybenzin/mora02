@@ -23,6 +23,19 @@ from mora02_core.db.client import _headers, _url
 log = get_logger("mora02_core.db.api")
 
 
+class DbError(RuntimeError):
+    """The database refused the call, or could not be reached.
+
+    Distinct from a legitimate `None`, which means "no such row". Both used to
+    read as None, so a caller could not tell "the row is not there" from "the
+    write was rejected" -- and the pipeline's db steps reported a green run for
+    an insert that never happened, while db.query answered an empty list for a
+    Baserow that was unreachable, which the scheduled-publish loop read as
+    "nothing is due" (review 3, 2026-09-04).
+    """
+
+
+
 def _table_id(name) -> int:
     """Resolve a table reference to its Baserow table ID.
 
@@ -70,7 +83,9 @@ def _filter_params(filter: dict[str, Any] | None) -> dict[str, str]:
 async def insert(
     table: str, data: dict, *, user_id: str = "default"
 ) -> dict | None:
-    """Insert a row into the named table. Returns the created row, or None."""
+    """Insert a row into the named table. Returns the created row.
+    Raises DbError when the database refused it -- an insert either happened or
+    it did not, and there is no third answer worth returning."""
     tid = _table_id(table)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(
@@ -80,13 +95,14 @@ async def insert(
         if resp.status_code in (200, 201):
             return resp.json()
         log.warning("insert(%s) failed: %d %s", table, resp.status_code, resp.text[:200])
-        return None
+        raise DbError(f"insert into {table} failed: HTTP {resp.status_code} {resp.text[:200]}")
 
 
 async def get(
     table: str, row_id: int, *, user_id: str = "default"
 ) -> dict | None:
-    """Read a single row by ID. Returns None if not found."""
+    """Read a single row by ID. None when there is no such row.
+    Raises DbError when the database could not answer."""
     tid = _table_id(table)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
@@ -97,6 +113,8 @@ async def get(
             return resp.json()
         if resp.status_code != 404:
             log.warning("get(%s, %d) failed: %d %s", table, row_id, resp.status_code, resp.text[:200])
+            if resp.status_code != 404:
+                raise DbError(f"get({table}, {row_id}) failed: HTTP {resp.status_code}")
         return None
 
 
@@ -137,7 +155,7 @@ async def query(
             )
             if resp.status_code != 200:
                 log.warning("query(%s) failed: %d %s", table, resp.status_code, resp.text[:200])
-                break
+                raise DbError(f"query({table}) failed: HTTP {resp.status_code} {resp.text[:200]}")
             data = resp.json()
             results.extend(data.get("results", []))
             if not all_pages or not data.get("next"):
@@ -149,7 +167,8 @@ async def query(
 async def update(
     table: str, row_id: int, data: dict, *, user_id: str = "default"
 ) -> dict | None:
-    """Patch an existing row. Returns the updated row or None on failure."""
+    """Patch an existing row. The updated row, or None when there is no such
+    row. Raises DbError when the database refused the patch."""
     tid = _table_id(table)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.patch(
@@ -161,20 +180,27 @@ async def update(
         log.warning(
             "update(%s, %d) failed: %d %s", table, row_id, resp.status_code, resp.text[:200],
         )
-        return None
+        if resp.status_code == 404:
+            return None
+        raise DbError(f"update({table}, {row_id}) failed: HTTP {resp.status_code} {resp.text[:200]}")
 
 
 async def delete(
     table: str, row_id: int, *, user_id: str = "default"
 ) -> bool:
-    """Delete a row. Returns True on 204."""
+    """Delete a row. True when it went, False when there was no such row.
+    Raises DbError when the database refused."""
     tid = _table_id(table)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.delete(
             f"{_url()}/api/database/rows/table/{tid}/{row_id}/",
             headers=_headers(),
         )
-        return resp.status_code == 204
+        if resp.status_code == 204:
+            return True
+        if resp.status_code == 404:
+            return False
+        raise DbError(f"delete({table}, {row_id}) failed: HTTP {resp.status_code}")
 
 
 async def list_fields(table: str, *, user_id: str = "default") -> list[dict]:
@@ -192,4 +218,4 @@ async def list_fields(table: str, *, user_id: str = "default") -> list[dict]:
         if resp.status_code == 200:
             return resp.json()
         log.warning("list_fields(%s) failed: %d %s", table, resp.status_code, resp.text[:200])
-        return []
+        raise DbError(f"list_fields({table}) failed: HTTP {resp.status_code}")

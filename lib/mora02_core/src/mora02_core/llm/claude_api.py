@@ -5,6 +5,7 @@ from typing import AsyncGenerator, Optional
 import anthropic
 
 from mora02_core import auth
+from mora02_core import pricing
 from mora02_core._common import get_logger
 from mora02_core.llm.models import MODELS
 
@@ -134,8 +135,21 @@ async def complete_claude_usage(
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
     tokens_in = resp.usage.input_tokens
     tokens_out = resp.usage.output_tokens
-    cost = (tokens_in / 1_000_000 * model_config.get("cost_input_per_1m", 0.0)
-            + tokens_out / 1_000_000 * model_config.get("cost_output_per_1m", 0.0))
+    # Cache reads are billed, at a fraction of the input rate, and this call did
+    # not count them at all. On a turn that reuses a long prompt they ARE the
+    # input -- measured elsewhere in this repo: one input token against 3031
+    # output, everything else read from cache -- so the figure came out about an
+    # order of magnitude low. It is written into the run log as `cost_usd` and
+    # summed by /pipeline/vocab-stats, so the understatement compounded.
+    # pricing.usd_last_call is the one place that arithmetic lives (review 3).
+    cached = int(getattr(resp.usage, "cache_read_input_tokens", 0) or 0)
+    cost = pricing.usd_last_call(
+        model_config["name"], tokens_in=tokens_in, tokens_out=tokens_out,
+        tokens_cache_read=cached,
+    )
+    if cost is None:
+        # A model nobody priced reports no cost rather than a guessed one.
+        cost = 0.0
     # Anthropic says "max_tokens" where llama.cpp says "length". Mapped onto the
     # local vocabulary so a caller checks ONE field to learn whether the answer
     # ended or was cut off.
@@ -145,6 +159,7 @@ async def complete_claude_usage(
         "tokens_out": tokens_out,
         "model": model_config["name"],
         "cost_usd": round(cost, 6),
+        "tokens_cache_read": cached,
         "finish_reason": "length" if stop == "max_tokens" else stop,
     }
     return text, usage
