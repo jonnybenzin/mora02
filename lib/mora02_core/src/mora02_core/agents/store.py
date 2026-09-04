@@ -178,19 +178,31 @@ def workspace_problem(manifest: dict, agent_id: str) -> str | None:
 # flag is false for llama-local (measured 2026-09-02), the prefix is not.
 LOCAL_PREFIX = "llama-local/"
 
-# The house's MCP tools that only read, search or take notes. Everything
-# else the MCP server offers -- and everything it will offer that nobody has
-# classified yet -- counts as acting: an unknown tool is the widest one, not
-# the narrowest (ADR-029). The set used to be the other way round (the acting
-# tools, listed), and a tool added to mcp_tools.py without a second edit was a
-# reading tool by default. agents.py paints the builder from this same rule,
-# so the form and the check cannot disagree.
-MCP_READ_TOOLS = {"flows_list", "web_search", "web_read", "note", "notes_review", "verify", "run_status"}
+def mcp_tool_risk(name: str, rt: Roots | None = None) -> str:
+    """read / write / act for one of the house's MCP tools, by its bare name.
+
+    Classified in <platform>/tools.json beside the gateway's own tools, which
+    is where the same question is already answered for them -- and it has to
+    be data, not code: the CLI door (scripts/agents-deploy.py) never imports
+    the MCP server, and a classification that depended on what happened to be
+    imported would let the two doors judge the same agent differently.
+
+    A name nobody classified counts as acting: an unknown tool is the widest
+    one, not the narrowest (ADR-029). That was the other way round once -- the
+    acting tools were the listed ones -- so a tool added to mcp_tools.py
+    without a second edit was a reading tool by default.
+    """
+    return str(_mcp_risks(rt).get(name) or "act")
 
 
-def mcp_tool_risk(name: str) -> str:
-    """read / act for one of the house's MCP tools, by its bare name."""
-    return "read" if name in MCP_READ_TOOLS else "act"
+def _mcp_risks(rt: Roots | None = None) -> dict:
+    path = _r(rt).platform / "tools.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    got = data.get("mcp")
+    return got if isinstance(got, dict) else {}
 
 
 def is_local_model(model: str | None) -> bool:
@@ -207,7 +219,7 @@ def tool_risk(tool_id: str, rt: Roots | None = None, builtin: list[dict] | None 
     passes it once rather than having the file read per entry.
     """
     if "__" in tool_id:
-        return mcp_tool_risk(tool_id.split("__", 1)[1])
+        return mcp_tool_risk(tool_id.split("__", 1)[1], rt)
     for t in builtin if builtin is not None else builtin_tools(rt):
         if t.get("id") == tool_id:
             return str(t.get("risk") or "act")

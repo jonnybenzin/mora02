@@ -153,6 +153,22 @@ def main() -> int:
             f.unlink()
         tmp.rmdir()
 
+    # --- the classification covers exactly the tools that exist ------------
+    # The risks live in agents/tools.json, because both doors (the form and the
+    # command-line rollout) must read the same policy and only one of them
+    # imports this module. That distance is only safe if something notices when
+    # a tool is renamed or added -- this is that something.
+    from mora02_core.agents import store as _store
+    defined = {t["name"] for t in M.TOOLS}
+    classified = set(_store._mcp_risks())
+    record(defined == classified,
+           "every MCP tool is classified, and nothing is classified that does not exist",
+           f"unclassified={sorted(defined - classified)} stale={sorted(classified - defined)}")
+    record(_store.mcp_tool_risk("a-tool-nobody-has-classified") == "act",
+           "an unclassified name counts as acting, not as reading")
+    record(_store.mcp_tool_risk("flow_run") == "act" and _store.mcp_tool_risk("web_read") == "read",
+           "the starter of flows acts, the reader of pages reads")
+
     # --- one turn owns the registers (review 2, finding 1) -----------------
     M.end_turn()
     t_a = M.begin_turn({"max_pages_total": 4}, session="agent:x:a")

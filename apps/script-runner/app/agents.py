@@ -266,7 +266,7 @@ def get_tools():
         pass
     mcp = [{
         "id": f"{server}__{t['name']}",
-        "risk": mcp_tool_risk(t["name"]),
+        "risk": mcp_tool_risk(t["name"], ROOTS),
         "what": t.get("description", "")[:220],
         "source": "mcp",
     } for t in _MCP_TOOLS]

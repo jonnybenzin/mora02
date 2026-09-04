@@ -1,8 +1,8 @@
 {
   "_comment": [
-    "The gateway's OWN tools, as the builder offers them. MCP tools are not",
-    "listed here -- they come live from script-runner's /mcp (tools/list),",
-    "so a new MCP tool appears in the builder the moment it exists.",
+    "The gateway's own tools AND the house's MCP tools, as the builder offers",
+    "them. What each MCP tool DOES still comes live from script-runner's /mcp",
+    "(tools/list); what it is ALLOWED to do is decided here, because that is a policy and policies are not read off the thing they govern.",
     "",
     "Why a list in the repo, against the plan's preference for asking the",
     "gateway: the gateway has no command that lists its tool ids together",
@@ -17,7 +17,9 @@
     "those is `act` here, and the builder paints them red.",
     "",
     "Drift against the gateway is caught at rollout: `config patch`",
-    "validates tool ids, so a stale entry here fails loudly, not quietly."
+    "validates tool ids, so a stale entry here fails loudly, not quietly.",
+    "",
+    "`mcp` classifies the house's own MCP tools by their bare name, the same read/write/act scale. A name that is not listed counts as `act`: an unknown tool is the widest one, not the narrowest (ADR-029). A test pins this list against the tools mcp_tools.py actually defines, so a rename fails a suite instead of silently reclassifying a tool."
   ],
   "tools": [
     {
@@ -110,5 +112,15 @@
       "risk": "act",
       "what": "The gateway's own search, via an external provider. Prefer mora02__web_search, which stays on the local engine."
     }
-  ]
+  ],
+  "mcp": {
+    "flows_list": "read",
+    "web_search": "read",
+    "web_read": "read",
+    "note": "read",
+    "notes_review": "read",
+    "verify": "read",
+    "run_status": "read",
+    "flow_run": "act"
+  }
 }
