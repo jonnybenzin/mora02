@@ -120,8 +120,12 @@ async def ask(
             "docker CLI and a mounted docker socket to reach the gateway"
         ) from e
     except asyncio.TimeoutError as e:
-        # Killing our client leaves the exec'd process running inside the
-        # container, where it keeps talking to the model. Take it with us.
+        # Both halves have to go. Killing only our client leaves the exec'd
+        # process running inside the container, where it keeps talking to the
+        # model; killing only the inside leaves a docker exec attached here
+        # until the turn ends on its own (review B5, 2026-09-03).
+        proc.kill()
+        await proc.wait()
         await _kill_inside(docker_bin, container, key)
         raise AgentError(f"agent {agent!r} did not answer within {seconds}s") from e
 
@@ -200,11 +204,22 @@ async def ask(
     }
 
 
+def kill_pattern(key: str) -> str:
+    """The `pkill -f` pattern that matches THIS session's turn and no other.
+
+    Anchored on both sides: a bare key matched every command line that
+    merely contained it, so ending session ``1`` also ended ``10`` (review
+    B5). The key's own characters are escaped -- ``.`` is legal in a key and
+    a wildcard in a pattern.
+    """
+    return f"--session-key {re.escape(key)}( |$)"
+
+
 async def _kill_inside(docker_bin: str, container: str, key: str) -> None:
     """Best effort: end the turn we abandoned, so it stops using the GPU."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            docker_bin, "exec", container, "sh", "-c", f"pkill -f '{key}' || true",
+            docker_bin, "exec", container, "pkill", "-f", "--", kill_pattern(key),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
         )
         await asyncio.wait_for(proc.communicate(), timeout=20)

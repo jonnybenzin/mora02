@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -34,7 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib" / "mora02_core" / "src"))
 
-from mora02_core.agents import deploy, store  # noqa: E402
+from mora02_core.agents import cli, deploy, store  # noqa: E402
 
 results: list[tuple[str, str, str]] = []
 
@@ -297,6 +298,14 @@ def main() -> int:
         record(len(cmds) == 3 and "/tmp/x; echo pwned" in shlex.split(cmds[2]) and ";" not in shlex.split(cmds[2])[:3],
                "a crafted path is one word to the shell, not three commands", cmds[2][:70] if len(cmds) > 2 else "")
         shutil.rmtree(L / "instances/zz-q"); shutil.rmtree(sk_dir)
+
+        # B5: the kill pattern ends this session's turn and no other
+        pat = cli.kill_pattern("agent:x:1")
+        line = "openclaw agent --agent x --session-key agent:x:1 --message hi"
+        record(bool(re.search(pat, line)) and not re.search(pat, line.replace("agent:x:1", "agent:x:10")),
+               "B5 kill pattern matches session 1 and not session 10", pat)
+        record(not re.search(cli.kill_pattern("agent:x:1.2"), line.replace("agent:x:1", "agent:x:1x2")),
+               "B5 a dot in the key is a dot, not a wildcard")
 
         # --- the gateway's answers are read, not guessed (review A2) --------------
         # The CLI prints a warning line AFTER its JSON; the old reader turned
