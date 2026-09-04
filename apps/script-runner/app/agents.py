@@ -140,11 +140,10 @@ def get_roster(include_inactive: bool = False):
         )
 
     agents = []
-    try:
-        folders = iter_instances(ROOTS)
-    except StoreError as e:
-        raise _store_error(e)
-    for folder in folders:
+    # No guard around iter_instances: a folder that cannot be an agent id is
+    # skipped by the store and refused where it matters, at the rollout. The
+    # chat's agent list is not the place to fail over someone else's typo.
+    for folder in iter_instances(ROOTS):
         manifest = folder / "agent.json"
         if not manifest.is_file():
             continue

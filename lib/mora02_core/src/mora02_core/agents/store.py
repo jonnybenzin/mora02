@@ -149,13 +149,22 @@ def default_workspace(agent_id: str) -> str:
 
 
 def workspace_problem(manifest: dict, agent_id: str) -> str | None:
-    """Why the manifest's ``workspace`` is not acceptable, or None."""
+    """Why the manifest's path fields are not acceptable, or None.
+
+    Two fields of a manifest become paths in the gateway: ``workspace``, and
+    ``agentDir``, which the rollout copies into the config entry and uses to
+    write the model catalogue. Both are bound to the id. ``agentDir`` is not
+    in MANIFEST_KEYS, so the form refuses it already -- this is the other
+    door, for a manifest written by hand, which load_roster does not validate.
+    """
     ws = manifest.get("workspace")
-    if ws is None:
-        return None
     want = default_workspace(agent_id)
-    if ws != want:
+    if ws is not None and ws != want:
         return f"workspace must be {want!r} or left out (got {str(ws)[:80]!r})"
+    ad = manifest.get("agentDir")
+    if ad is not None and ad != f"{WORKSPACE_ROOT}/{agent_id}/agent":
+        return (f"agentDir is the gateway's to set, not the manifest's — "
+                f"leave it out (got {str(ad)[:80]!r})")
     return None
 
 
@@ -254,29 +263,40 @@ def instances_dir(rt: Roots | None = None) -> Path | None:
     return None if rt.local is None else rt.local / "instances"
 
 
-def iter_instances(rt: Roots | None = None) -> list[Path]:
-    """Every instance folder. Does not read manifests, does not judge them --
-    but does judge the NAME. Dot folders (.trash) skipped.
-
-    A folder whose name is not an id used to be listed here and refused by
-    every lookup: ``instances/Recherche_DE/`` was rolled out, and the detail
-    view said "no agent" (review B10, 2026-09-03). The name is the id, and an
-    id that cannot be looked up is an error at the door, not later.
-    """
+def _instance_folders(rt: Roots | None = None) -> tuple[list[Path], list[str]]:
+    """(folders whose name is an id, names that are not). Dot folders skipped."""
     inst = instances_dir(rt)
     if inst is None or not inst.is_dir():
-        return []
-    out: list[Path] = []
+        return [], []
+    good: list[Path] = []
+    bad: list[str] = []
     for f in sorted(inst.iterdir()):
         if not f.is_dir() or f.name.startswith("."):
             continue
-        if not ID_RE.match(f.name):
-            raise StoreError(
-                f"instances/{f.name}: not a valid agent id (lowercase letters, "
-                f"digits and dashes, 2-64 characters) -- rename the folder"
-            )
-        out.append(f)
-    return out
+        if ID_RE.match(f.name):
+            good.append(f)
+        else:
+            bad.append(f.name)
+    return good, bad
+
+
+def iter_instances(rt: Roots | None = None) -> list[Path]:
+    """Every instance folder that can be looked up by name.
+
+    A folder whose name is not an id is SKIPPED here and refused by
+    load_roster: ``instances/Recherche_DE/`` used to be rolled out while the
+    detail view said "no agent" (review B10). Raising here instead was worse
+    than the bug -- this function also carries the chat's agent list, the
+    delete path and the skill pages, and one stray folder took all three down
+    with it. The rollout is the door where the refusal belongs, because being
+    rolled out was the harm.
+    """
+    return _instance_folders(rt)[0]
+
+
+def stray_instance_names(rt: Roots | None = None) -> list[str]:
+    """Folder names under instances/ that cannot be an agent id."""
+    return _instance_folders(rt)[1]
 
 
 def find_instance(agent_id: str, rt: Roots | None = None) -> Path | None:
@@ -393,6 +413,12 @@ def load_roster(rt: Roots | None = None) -> dict:
         raise StoreError(f"no platform root at {rt.platform}")
 
     agents: list[dict] = []
+    for name in stray_instance_names(rt):
+        raise StoreError(
+            f"instances/{name}: not a valid agent id (lowercase letters, digits "
+            f"and dashes, 2-64 characters) -- rename the folder. It cannot be "
+            f"deployed: nothing could look it up again afterwards."
+        )
     for folder in iter_instances(rt):
         if folder.name == LETTERBOX_ID:
             raise StoreError(

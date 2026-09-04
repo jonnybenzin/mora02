@@ -299,6 +299,15 @@ def main() -> int:
                "a crafted path is one word to the shell, not three commands", cmds[2][:70] if len(cmds) > 2 else "")
         shutil.rmtree(L / "instances/zz-q"); shutil.rmtree(sk_dir)
 
+        # audit 2026-09-04: agentDir is a path too, and load_roster does not
+        # validate manifests -- so it needs the same pin as workspace.
+        refuses(lambda: store.save_instance("zz-ad", {**BASE, "agentDir": "/data/openclaw"}, rt=RT),
+                "agentDir refused at save time", "unknown field")
+        store.save_instance("zz-ad", dict(BASE), soul="x", rt=RT)
+        (L / "instances/zz-ad/agent.json").write_text(json.dumps({**BASE, "agentDir": "/data/openclaw"}))
+        refuses(lambda: store.load_roster(RT), "hand-written agentDir refused on read", "gateway's to set")
+        shutil.rmtree(L / "instances/zz-ad")
+
         # --- section C of the review: design ---------------------------------------
         record(store.tool_risk("mora02__nobody-classified-this", RT) == "act", "C an unclassified MCP tool counts as acting")
         record(store.tool_risk("mora02__web_read", RT) == "read" and store.mcp_tool_risk("flow_run") == "act",
@@ -351,11 +360,19 @@ def main() -> int:
         record(not re.search(cli.kill_pattern("agent:x:1.2"), line.replace("agent:x:1", "agent:x:1x2")),
                "B5 a dot in the key is a dot, not a wildcard")
 
-        # B10: a folder whose name is not an id is refused at the door
+        # B10: a folder whose name is not an id never reaches the gateway --
+        # but it takes nothing else down with it (audit, 2026-09-04: raising in
+        # iter_instances broke the chat's agent list, delete and the skill pages).
         (L / "instances/Recherche_DE").mkdir()
         (L / "instances/Recherche_DE/agent.json").write_text(json.dumps(BASE))
-        refuses(lambda: store.iter_instances(RT), "B10 instances/Recherche_DE refused when listed", "not a valid agent id")
-        refuses(lambda: store.load_roster(RT), "B10 ... and therefore by the roster", "not a valid agent id")
+        record(store.stray_instance_names(RT) == ["Recherche_DE"], "B10 a folder that cannot be an id is named")
+        record("Recherche_DE" not in [f.name for f in store.iter_instances(RT)], "B10 ... skipped when listing")
+        refuses(lambda: store.load_roster(RT), "B10 ... and refused by the rollout", "not a valid agent id")
+        record(store.skill_detail("recherche", RT)["name"] == "recherche",
+               "B10 the skill pages keep working beside it")
+        store.save_instance("zz-b10", dict(BASE), soul="x", rt=RT)
+        mv = store.trash_instance("zz-b10", RT)
+        record(".trash/zz-b10-" in mv["moved_to"], "B10 deleting an agent keeps working beside it")
         shutil.rmtree(L / "instances/Recherche_DE")
 
         # B6: the platform's trash is not intent, and a carried-out deletion is spent
@@ -393,6 +410,16 @@ def main() -> int:
                    "B6 --agent zz-new deletes nothing and keeps every stray in the list", str(ids))
             record("zz-new" in ids and any("agent/zz-new: does not exist" in d for d in pl.drift),
                    "B8 the agent of the run is rendered and reported")
+            # B6 (audit 2026-09-04): --agent may name an agent only the trash
+            # still knows -- otherwise the one path that deletes one agent was
+            # unreachable, because the roster no longer holds the name.
+            pl = deploy.plan(roster, "zz-doomed", RT)
+            record(pl.remove == ["zz-doomed"], "B6 --agent on a trashed agent removes exactly it", str(pl.remove))
+            try:
+                deploy.plan(roster, "never-existed", RT)
+                record(False, "B6 --agent on an unknown id is still refused", "was accepted")
+            except deploy.DeployError as e:
+                record("in either root" in str(e), "B6 --agent on an unknown id is still refused")
             pl = deploy.plan(roster, "zz-live", RT)
             ids = [e["id"] for e in pl.agents_block["list"]]
             record("zz-new" not in ids and not any("zz-new" in d for d in pl.drift),
@@ -419,6 +446,23 @@ def main() -> int:
             rm = [" ".join(a) for a, _ in calls if a[:2] == ["sh", "-c"] and "rm -f" in a[-1]]
             record(len(rm) == 1 and f"{ws}/skills/old/Fragen (alt).md" in shlex.split(rm[0].split("rm -f", 1)[1].split("&&")[0]),
                    "B9 apply removes a stale file, quoted", rm[0][6:70] if rm else "no rm")
+            record(bool(rm) and "exit 0" not in rm[0] and "|| true" in rm[0],
+                   "B9 a failing rm is still an error (only the rmdir may fail)")
+
+            # B9 hardening (audit 2026-09-04): the record lives in the agent's
+            # own workspace, so its contents are agent-controlled input.
+            record(deploy.workspace_path(ws, "skills/a/SKILL.md") == f"{ws}/skills/a/SKILL.md",
+                   "B9 a plain relative entry resolves inside the workspace")
+            record(all(deploy.workspace_path(ws, r) is None for r in
+                       ("../../../openclaw.json", "/etc/passwd", "a/../../b", "", "..")),
+                   "B9 an entry that leaves the workspace resolves to nothing")
+            deploy.docker = fake([("config get agents", (0, json.dumps(LIVE))),
+                                  (f"cat {ws}/{deploy.RENDERED_RECORD}",
+                                   (0, "SOUL.md\n../../../openclaw.json\n"))])
+            pl = deploy.plan(roster, "zz-new", RT)
+            record(pl.stale == [] and any("is not a file in this workspace" in d for d in pl.drift),
+                   "B9 a crafted record entry is named and NOT removed",
+                   next((d for d in pl.drift if "not a file" in d), "")[:60])
             calls.clear()
             deploy.docker = fake([])
             deploy.apply(roster, deploy.Plan(agents_block={"list": []}, remove=["zz-doomed"]), None, RT, lambda _l: None)

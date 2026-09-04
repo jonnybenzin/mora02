@@ -179,9 +179,14 @@ def remove_remote(path: str) -> None:
     """Delete one file inside the container, and the empty folders it leaves
     behind (a skill folder whose last file went). `rmdir -p` stops at the
     first folder that is not empty, which the workspace itself never is."""
+    # `|| true` on the rmdir alone: a folder that is not empty is the normal
+    # case and must not fail the run, but a failing `rm` has to be seen. An
+    # `exit 0` at the end of the whole command made the check below dead code
+    # and every removal look like it worked.
     rc, out = docker(
         "sh", "-c",
-        f"rm -f {shlex.quote(path)} && rmdir -p {shlex.quote(posixpath.dirname(path))} 2>/dev/null; exit 0",
+        f"rm -f {shlex.quote(path)} && "
+        f"{{ rmdir -p {shlex.quote(posixpath.dirname(path))} 2>/dev/null || true; }}",
     )
     if rc != 0:
         raise DeployError(f"could not remove {path}: {out.strip()[:200]}")
@@ -197,6 +202,22 @@ RENDERED_RECORD = ".mora02-rendered"
 
 def rendered_record(ws: str, rels: set[str]) -> tuple[str, str]:
     return f"{ws}/{RENDERED_RECORD}", "".join(f"{r}\n" for r in sorted(rels))
+
+
+def workspace_path(ws: str, rel: str) -> str | None:
+    """The full path of a rendered file, or None when ``rel`` does not name one
+    inside ``ws``.
+
+    The record is read back out of the agent's OWN workspace, and an agent
+    holding ``write`` or ``exec`` can edit it -- as can a prompt-injected turn.
+    A line reading ``../../../openclaw.json`` must never become an ``rm -f``
+    running as root in the gateway. Quoting (A1) stops a path from becoming a
+    command; this stops it from becoming the wrong file.
+    """
+    if not rel or rel.startswith("/") or ".." in rel.split("/"):
+        return None
+    full = posixpath.normpath(f"{ws}/{rel}")
+    return full if full.startswith(f"{ws}/") else None
 
 
 def previously_rendered(ws: str) -> set[str] | None:
@@ -467,8 +488,9 @@ def plan(roster: dict, only: str | None, rt: Roots) -> Plan:
 
     drift: list[str] = []
     notes: list[str] = []
+    trashed = trashed_ids(rt)
     agents = [a for a in roster["agents"] if only is None or a["id"] == only]
-    if only and not agents:
+    if only and not agents and only not in trashed:
         raise DeployError(f"no agent {only!r} in either root")
 
     # --- the MCP servers ---------------------------------------------------
@@ -519,7 +541,6 @@ def plan(roster: dict, only: str | None, rt: Roots) -> Plan:
     # gateway would keep a tool surface alive that nobody can see any more --
     # the exact thing the allow-list discipline exists to prevent. The trash
     # folder is what tells the two apart: it is the written record of intent.
-    trashed = trashed_ids(rt)
     remove: list[str] = []
     wanted = {a["id"] for a in entries}
     for stray in live_agents:
@@ -567,8 +588,15 @@ def plan(roster: dict, only: str | None, rt: Roots) -> Plan:
         rels = {path[len(ws) + 1:] for path in wanted_files}
         before = previously_rendered(ws)
         for rel in sorted((before or set()) - rels):
-            drift.append(f"file/{ws}/{rel}: stale (no longer rendered)")
-            stale.append(f"{ws}/{rel}")
+            path = workspace_path(ws, rel)
+            if path is None:
+                # Named, not removed, and the rewrite below drops it: an entry
+                # that is not a file in this workspace was not put there by the
+                # rollout, and the rollout does not delete what it did not write.
+                drift.append(f"record/{a['id']}: entry {rel!r} is not a file in this workspace — ignored")
+                continue
+            drift.append(f"file/{path}: stale (no longer rendered)")
+            stale.append(path)
         if before != rels:
             record_path, record_body = rendered_record(ws, rels)
             if before is None:
@@ -773,8 +801,9 @@ def run(*, check: bool = False, only: str | None = None,
         if not roster["agents"]:
             raise DeployError(
                 f"no agents found under {rt.local}" if rt.local is not None else
-                "no installation root is configured (MORA02_AGENTS_LOCAL_DIR) "
-                "-- nothing to roll out"
+                "no installation root: data/agents/instances is not there, and "
+                "MORA02_AGENTS_LOCAL_DIR does not name one either -- nothing to "
+                "roll out"
             )
         # Before anything is read from the gateway: a roster that leaves a tool
         # surface unsaid is refused, check mode included. Checking a roster that

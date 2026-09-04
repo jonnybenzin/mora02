@@ -126,8 +126,13 @@ async def ask(
         # process running inside the container, where it keeps talking to the
         # model; killing only the inside leaves a docker exec attached here
         # until the turn ends on its own (review B5, 2026-09-03).
-        proc.kill()
-        await proc.wait()
+        try:
+            proc.kill()
+            await proc.wait()
+        except ProcessLookupError:
+            # The child exited while the timeout was firing. Nothing left to
+            # kill here; the turn inside the container still has to go.
+            pass
         await _kill_inside(docker_bin, container, key)
         raise AgentError(f"agent {agent!r} did not answer within {seconds}s") from e
 
