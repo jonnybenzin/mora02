@@ -78,9 +78,12 @@ def _manifest(agent_id: str) -> dict:
     return load_manifest(agent_id, ROOTS)
 
 
-def agent_timeout(agent_id: str) -> int:
+def agent_timeout(manifest: dict) -> int:
+    """Seconds this agent's turn may take. Takes the manifest, not the id: the
+    route reads the file once and passes it on, rather than opening it again
+    for each field it wants."""
     try:
-        return int(_manifest(agent_id).get("timeout", _DEFAULT_TURN_TIMEOUT))
+        return int(manifest.get("timeout", _DEFAULT_TURN_TIMEOUT))
     except (ValueError, TypeError):
         return _DEFAULT_TURN_TIMEOUT
 
@@ -191,13 +194,27 @@ def _store_error(e: StoreError) -> HTTPException:
     return HTTPException(status_code=code, detail=str(e))
 
 
+# `openclaw models list` starts a node process inside the gateway, and the
+# builder asks for it on every open. What it answers changes at a rollout and
+# at nothing else, so it is remembered for a minute and dropped when we patch
+# the config ourselves.
+_MODELS_CACHE: dict = {"at": 0.0, "models": None}
+_MODELS_TTL_S = 60
+
+
 @router.get("/agents/models")
 async def get_models():
     """The models the gateway will accept in an agent's `model` field."""
-    try:
-        models = await gateway_models()
-    except (AgentError, Exception) as e:
-        raise HTTPException(status_code=502, detail=f"gateway model list unavailable: {e}")
+    fresh = (_MODELS_CACHE["models"] is not None
+             and time.monotonic() - _MODELS_CACHE["at"] < _MODELS_TTL_S)
+    if fresh:
+        models = [dict(m) for m in _MODELS_CACHE["models"]]
+    else:
+        try:
+            models = await gateway_models()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"gateway model list unavailable: {e}")
+        _MODELS_CACHE.update(at=time.monotonic(), models=[dict(m) for m in models])
     # The local entry's id is a port, not a weight (see _loaded_weights). What
     # a person choosing "local" is choosing is whatever llama-server has loaded
     # right now -- so that is what stands beside the entry, asked of the server.
@@ -299,6 +316,8 @@ async def post_deploy(agent: Optional[str] = None):
     """Render the roster into the gateway. Returns what changed and whether it
     took; 502 when the gateway refused, 422 when the roster itself is unfit."""
     res = await asyncio.to_thread(deploy_mod.run, check=False, only=agent, rt=ROOTS)
+    # A rollout is the only thing that changes what the gateway offers.
+    _MODELS_CACHE.update(at=0.0, models=None)
     if res["error"]:
         raise HTTPException(status_code=_deploy_status(res), detail=res["error"])
     return res
@@ -412,12 +431,19 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     # Resolved through the store so a `same_as` reference lands here as the
     # other agent's numbers -- the coupling that keeps two comparable agents
     # comparable.
-    limits = effective_limits(_manifest(agent_id), ROOTS)
+    # One read of the manifest for the whole turn, and off the event loop.
+    # It used to be opened three times per turn (limits, timeout, model) plus
+    # once more for a `same_as` reference, synchronously, inside an `async def`
+    # -- so a chat turn stalled the loop that also serves the MCP calls that
+    # same turn makes, and the progress poll beside it. Reading once also means
+    # a save landing mid-turn cannot give one turn two different manifests.
+    manifest = await asyncio.to_thread(_manifest, agent_id)
+    limits = await asyncio.to_thread(effective_limits, manifest, ROOTS)
     # The notebook needs to know which conversation it belongs to. Computed the
     # same way the gateway session is, so a follow-up question finds what the
     # previous one wrote down -- the thread held, the notes did not.
     sess = session_key(agent_id, req.conversation or "")
-    seconds = req.timeout or agent_timeout(agent_id)
+    seconds = req.timeout or agent_timeout(manifest)
     try:
         await asyncio.wait_for(_TURN_LOCK.acquire(), timeout=seconds)
     except asyncio.TimeoutError:
@@ -433,6 +459,12 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
         # more -- an abandoned one whose registers were never released.
         _TURN_LOCK.release()
         raise HTTPException(status_code=409, detail=str(e))
+    # Which weights llama-server holds does not depend on the turn, so the
+    # question is asked WHILE the turn runs rather than after it. Awaited at
+    # the tail, it added its two-second timeout to every local answer that had
+    # already been produced.
+    weights = (asyncio.create_task(_loaded_weights())
+               if is_local_model(str(manifest.get("model") or "")) else None)
     try:
         result = await ask(
             agent_id,
@@ -443,6 +475,8 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
         )
     except AgentError as e:
         log.warning("agent %s failed: %s", agent_id, e)
+        if weights is not None:
+            weights.cancel()
         raise HTTPException(status_code=502, detail=str(e))
     finally:
         # Every exit, so a failed turn stops reporting itself as running.
@@ -474,11 +508,11 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     # weights under a Sonnet answer -- the very confusion this field exists to
     # end. The manifest carries the full "anthropic/..." or "llama-local/..."
     # string and is right here already.
-    declared = str(_manifest(agent_id).get("model") or "")
+    declared = str(manifest.get("model") or "")
     reported = str(result.get("model") or "")
     result["model_declared"] = declared or reported
-    if is_local_model(declared):
-        result["model_real"] = await _loaded_weights() or declared
+    if weights is not None:
+        result["model_real"] = (await weights) or declared
     else:
         result["model_real"] = reported or declared
     # Carried across from earlier questions in the same conversation. Reported

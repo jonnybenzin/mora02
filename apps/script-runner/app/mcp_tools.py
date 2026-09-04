@@ -811,6 +811,14 @@ def _text(item: dict, key: str) -> str:
 
 
 async def _flows_list() -> dict:
+    # Off the event loop: this runs DURING a turn, which is exactly when the
+    # loop also has to serve that turn's other tool calls and the Pilot's
+    # two-second progress poll. A directory listing plus a json.load per spec
+    # is small but it is disk, and disk on the loop stops everything.
+    return await asyncio.to_thread(_flows_list_sync)
+
+
+def _flows_list_sync() -> dict:
     flows = []
     try:
         names = sorted(os.listdir(_SPECS_DIR))
@@ -941,7 +949,7 @@ async def _refile_gate(res, flow: str) -> str | None:
 
 
 async def _run_status(run_id: str) -> dict:
-    events = pipeline_runlog.read_events(os.path.basename(run_id))
+    events = await asyncio.to_thread(pipeline_runlog.read_events, os.path.basename(run_id))
     if not events:
         return {"error": f"no run named {run_id!r}"}
     start = next((e for e in events if e.get("kind") == "run_start"), {})
