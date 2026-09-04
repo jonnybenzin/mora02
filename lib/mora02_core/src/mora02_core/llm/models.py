@@ -1,10 +1,13 @@
 """MODELS registry — Anthropic + local Qwen via llama.cpp.
 
-Single source of truth for model IDs, pricing, and capabilities.
-Pricing is per 1M tokens, USD. Update when Anthropic publishes new rates.
+Single source of truth for model IDs and capabilities. The PRICES are NOT
+here: they live in mora02_core.pricing, keyed by the API model name, and the
+entries below take their cost fields from it. Two tables existed before and
+disagreed by a factor of three on the same model (review 2, section E).
+Update a price there, and every reader of this registry sees it.
 """
 
-from mora02_core import auth
+from mora02_core import auth, pricing
 
 # The llama.cpp container is named llama-server for every profile, so this
 # address is stable inside mora02-net and survives a profile switch. It is also
@@ -31,8 +34,6 @@ MODELS = {
         "name": "Qwen3-14B",
         "endpoint": f"{_QWEN_URL}/v1/chat/completions",
         "type": "openai_compatible",
-        "cost_input_per_1m": 0.0,
-        "cost_output_per_1m": 0.0,
         "supports_vision": False,
         "icon": "\U0001f3e0",
         "label": "QWEN",
@@ -42,8 +43,6 @@ MODELS = {
     "haiku": {
         "name": "claude-haiku-4-5-20251001",
         "type": "anthropic",
-        "cost_input_per_1m": 0.80,
-        "cost_output_per_1m": 4.00,
         "supports_vision": True,
         "icon": "⚡",
         "label": "HAIKU",
@@ -53,8 +52,6 @@ MODELS = {
     "sonnet": {
         "name": "claude-sonnet-4-5-20250929",
         "type": "anthropic",
-        "cost_input_per_1m": 3.00,
-        "cost_output_per_1m": 15.00,
         "supports_vision": True,
         "icon": "\U0001f3af",
         "label": "SONNET",
@@ -64,8 +61,6 @@ MODELS = {
     "opus": {
         "name": "claude-opus-4-6",
         "type": "anthropic",
-        "cost_input_per_1m": 15.00,
-        "cost_output_per_1m": 75.00,
         "supports_vision": True,
         "icon": "\U0001f9e0",
         "label": "OPUS",
@@ -73,3 +68,12 @@ MODELS = {
         "tier": "€€€",
     },
 }
+
+
+# Filled from the one price table rather than written down twice. A model with
+# no price -- a local one, or one nobody has priced -- carries 0.0 and reports
+# as costing nothing, which for the local ones is true.
+for _entry in MODELS.values():
+    _entry["cost_input_per_1m"], _entry["cost_output_per_1m"] = (
+        pricing.rate_for(_entry.get("name")) or (0.0, 0.0)
+    )

@@ -72,23 +72,6 @@ _DEFAULT_TURN_TIMEOUT = 180
 # hung turn does not swallow every request behind it.
 _TURN_LOCK = asyncio.Lock()
 
-# USD per million tokens, (input, output). Only the models openclaw's bundled
-# catalogue actually offers here; a model not in this table simply reports no
-# cost rather than a guessed one.
-#
-# Cache reads bill at a tenth of the input rate. They are the bulk of a research
-# turn: measured, a turn's last call reported ONE input token and 3031 output —
-# everything else had been read from cache. Pricing input alone therefore
-# reports a cost roughly one order of magnitude too low, which is the kind of
-# wrong number that gets believed because it is pleasant.
-_CACHE_READ_SHARE = 0.10
-
-_RATES = {
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-opus-4-6": (5.00, 25.00),
-    "claude-opus-4-7": (5.00, 25.00),
-    "claude-opus-4-8": (5.00, 25.00),
-}
 
 
 def _manifest(agent_id: str) -> dict:
@@ -544,11 +527,13 @@ async def post_agent_message(agent_id: str, req: AgentMessage):
     # last model call of the turn, and a research turn makes many. Said out
     # loud in the field name rather than left for someone to discover on an
     # invoice.
-    rate = _RATES.get((result.get("model") or "").lower())
-    if rate and result.get("usage_in") is not None:
-        usd = ((result["usage_in"] / 1e6) * rate[0]
-               + ((result.get("usage_cache_read") or 0) / 1e6) * rate[0] * _CACHE_READ_SHARE
-               + ((result.get("usage_out") or 0) / 1e6) * rate[1])
+    usd = pricing.usd_last_call(
+        result.get("model"),
+        tokens_in=result.get("usage_in"),
+        tokens_out=result.get("usage_out"),
+        tokens_cache_read=result.get("usage_cache_read"),
+    )
+    if usd is not None:
         result["cost_usd_last_call"] = round(usd, 4)
         result["cost_eur_last_call"] = round(pricing.to_eur(usd) or 0, 4)
 

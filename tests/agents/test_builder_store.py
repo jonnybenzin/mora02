@@ -521,6 +521,24 @@ def main() -> int:
         finally:
             deploy.docker = real_docker
 
+        # --- one price table (review 2, section E) ----------------------------------
+        from mora02_core import pricing as _pricing
+        from mora02_core.llm.models import MODELS as _MODELS
+        drift_rows = [(e["name"], e["cost_input_per_1m"], _pricing.rate_for(e["name"]))
+                      for e in _MODELS.values()]
+        record(all((r is None and ci == 0.0) or (r and ci == r[0]) for _n, ci, r in drift_rows),
+               "the registry's prices come from the one table", str(len(drift_rows)) + " models")
+        record(_pricing.rate_for("claude-sonnet-4-6") == (3.00, 15.00),
+               "the model the manifests actually name is priced")
+        record(_pricing.rate_for("nobody-priced-this") is None
+               and _pricing.usd_last_call("nobody-priced-this", tokens_in=1000) is None,
+               "an unpriced model reports no cost rather than a guessed one")
+        exp = (1 / 1e6) * 3.0 + (50000 / 1e6) * 3.0 * _pricing.CACHE_READ_SHARE + (3031 / 1e6) * 15.0
+        got = _pricing.usd_last_call("claude-sonnet-4-6", tokens_in=1, tokens_out=3031,
+                                     tokens_cache_read=50000)
+        record(abs(got - exp) < 1e-9, "a cache-heavy call is priced with the cache share",
+               f"{got:.6f} USD")
+
         # --- a failure says what kind it is (review 2, section D) -------------------
         def kind(fn):
             try:
