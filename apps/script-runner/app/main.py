@@ -1825,6 +1825,36 @@ async def _step_llm_summarize(inputs: List[str], params: dict) -> dict:
     return {"ok": True, "op": "llm.summarize", "out": text, "type": "text", "log": usage}
 
 
+def _label_from(text: str, labels: List[str]) -> str | None:
+    """The label a completion settles on, or None.
+
+    Read from the END. A model that thinks out loud names several labels on the
+    way ("is this ALPHA or BETA? ..."), and the first one in the text is the
+    one it was considering, not the one it chose. The conclusion is last.
+
+    Tried in order: the whole answer is exactly a label; the last non-empty line
+    is; otherwise the label whose last mention sits furthest into the text.
+    A `<think>...</think>` wrapper, which some builds emit, is dropped first.
+    """
+    body = text.split("</think>", 1)[-1].strip()
+    low = body.lower()
+    exact = next((l for l in labels if l.lower() == low), None)
+    if exact:
+        return exact
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    if lines:
+        last = lines[-1].lower().strip(" .*`\"'")
+        hit = next((l for l in labels if l.lower() == last), None)
+        if hit:
+            return hit
+    best, best_at = None, -1
+    for l in labels:
+        at = low.rfind(l.lower())
+        if at > best_at:
+            best, best_at = l, at
+    return best if best_at >= 0 else None
+
+
 async def _step_llm_classify(inputs: List[str], params: dict) -> dict:
     """llm.classify — pick exactly one label for the stdin text. Param: labels."""
     text_in = "\n".join(inputs).strip()
@@ -1838,17 +1868,27 @@ async def _step_llm_classify(inputs: List[str], params: dict) -> dict:
         raise ValueError("llm.classify got no usable labels")
     system = ("Classify the user's text into exactly one of these labels: "
               f"{', '.join(label_list)}. Output ONLY the chosen label, nothing else.")
+    # 32 tokens was enough for a model that answers with the label and nothing
+    # else. A model that REASONS first spends the whole budget on "Here's a
+    # thinking process:" and never reaches the label -- measured 2026-09-04 on
+    # qwen36-27b, which the house switched to on 31 August; this op has been
+    # failing since, and the wiring suite was the thing that noticed.
     text, usage = await complete_qwen_usage(
-        [{"role": "user", "content": text_in}], system, max_tokens=32,
+        [{"role": "user", "content": text_in}], system, max_tokens=256,
     )
-    # Snap to a declared label if the model wrapped it in extra words.
-    chosen = text.strip()
-    low = chosen.lower()
-    snapped = next((l for l in label_list if l.lower() == low), None) \
-        or next((l for l in label_list if l.lower() in low), None)
-    if not chosen:
+    chosen = _label_from(text, label_list)
+    if not text.strip():
         raise ValueError("llm.classify got an empty completion from qwen")
+    if chosen is None and usage.get("truncated"):
+        # Say which of the two it was. "None of the labels" reads as a model
+        # that misunderstood; a cut answer is a budget that was too small.
+        raise ValueError(
+            f"llm.classify: the answer was cut off after {usage.get('tokens_out')} "
+            f"tokens before naming a label — raise max_tokens for this op"
+        )
+    snapped = chosen
     if snapped is None:
+        chosen = text.strip()
         # The op promises exactly one of the labels, and a later step branches on
         # the answer. Passing an unrecognised value on would decide a branch by
         # accident and say nothing; llm.complete is the op for free-form text.

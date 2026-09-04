@@ -252,6 +252,51 @@ def main_() -> int:
     record(_spec.resolve_spec_path("../../etc/passwd") is None,
            "and the resolver refuses a name that walks")
 
+    # --- a model that thinks out loud still names its label ----------------
+    # qwen36-27b (loaded since 31 August) prefaces its answer with reasoning.
+    # The 32-token budget was spent on the preface, so llm.classify never saw a
+    # label and the wiring suite went red — six days before anyone ran it.
+    L = ["ALPHA", "BETA", "GAMMA"]
+    cases = [
+        ("ALPHA", "ALPHA", "the bare label"),
+        ("  BETA \n", "BETA", "with whitespace"),
+        ("Here's a thinking process:\n1. Is it ALPHA or BETA?\n2. beta fits.\n\nBETA",
+         "BETA", "a preface that names the OTHER label first"),
+        ("<think>could be ALPHA</think>\nGAMMA", "GAMMA", "a think wrapper"),
+        ("I would say **BETA**.", "BETA", "emphasis around the answer"),
+        ("nothing here at all", None, "no label anywhere"),
+    ]
+    wrong = [(why, main._label_from(t, L), want) for t, want, why in cases
+             if main._label_from(t, L) != want]
+    record(not wrong, "the label is read from the END of the answer, not the start",
+           str(wrong)[:90] or f"{len(cases)} shapes")
+
+    async def thinking(*a, **k):
+        return ("Here's a thinking process:\n1. ALPHA or BETA?\n\nBETA",
+                {"tokens_out": 40, "truncated": False})
+
+    real_q = main.complete_qwen_usage
+    main.complete_qwen_usage = thinking
+    try:
+        out = asyncio.run(main._step_llm_classify(["text"], {"labels": "ALPHA,BETA"}))
+        record(out["out"] == "BETA", "and a reasoning answer classifies", str(out["out"]))
+    finally:
+        main.complete_qwen_usage = real_q
+
+    async def cut(*a, **k):
+        return ("Here's a thinking process:\n1. Analyze the user in",
+                {"tokens_out": 32, "truncated": True})
+
+    main.complete_qwen_usage = cut
+    try:
+        asyncio.run(main._step_llm_classify(["text"], {"labels": "ALPHA,BETA"}))
+        record(False, "a cut-off answer says so, rather than blaming the model", "no error")
+    except ValueError as e:
+        record("cut off" in str(e), "a cut-off answer says so, rather than blaming the model",
+               str(e)[:64])
+    finally:
+        main.complete_qwen_usage = real_q
+
     fails = [r for r in results if r[0] == "FAIL"]
     print(f"\n{len(results) - len(fails)} passed, {len(fails)} failed")
     for _, s, d in fails:
