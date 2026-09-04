@@ -20,7 +20,7 @@
 # reason in one line, and the entry becomes the record of the decision.
 
 apps/script-runner/app/main.py | x[:_LOG_VALUE_MAX] | announced | run-log value budget; the record carries truncated=True and the true length
-apps/script-runner/app/main.py | text[:max_chars] | data-limit | web.fetch page ceiling; adjustable via ?max_chars=, cut reports source_chars
+lib/mora02_core/src/mora02_core/web/client.py | text = text[:max_chars] | data-limit | web.fetch page ceiling; adjustable via ?max_chars=, and the cut is announced in the note above it
 apps/script-runner/app/main.py | reverse=True)[:40] | listing | number of run files listed, not the inside of one
 apps/pilot/app.py | caption_master | listing | Baserow list preview column, the full caption stays in the row
 apps/pilot/app.py | summary_data.get("goal" | storage | Baserow Name field limit of 255 characters
@@ -33,3 +33,8 @@ lib/mora02_core/src/mora02_core/comfyui/client.py | short = msg.strip() | listin
 apps/pilot/ui/js/runs.js | full.slice(0, 2000) | announced | RUNS display budget; prints "… hier gekürzt · N Zeichen insgesamt"
 apps/pilot/ui/js/flows.js | .slice(0, 64) | identifier | flow file-name slug width
 apps/pilot/ui/js/flowbuilder.js | String(s.cfg[litK]).slice(0, 26) | listing | one-line step label in the builder list; the field itself is untouched
+lib/mora02_core/src/mora02_core/web/client.py | (data.get("results") or [])[:limit] | listing | number of search results kept, not the inside of one
+lib/mora02_core/src/mora02_core/agents/cli.py | _SAFE.sub('-', conversation)[:64] | identifier | session-key width; the conversation name is the Pilot's, this is the key built from it
+lib/mora02_core/src/mora02_core/agents/deploy.py | hexdigest()[:12] | identifier | digest used to compare two workspace files, never shown as content
+lib/mora02_core/src/mora02_core/agents/store.py | got {str(ws)[:80]!r} | listing | the offending value quoted back in a refusal; the caller holds the whole of it
+lib/mora02_core/src/mora02_core/agents/store.py | got {str(ad)[:80]!r} | listing | the offending value quoted back in a refusal; the caller holds the whole of it
