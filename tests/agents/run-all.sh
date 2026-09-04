@@ -13,7 +13,8 @@
 # convention: the number of suites that failed.
 #
 # What the suites need:
-#   - the offline pair (source_check, builder_store) need only python3
+#   - the offline suites (builder_store, source_check, mcp_input) need no
+#     service; the latter two need fastapi importable
 #   - the rest talk to script-runner on 8096; --deploy also to the gateway
 #     container through it, and leaves a folder in agents/instances/.trash/
 #   - --model runs a local model for minutes per suite (gate_discipline starts a
@@ -52,9 +53,10 @@ run python3 tests/agents/test_builder_store.py
 # suite for a missing library, would train everyone to ignore red.
 if python3 -c "import fastapi" 2>/dev/null; then
     run python3 tests/agents/test_source_check.py
+    run python3 tests/agents/test_mcp_input.py
 else
-    echo; echo "=== test_source_check.py: skipped (no fastapi in this python; run it where mcp_tools imports, e.g. inside the script-runner image) ==="
-    SKIPPED=$((SKIPPED + 1))
+    echo; echo "=== test_source_check.py + test_mcp_input.py: skipped (no fastapi in this python; run them where mcp_tools imports, e.g. inside the script-runner image) ==="
+    SKIPPED=$((SKIPPED + 2))
 fi
 
 # free, needs the service

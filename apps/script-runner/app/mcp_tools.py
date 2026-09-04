@@ -762,6 +762,27 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
+def _text(item: dict, key: str) -> str:
+    """One field of a model-supplied item, as text.
+
+    Every argument on this surface was written by a language model, which is
+    free to send a number where the schema says string, a list where it says
+    scalar, or nothing at all. `(item.get(k) or "").strip()` assumed a string
+    and turned `{"claim": 42}` into an AttributeError -- an HTTP 500 for the
+    whole call, with the items before it in the batch already recorded, so the
+    retry counted them twice (review 2, finding 4).
+
+    A scalar is taken as its text; a list or object is not a field value and
+    reads as absent. Nothing here raises.
+    """
+    v = item.get(key)
+    if isinstance(v, str):
+        return v.strip()
+    if isinstance(v, bool) or v is None or isinstance(v, (list, dict, tuple, set)):
+        return ""
+    return str(v).strip()
+
+
 async def _flows_list() -> dict:
     flows = []
     try:
@@ -776,6 +797,8 @@ async def _flows_list() -> dict:
                 spec = json.load(fh)
         except (OSError, ValueError):
             continue  # a broken spec hides itself, it must not hide the others
+        if not isinstance(spec, dict):
+            continue  # valid JSON, but not a spec -- same case as unreadable
         flows.append({
             "name": spec.get("name") or fname[:-5],
             "description": spec.get("description", ""),
@@ -943,13 +966,28 @@ async def _web_read(urls: list, max_chars: int | None) -> dict:
                         "stopped for budget reasons."}
     urls = urls[:left]
     _SPENT["pages"] += len(urls)
-    cap = int(max_chars or _lim("page_chars"))
+    # The model chooses max_chars, so it may not be a number at all.
+    try:
+        cap = int(max_chars) if max_chars not in (None, "") else _lim("page_chars")
+        if cap <= 0:
+            cap = _lim("page_chars")
+    except (TypeError, ValueError):
+        cap = _lim("page_chars")
 
     async def one(u: str) -> dict:
         try:
             return await web.fetch(u, max_chars=cap)
-        except web.WebError as e:
-            return {"url": u, "error": str(e)}
+        except Exception as e:
+            # Deliberately every exception, not web.WebError alone. Measured
+            # against httpx 0.28.1: a url carrying a tab raises
+            # httpx.InvalidURL, which is NOT an httpx.HTTPError, so web.fetch
+            # does not wrap it and one bad address in a batch took the whole
+            # call down as a 500 -- after the page budget had been charged,
+            # and with the good pages thrown away (review 2, finding 2). The
+            # contract this tool promises is that a failed page is reported as
+            # failed, and that has to hold for every way a page can fail.
+            log.warning("web_read: %s failed: %s: %s", u, type(e).__name__, e)
+            return {"url": u, "error": f"{type(e).__name__}: {e}"[:300]}
 
     pages = await asyncio.gather(*(one(u) for u in urls))
     for pg in pages:
@@ -1098,12 +1136,12 @@ async def _call(name: str, arguments: dict) -> dict:
         for item in raw:
             if not isinstance(item, dict):
                 continue
-            claim = (item.get("claim") or "").strip()
-            src = (item.get("source") or "").strip()
-            res = (item.get("result") or "").strip().lower()
+            claim = _text(item, "claim")
+            src = _text(item, "source")
+            res = _text(item, "result").lower()
             if not claim or not src:
                 continue
-            why = _record_check(claim, src, res, (item.get("detail") or "").strip())
+            why = _record_check(claim, src, res, _text(item, "detail"))
             if why:
                 rejected.append({"claim": claim[:120], "reason": why})
             else:
@@ -1137,14 +1175,14 @@ async def _call(name: str, arguments: dict) -> dict:
         for item in raw:
             if not isinstance(item, dict):
                 continue
-            claim = (item.get("claim") or "").strip()
+            claim = _text(item, "claim")
             if not claim:
                 continue
-            src = (item.get("source") or "").strip()[:300]
+            src = _text(item, "source")[:300]
             note = {
                 "claim": claim[:400],
                 "source": src,
-                "restriction": (item.get("restriction") or "").strip()[:300],
+                "restriction": _text(item, "restriction")[:300],
             }
             _NOTES.append((time.time(), _SESSION, note))
             kept.append(note)
@@ -1267,7 +1305,11 @@ async def mcp_post(request: Request):
         )
 
     if isinstance(msg, list):
-        out = [r for r in [await _dispatch(m) for m in msg] if r is not None]
+        # Each element gets the same guard the single-message branch has below:
+        # one scalar in a batch used to take the valid messages beside it down
+        # with a 500 (review 2, finding 7).
+        out = [r for r in [await _dispatch(m if isinstance(m, dict) else {}) for m in msg]
+               if r is not None]
         body = out or None
     else:
         body = await _dispatch(msg if isinstance(msg, dict) else {})
