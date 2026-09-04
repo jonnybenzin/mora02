@@ -158,6 +158,49 @@ class PipelineSpec:
 # ============================================================================
 
 
+def specs_dir() -> Path:
+    """Where the named flows live. One reader of this variable, not four."""
+    return Path(os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/data/pipelines/specs"))
+
+
+def list_specs() -> list[tuple[Path, dict]]:
+    """Every readable flow file, as (path, raw dict), sorted by name.
+
+    Four independent readers of this directory existed -- two HTTP endpoints,
+    the op-usage scan and the MCP tool -- each with its own copy of the env
+    variable and its own guard against a broken file. The guards had already
+    drifted: only one of them checked that a file which PARSES is actually an
+    object, so a spec containing a bare list crashed two of the four (review 3,
+    2026-09-04).
+
+    A file that cannot be read, or does not hold an object, is skipped: a
+    broken spec hides itself and must not hide the others.
+    """
+    out: list[tuple[Path, dict]] = []
+    root = specs_dir()
+    if not root.is_dir():
+        return out
+    for path in sorted(root.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            out.append((path, data))
+    return out
+
+
+def resolve_spec_path(name: str) -> Path | None:
+    """The file a flow name refers to, trying it bare then .json/.yaml/.yml.
+
+    Written twice before, once with pathlib and once with os.path, and the two
+    sanitised the incoming name differently.
+    """
+    base = specs_dir() / os.path.basename(str(name))
+    cands = [base] if base.suffix else [base.with_suffix(e) for e in (".json", ".yaml", ".yml")]
+    return next((p for p in cands if p.is_file()), None)
+
+
 def load_spec(src: Union[PipelineSpec, dict, str, Path]) -> PipelineSpec:
     """Load a spec from a PipelineSpec, an in-memory dict, or a .json/.yaml file.
 

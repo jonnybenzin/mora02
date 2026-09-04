@@ -138,17 +138,18 @@ def main() -> int:
 
     # --- a spec file that parses but is not a spec -------------------------
     tmp = Path(tempfile.mkdtemp(prefix="mcp-specs-"))
-    old_dir = M._SPECS_DIR
+    old_dir = os.environ.get("MORA02_PIPELINE_SPECS_DIR")
     try:
         (tmp / "good.json").write_text(json.dumps({"name": "good", "steps": [1, 2]}))
         (tmp / "oops.json").write_text("[]")
         (tmp / "half.json").write_text("{ not json")
-        M._SPECS_DIR = str(tmp)
+        os.environ["MORA02_PIPELINE_SPECS_DIR"] = str(tmp)
         out = call("flows_list", {})
         names = [f["name"] for f in out.get("flows", [])]
         record(names == ["good"], "a spec that is a list is skipped like an unreadable one", str(names))
     finally:
-        M._SPECS_DIR = old_dir
+        os.environ.pop("MORA02_PIPELINE_SPECS_DIR", None) if old_dir is None \
+            else os.environ.update(MORA02_PIPELINE_SPECS_DIR=old_dir)
         for f in tmp.iterdir():
             f.unlink()
         tmp.rmdir()
@@ -200,20 +201,24 @@ def main() -> int:
     M.begin_turn({}, session="agent:probe:1")
 
     # --- a gate that could not be filed keeps its run id -------------------
-    class FakeRes:
-        ok, status, is_paused = True, "paused", True
-        resume_token, output, error, runner = "secret", None, None, "lobster"
-        requires_input, requires_approval = False, True
-        run_id = "run-42"
+    # The real thing, not a look-alike: the JSON shape lives on the dataclass
+    # now, so a stand-in without it would test the stand-in.
+    from mora02_core.pipeline.base import PipelineResult
+    FakeRes = lambda: PipelineResult(  # noqa: E731
+        ok=True, status="needs_approval", runner="lobster",
+        resume_token="secret", requires_approval={"question": "ok?"},
+        run_id="run-42",
+    )
 
     async def fake_run(target, args=None):
         return FakeRes()
 
-    real_run, real_specs = M.run_pipeline_spec, M._SPECS_DIR
+    real_run = M.run_pipeline_spec
+    real_specs = os.environ.get("MORA02_PIPELINE_SPECS_DIR")
     tmp2 = Path(tempfile.mkdtemp(prefix="mcp-flow-"))
     try:
         (tmp2 / "gated.json").write_text(json.dumps({"name": "gated", "steps": []}))
-        M._SPECS_DIR = str(tmp2)
+        os.environ["MORA02_PIPELINE_SPECS_DIR"] = str(tmp2)
         M.run_pipeline_spec = fake_run
         old_url = M._PILOT_URL
         M._PILOT_URL = "http://127.0.0.1:9"  # nothing listens there
@@ -221,13 +226,16 @@ def main() -> int:
             out = call("flow_run", {"flow": "gated"})
         finally:
             M._PILOT_URL = old_url
-        record(out.get("run_id") == "run-42" and out.get("status") == "paused",
-               "a gate the inbox refused still reports the run id", str(out.get("run_id")))
+        record(out.get("run_id") == "run-42" and out.get("status") == "needs_approval",
+               "a gate the inbox refused still reports the run id",
+               f'{out.get("run_id")} / {out.get("status")}')
         record(bool(out.get("inbox_error")) and "not" in (out.get("note") or "").lower(),
                "and says plainly that nobody was notified", (out.get("note") or "")[:70])
         record("secret" not in json.dumps(out), "the gate key never reaches the answer")
     finally:
-        M.run_pipeline_spec, M._SPECS_DIR = real_run, real_specs
+        M.run_pipeline_spec = real_run
+        os.environ.pop("MORA02_PIPELINE_SPECS_DIR", None) if real_specs is None \
+            else os.environ.update(MORA02_PIPELINE_SPECS_DIR=real_specs)
         for f in tmp2.iterdir():
             f.unlink()
         tmp2.rmdir()

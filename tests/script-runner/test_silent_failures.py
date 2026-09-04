@@ -221,6 +221,37 @@ def main_() -> int:
            "a failed background resume is written into the run log",
            (fated[0].get("error", "") if fated else "nothing was written")[:56])
 
+    # --- the shapes that had two copies (review 3, section E) --------------
+    from mora02_core import assets as _assets
+    record(_assets.wire_type(".gif") == _assets.wire_type("/a/b.gif") == "image",
+           "a .gif has ONE wire type now, wherever it is asked",
+           "two tables called it image and video")
+    record(main._step_kind_for_suffix(".avi") == "video",
+           "and a type only one of the two tables knew still resolves")
+
+    from mora02_core.pipeline.base import PipelineResult
+    # "needs_approval", not "paused": is_paused is derived from the status the
+    # runner actually reports.
+    res = PipelineResult(ok=True, status="needs_approval", runner="lobster",
+                         resume_token="secret", run_id="r1")
+    d = res.to_dict()
+    record("raw" not in d and d["run_id"] == "r1" and d["is_paused"],
+           "the result shape lives on the dataclass and leaves `raw` out",
+           f"{len(d)} fields")
+    record(main._pipeline_result_to_dict(res) == d,
+           "and the HTTP layer hands back exactly that")
+
+    record(main._media_type(".webm") == "video/webm" and main._media_type(".webp") == "image/webp",
+           "the file routes know the types their four tables disagreed about")
+    record(main._media_type(".zzz") == "application/octet-stream",
+           "and an unknown suffix keeps the old fallback")
+
+    from mora02_core.pipeline import spec as _spec
+    record(callable(_spec.list_specs) and callable(_spec.resolve_spec_path),
+           "the spec directory has one reader and one name resolver")
+    record(_spec.resolve_spec_path("../../etc/passwd") is None,
+           "and the resolver refuses a name that walks")
+
     fails = [r for r in results if r[0] == "FAIL"]
     print(f"\n{len(results) - len(fails)} passed, {len(fails)} failed")
     for _, s, d in fails:

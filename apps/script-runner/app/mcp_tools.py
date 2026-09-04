@@ -83,6 +83,7 @@ from fastapi import APIRouter, Request, Response
 from mora02_core import web
 from mora02_core.agents.store import LIMIT_DEFAULTS
 from mora02_core._common import get_logger
+from mora02_core.pipeline import spec as pipeline_spec
 from mora02_core.pipeline import (
     PipelineError,
     run_pipeline_spec,
@@ -95,7 +96,6 @@ router = APIRouter(tags=["mcp"])
 
 # Where named specs live -- the same directory /pipeline/flows reads, so the
 # agent picks from exactly the library a human sees in the Pilot.
-_SPECS_DIR = os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/data/pipelines/specs")
 _PILOT_URL = os.environ.get("PILOT_URL", "http://pilot:8098")
 
 # What the tools may put into the model's context, and it is a hard budget.
@@ -823,38 +823,25 @@ async def _flows_list() -> dict:
 
 
 def _flows_list_sync() -> dict:
-    flows = []
-    try:
-        names = sorted(os.listdir(_SPECS_DIR))
-    except OSError:
-        names = []
-    for fname in names:
-        if not fname.endswith(".json"):
-            continue
-        try:
-            with open(os.path.join(_SPECS_DIR, fname), encoding="utf-8") as fh:
-                spec = json.load(fh)
-        except (OSError, ValueError):
-            continue  # a broken spec hides itself, it must not hide the others
-        if not isinstance(spec, dict):
-            continue  # valid JSON, but not a spec -- same case as unreadable
-        flows.append({
-            "name": spec.get("name") or fname[:-5],
-            "description": spec.get("description", ""),
-            "steps": len(spec.get("steps", [])),
-            "tags": spec.get("tags", []),
-        })
+    # The directory has one reader now, in mora02_core.pipeline.spec: this used
+    # to be a fourth copy, and the only one that checked a parsed file is
+    # actually an object (review 3, 2026-09-04).
+    flows = [
+        {
+            "name": data.get("name") or path.stem,
+            "description": data.get("description", ""),
+            "steps": len(data.get("steps", [])),
+            "tags": data.get("tags", []),
+        }
+        for path, data in pipeline_spec.list_specs()
+    ]
     return {"flows": flows, "count": len(flows)}
 
 
 async def _flow_run(flow: str, args: dict | None) -> dict:
     """Start a named flow and report where it got to -- without the gate key."""
-    base = os.path.join(_SPECS_DIR, os.path.basename(flow))
-    target = next(
-        (p for p in (base, base + ".json", base + ".yaml", base + ".yml")
-         if os.path.isfile(p)),
-        None,
-    )
+    found = pipeline_spec.resolve_spec_path(flow)
+    target = str(found) if found else None
     if target is None:
         # Naming what DOES exist turns a dead end into a next step, and costs a
         # model far less than guessing at another name.
@@ -922,16 +909,7 @@ async def _refile_gate(res, flow: str) -> str | None:
     reason instead, and the caller carries it into the answer.
     """
     payload = {
-        "ok": res.ok,
-        "status": res.status,
-        "is_paused": True,
-        "resume_token": res.resume_token,
-        "output": res.output,
-        "requires_input": res.requires_input,
-        "requires_approval": res.requires_approval,
-        "error": res.error,
-        "runner": res.runner,
-        "run_id": getattr(res, "run_id", None),
+        **res.to_dict(),
         # inbox_refile titles the item from this; without it every agent-started
         # gate would show up as the word "Pipeline".
         "pipeline": flow,

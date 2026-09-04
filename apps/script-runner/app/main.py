@@ -7,6 +7,7 @@ FastAPI service for gifer, clipper, typer scripts
 import asyncio
 from functools import partial
 import json
+import mimetypes
 import os
 import re
 import time
@@ -20,7 +21,6 @@ from contextlib import nullcontext
 from typing import Any, List, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -65,6 +65,11 @@ _log = get_logger("script-runner")
 # The mount the media service works in. Overridable so the file can be imported
 # outside the container -- a test cannot create /data, and until it could be
 # pointed elsewhere there was no way to test any of this without a container.
+# One version, and it is the one /health reports. The FastAPI object said
+# 1.2.0 while /health and / said 1.4.0, so whoever bumped one left the other
+# behind and a reader could not tell which was authoritative (review 3).
+SERVICE_VERSION = "1.4.0"
+
 DATA_DIR = Path(os.environ.get("MORA02_SCRIPT_RUNNER_DATA", "/data"))
 WIP_DIR = DATA_DIR / "wip"
 FINAL_DIR = DATA_DIR / "final"
@@ -96,7 +101,7 @@ for d in [WIP_DIR, FINAL_DIR, FINAL_DIR / "gifer", FINAL_DIR / "clipper", FINAL_
 app = FastAPI(
     title="Mora02 Script Runner",
     description="API for gifer, clipper, typer scripts",
-    version="1.2.0"
+    version=SERVICE_VERSION,
 )
 
 app.include_router(agents_router)
@@ -210,6 +215,19 @@ _FLOW_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 # caller-supplied text into file names too (a run id is one). One rule, two
 # users, no second copy to drift.
 _segment_problem = segment_problem
+
+
+def _media_type(suffix: str) -> str:
+    """The MIME type a browser needs to play a file inline.
+
+    Four file-serving endpoints each carried their own table and they had
+    already drifted: `.webm` was missing from one, `.webp` from two, so the same
+    clip played inline through one route and downloaded as a blob through
+    another (review 3, 2026-09-04). The standard library knows these; the
+    fallback stays the same.
+    """
+    guess, _ = mimetypes.guess_type(f"x{suffix}")
+    return guess or "application/octet-stream"
 
 
 def safe_segment(value: Any, what: str) -> str:
@@ -589,15 +607,7 @@ async def get_preview(session_id: str, filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     
     suffix = filepath.suffix.lower()
-    media_types = {
-        '.gif': 'image/gif',
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.mp4': 'video/mp4',
-        '.webm': 'video/webm'
-    }
-    media_type = media_types.get(suffix, 'application/octet-stream')
+    media_type = _media_type(suffix)
     
     return FileResponse(filepath, media_type=media_type)
 
@@ -765,14 +775,7 @@ async def get_final_file(script_type: str, filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     
     suffix = filepath.suffix.lower()
-    media_types = {
-        '.gif': 'image/gif',
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.mp4': 'video/mp4'
-    }
-    media_type = media_types.get(suffix, 'application/octet-stream')
+    media_type = _media_type(suffix)
     
     return FileResponse(filepath, media_type=media_type)
 
@@ -785,16 +788,7 @@ async def get_final_folder_file(script_type: str, folder: str, filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     
     suffix = filepath.suffix.lower()
-    media_types = {
-        '.gif': 'image/gif',
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.mp4': 'video/mp4',
-        '.webm': 'video/webm',
-        '.mov': 'video/quicktime'
-    }
-    media_type = media_types.get(suffix, 'application/octet-stream')
+    media_type = _media_type(suffix)
     
     return FileResponse(filepath, media_type=media_type)
 
@@ -807,17 +801,7 @@ async def get_sourcefile(script_type: str, folder: str, filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     
     suffix = filepath.suffix.lower()
-    media_types = {
-        '.gif': 'image/gif',
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.webp': 'image/webp',
-        '.mp4': 'video/mp4',
-        '.mov': 'video/quicktime',
-        '.webm': 'video/webm'
-    }
-    media_type = media_types.get(suffix, 'application/octet-stream')
+    media_type = _media_type(suffix)
     
     return FileResponse(filepath, media_type=media_type)
 
@@ -985,7 +969,7 @@ async def health_check():
         "status": "healthy",
         "scripts": ["gifer", "clipper", "typer", "pexels", "pixabay"],
         "wip_sessions": len(list(WIP_DIR.glob("*"))),
-        "version": "1.4.0"
+        "version": SERVICE_VERSION
     }
 
 @app.get("/")
@@ -993,7 +977,7 @@ async def root():
     """API info"""
     return {
         "service": "Mora02 Script Runner",
-        "version": "1.4.0",
+        "version": SERVICE_VERSION,
         "endpoints": {
             "session": "/session/create",
             "upload": "/upload/{session_id}",
@@ -1014,7 +998,6 @@ async def root():
 # ENDPOINTS - FILE SAVE (Download-Buttons für Pilot)
 # ============================================================================
 
-import re as _re
 
 DOWNLOADS_DIR = DATA_DIR / "downloads"
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1027,8 +1010,8 @@ class SaveFileRequest(BaseModel):
 
 @app.post("/save-file")
 async def save_file(request: SaveFileRequest):
-    filename = _re.sub(r'[^\w\-_.]', '_', request.filename)
-    if request.add_timestamp and not _re.match(r'^\d{6}-\d{4}_', filename):
+    filename = re.sub(r'[^\w\-_.]', '_', request.filename)
+    if request.add_timestamp and not re.match(r'^\d{6}-\d{4}_', filename):
         timestamp = create_timestamp()
         filename = f"{timestamp}_{filename}"
     filepath = DOWNLOADS_DIR / filename
@@ -1216,22 +1199,35 @@ class PipelineResumeRequest(BaseModel):
                                     # the run log (the resume token does not carry it)
 
 
+def _recover_run_spec(source_run_id: str) -> dict:
+    """The spec a past run recorded, or a 404/409 saying which is missing.
+
+    Two endpoints did this lookup and told the two failures apart differently:
+    /pipeline/rerun distinguished "there is no such run" from "the run predates
+    spec recording", /pipeline/rerun-plan collapsed both into the second — so a
+    typo'd run id was diagnosed as an old run (review 3, 2026-09-04).
+    """
+    events = pipeline_runlog.read_events(_checked_run_id(source_run_id, "source_run_id"))
+    start = next((e for e in events if e.get("kind") == "run_start"), None)
+    if start is None:
+        raise HTTPException(status_code=404, detail=f"no run log for {source_run_id!r}")
+    spec = start.get("spec")
+    if spec is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"run {source_run_id!r} predates spec recording — "
+                   "pass 'spec' explicitly to re-run it",
+        )
+    return spec
+
+
 def _pipeline_result_to_dict(res) -> dict:
-    """Flatten a PipelineResult for the JSON response (Pilot reads this verbatim)."""
-    return {
-        "ok": res.ok,
-        "status": res.status,
-        "is_paused": res.is_paused,
-        "resume_token": res.resume_token,
-        "output": res.output,
-        "requires_input": res.requires_input,
-        "requires_approval": res.requires_approval,
-        "error": res.error,
-        "runner": res.runner,
-        # Pilot files this into the inbox item and hands it back on resume, so a
-        # human decision can be logged against the run it belongs to.
-        "run_id": getattr(res, "run_id", None),
-    }
+    """Flatten a PipelineResult for the JSON response (Pilot reads this verbatim).
+
+    The shape lives on the dataclass; this name stays because six call sites
+    use it.
+    """
+    return res.to_dict()
 
 
 @app.post("/pipeline/run")
@@ -1255,7 +1251,10 @@ class PipelineRunSpecRequest(BaseModel):
 
 
 # Where named specs live (host pipelines/specs/ via the pipelines mount).
-_PIPELINE_SPECS_DIR = os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/data/pipelines/specs")
+# Where named specs live. Read through the library so the four readers of this
+# directory agree, and so a test can point it somewhere without knowing which
+# module happens to hold the constant (review 3, 2026-09-04).
+_PIPELINE_SPECS_DIR = pipeline_spec.specs_dir()
 
 
 @app.post("/pipeline/run-spec")
@@ -1282,11 +1281,8 @@ async def pipeline_run_spec(req: PipelineRunSpecRequest):
         stem = req.name[:-len(Path(req.name).suffix)] if Path(req.name).suffix else req.name
         if not _FLOW_NAME_RE.fullmatch(stem):
             raise HTTPException(status_code=422, detail=f"name: {req.name!r} is not a flow name")
-        base = Path(_PIPELINE_SPECS_DIR) / req.name
-        cands = [base] if base.suffix else [
-            base.with_suffix(ext) for ext in (".json", ".yaml", ".yml")
-        ]
-        match = next((str(p) for p in cands if p.is_file()), None)
+        found = pipeline_spec.resolve_spec_path(req.name)
+        match = str(found) if found else None
         if match is None:
             raise HTTPException(
                 status_code=404,
@@ -1316,22 +1312,7 @@ async def pipeline_rerun(req: PipelineRerunRequest):
     """
     spec = req.spec
     if spec is None:
-        start = next(
-            (e for e in pipeline_runlog.read_events(_checked_run_id(req.source_run_id, "source_run_id"))
-             if e.get("kind") == "run_start"),
-            None,
-        )
-        if start is None:
-            raise HTTPException(
-                status_code=404, detail=f"no run log for {req.source_run_id!r}")
-        spec = start.get("spec")
-        if spec is None:
-            # Runs recorded before the spec was logged: nothing to plan against.
-            raise HTTPException(
-                status_code=409,
-                detail=f"run {req.source_run_id!r} predates spec recording — "
-                       "pass 'spec' explicitly to re-run it",
-            )
+        spec = await asyncio.to_thread(_recover_run_spec, req.source_run_id)
     try:
         res = await rerun_pipeline_spec(
             spec, source_run_id=req.source_run_id, changed=req.changed,
@@ -1351,16 +1332,7 @@ async def pipeline_rerun_plan(req: PipelineRerunRequest):
     """
     spec = req.spec
     if spec is None:
-        start = next(
-            (e for e in pipeline_runlog.read_events(_checked_run_id(req.source_run_id, "source_run_id"))
-             if e.get("kind") == "run_start"),
-            None,
-        )
-        spec = (start or {}).get("spec")
-        if spec is None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"run {req.source_run_id!r} has no recorded spec — pass 'spec'")
+        spec = await asyncio.to_thread(_recover_run_spec, req.source_run_id)
     try:
         plan = pipeline_spec.plan_rerun(spec, req.changed)
     except PipelineError as e:
@@ -1380,29 +1352,24 @@ async def pipeline_flows():
     Each entry is a saved pipeline spec (name + steps). Consumed by the /flow
     authoring tool to offer a picker and to load a flow by name.
     """
-    flows = []
-    specs = Path(_PIPELINE_SPECS_DIR)
-    if specs.is_dir():
-        for p in sorted(specs.glob("*.json")):
-            try:
-                spec = json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            flows.append({
-                "name": spec.get("name") or p.stem,
-                "file": p.stem,
-                "description": spec.get("description", ""),
-                "tags": spec.get("tags", []),
-                "updated": spec.get("updated", ""),
-                "steps": len(spec.get("steps", [])),
-            })
+    flows = [
+        {
+            "name": data.get("name") or path.stem,
+            "file": path.stem,
+            "description": data.get("description", ""),
+            "tags": data.get("tags", []),
+            "updated": data.get("updated", ""),
+            "steps": len(data.get("steps", [])),
+        }
+        for path, data in await asyncio.to_thread(pipeline_spec.list_specs)
+    ]
     return {"flows": flows}
 
 
 @app.get("/pipeline/flow/{name}")
 async def pipeline_flow(name: str):
     """Return one named flow spec (matched by spec name or filename stem)."""
-    specs = Path(_PIPELINE_SPECS_DIR)
+    specs = pipeline_spec.specs_dir()
     if specs.is_dir():
         for p in specs.glob("*.json"):
             try:
@@ -1477,7 +1444,7 @@ async def pipeline_flow_save(name: str, request: Request, overwrite: bool = Fals
     data.setdefault("tags", [])
     data["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    specs = Path(_PIPELINE_SPECS_DIR)
+    specs = pipeline_spec.specs_dir()
     specs.mkdir(parents=True, exist_ok=True)
     target = specs / f"{name}.json"
     existed = target.exists()
@@ -1524,7 +1491,7 @@ async def pipeline_flow_delete(name: str):
             status_code=400,
             detail="flow name must be 2-64 chars of lowercase letters, digits and dashes",
         )
-    target = Path(_PIPELINE_SPECS_DIR) / f"{name}.json"
+    target = pipeline_spec.specs_dir() / f"{name}.json"
     if not target.is_file():
         raise HTTPException(status_code=404, detail=f"flow {name!r} not found")
     try:
@@ -1905,16 +1872,9 @@ async def _step_source_find(inputs: List[str], params: dict) -> dict:
     }
 
 
-def _step_kind_for_suffix(suffix: str) -> str:
-    """Name the wire type of a file, so the next step knows what it got."""
-    s = suffix.lower()
-    if s in _STEP_IMAGE_EXTS:
-        return "image"
-    if s in {".mp4", ".mov", ".webm", ".gif", ".mkv"}:
-        return "video"
-    if s in {".mp3", ".wav", ".flac", ".m4a", ".ogg"}:
-        return "audio"
-    return "any"
+# The classifier lives in mora02_core.assets, beside the store and ref logic it
+# belongs to. Kept as a name here because two call sites read it.
+_step_kind_for_suffix = asset_refs.wire_type
 
 
 async def _step_llm_image_prompt(inputs: List[str], params: dict) -> dict:
@@ -2103,7 +2063,6 @@ async def _step_cloud_complete(inputs: List[str], params: dict) -> dict:
 async def _step_cloud_vision(inputs: List[str], params: dict) -> dict:
     """cloud.vision — ask Claude about an image ref (stdin) -> text answer."""
     import base64
-    import mimetypes
     if not inputs:
         raise ValueError("cloud.vision needs an image ref on stdin")
     path = asset_refs.resolve_ref(inputs[0])
@@ -2468,12 +2427,6 @@ async def _step_notify_image(inputs: List[str], params: dict) -> dict:
 
 
 # Extension → wire type, for tagging a passed-through media ref in notify.
-_NOTIFY_EXT_TYPE = {
-    ".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image",
-    ".bmp": "image", ".gif": "image",
-    ".mp4": "video", ".mov": "video", ".webm": "video", ".mkv": "video", ".avi": "video",
-    ".wav": "audio", ".mp3": "audio", ".flac": "audio", ".ogg": "audio", ".m4a": "audio",
-}
 
 
 async def _step_notify(inputs: List[str], params: dict) -> dict:
@@ -2502,7 +2455,7 @@ async def _step_notify(inputs: List[str], params: dict) -> dict:
         if not path.is_file():
             raise ValueError(f"file not found for ref {incoming!r} ({path})")
         media = str(path)
-        wire = _NOTIFY_EXT_TYPE.get(path.suffix.lower(), "any")
+        wire = asset_refs.wire_type(path.suffix)
         message = params.get("message", "")
         passthrough = incoming
     else:
@@ -3142,7 +3095,7 @@ _VOCAB_STATS_CACHE: dict = {"signature": None, "payload": None}
 def _spec_op_usage() -> dict:
     """op name -> [flow names that use it], read from the saved library."""
     usage: dict[str, list] = {}
-    specs = Path(_PIPELINE_SPECS_DIR)
+    specs = pipeline_spec.specs_dir()
     if not specs.is_dir():
         return usage
     for path in sorted(specs.glob("*.json")):

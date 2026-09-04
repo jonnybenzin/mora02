@@ -199,6 +199,29 @@ def _check_scope(store: str, rel: str) -> None:
         )
 
 
+# What KIND of thing a file is, by its extension. One table, because two
+# existed and disagreed: a .gif was a video to the step that found it and an
+# image to the step that sent it, so a flow of source.find -> notify declared
+# two different types for one file (review 3, 2026-09-04). .gif is an image
+# here: it is what a viewer shows it as, and the one caller that cared about
+# animation asks for a video container by name.
+WIRE_TYPES: dict[str, str] = {
+    ".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image",
+    ".bmp": "image", ".gif": "image",
+    ".mp4": "video", ".mov": "video", ".webm": "video", ".mkv": "video",
+    ".avi": "video",
+    ".mp3": "audio", ".wav": "audio", ".flac": "audio", ".m4a": "audio",
+    ".ogg": "audio",
+}
+
+
+def wire_type(suffix_or_path) -> str:
+    """image / video / audio for a file, or "any" when nobody classified it."""
+    text = str(suffix_or_path)
+    suffix = text if text.startswith(".") and "/" not in text else Path(text).suffix
+    return WIRE_TYPES.get(suffix.lower(), "any")
+
+
 def store_root(store: str) -> Path:
     """Resolve a logical store name to this container's mount root."""
     root = os.environ.get(f"MORA02_ASSET_STORE_{store.upper()}") or _DEFAULT_STORE_ROOTS.get(store)

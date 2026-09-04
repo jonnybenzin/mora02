@@ -52,6 +52,30 @@ class PipelineResult:
         """True when the workflow stopped at a gate awaiting an external decision."""
         return self.status in ("needs_input", "needs_approval")
 
+    def to_dict(self) -> dict[str, Any]:
+        """The JSON shape the Pilot reads, and the only place it is written.
+
+        Two hand-built copies existed -- one in the script-runner's HTTP layer,
+        one inline in the MCP server, which cannot import from it -- and a field
+        added to this dataclass reached whichever the editor remembered. `raw`
+        is deliberately absent: it is the full runner envelope and carries the
+        gate key (review 3, 2026-09-04).
+        """
+        return {
+            "ok": self.ok,
+            "status": self.status,
+            "is_paused": self.is_paused,
+            "resume_token": self.resume_token,
+            "output": self.output,
+            "requires_input": self.requires_input,
+            "requires_approval": self.requires_approval,
+            "error": self.error,
+            "runner": self.runner,
+            # The Pilot files this into the inbox item and hands it back on
+            # resume, so a human decision is logged against the right run.
+            "run_id": getattr(self, "run_id", None),
+        }
+
 
 class PipelineRunner(Protocol):
     """A workflow runner backend.
