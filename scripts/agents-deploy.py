@@ -44,6 +44,10 @@ def main() -> int:
     if result["error"] and not result["applied"]:
         print(f"error: {result['error']}", file=sys.stderr)
         return 2
+    # Seen and left alone -- a hand-made gateway agent. Shown, never a reason
+    # for an exit code: it is not drift.
+    for line in result.get("notes") or []:
+        print("  note: " + line)
     if result["in_sync"] and not result["applied"]:
         print("in sync — the volume matches the repo")
         return 0

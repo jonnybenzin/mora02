@@ -525,13 +525,20 @@ function _agbOut(html){
 function _agbDriftHtml(res, title){
   var lines = res.drift || [];
   var h = '<div class="agb-card"><div class="agb-card-h">' + _agbEsc(title) + '</div>';
-  if (res.in_sync && !res.applied){ return h + '<div class="agb-hint ok">Gateway and folder agree — nothing to do.</div></div>'; }
+  // Seen and left alone (a hand-made gateway agent): shown dim, and never
+  // the reason the two disagree -- "in sync" may stand beside a note.
+  var notes = (res.notes || []).map(function(l){ return '<span class="dim">' + _agbEsc(l) + '</span>'; }).join('\n');
+  if (res.in_sync && !res.applied){
+    return h + '<div class="agb-hint ok">Gateway and folder agree — nothing to do.</div>'
+      + (notes ? '<div class="agb-out">' + notes + '</div>' : '') + '</div>';
+  }
   h += '<div class="agb-out">';
   if (res.log && res.log.length) h += res.log.map(function(l){ return '<span class="dim">' + _agbEsc(l) + '</span>'; }).join('\n') + '\n\n';
   h += lines.map(function(l){
-    var cls = /left alone/.test(l) ? 'dim' : (/does not exist|missing|deleted in the roster/.test(l) ? 'ok' : '');
+    var cls = /does not exist|missing|deleted in the roster|stale|no record/.test(l) ? 'ok' : '';
     return '<span class="' + cls + '">' + _agbEsc(l) + '</span>';
   }).join('\n');
+  if (notes) h += '\n' + notes;
   if (res.applied){
     h += '\n\n' + (res.ok ? '<span class="ok">Deployed and read back — in sync.</span>' : '<span class="bad">Deployed, but still different afterwards:\n' + _agbEsc((res.left || []).join('\n')) + '</span>');
   }

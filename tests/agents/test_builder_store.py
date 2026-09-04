@@ -299,6 +299,18 @@ def main() -> int:
                "a crafted path is one word to the shell, not three commands", cmds[2][:70] if len(cmds) > 2 else "")
         shutil.rmtree(L / "instances/zz-q"); shutil.rmtree(sk_dir)
 
+        # --- group B (review 2026-09-03, findings 5-10) --------------------------------
+        # A stand-in for docker(): records every call, answers by substring, and
+        # says (0, "") to everything else -- so remote_file() reads "absent".
+        def fake(answers):
+            def _docker(*argv, stdin=None):
+                calls.append((list(argv), stdin))
+                for needle, reply in answers:
+                    if needle in " ".join(argv):
+                        return reply
+                return (0, "")
+            return _docker
+        calls: list = []
         # B5: the kill pattern ends this session's turn and no other
         pat = cli.kill_pattern("agent:x:1")
         line = "openclaw agent --agent x --session-key agent:x:1 --message hi"
@@ -314,18 +326,79 @@ def main() -> int:
         refuses(lambda: store.load_roster(RT), "B10 ... and therefore by the roster", "not a valid agent id")
         shutil.rmtree(L / "instances/Recherche_DE")
 
+        # B6: the platform's trash is not intent, and a carried-out deletion is spent
+        (P / "instances/.trash/zz-old-20260101000000").mkdir(parents=True)
+        record("zz-old" not in deploy.trashed_ids(RT), "B6 platform trash is not read as intent")
+        shutil.rmtree(P / "instances/.trash")
+        store.save_instance("zz-gone", dict(BASE), soul="x", rt=RT)
+        store.trash_instance("zz-gone", RT)
+        record("zz-gone" in deploy.trashed_ids(RT), "B6 trashed agent is intent before the rollout")
+        deploy.mark_trash_applied(RT, "zz-gone")
+        record("zz-gone" not in deploy.trashed_ids(RT), "B6 ... and spent once the gateway forgot it")
+        record(any((f / deploy.TRASH_APPLIED).is_file() for f in (L / "instances/.trash").iterdir() if f.name.startswith("zz-gone-")),
+               "B6 the marker lives in the trash folder")
+
+        # B6/B7/B8 as the plan sees them: a gateway with a hand-made agent, a
+        # trashed one, and a roster agent that is not in the gateway yet.
+        store.save_instance("zz-new", dict(BASE), soul="# new\n", rt=RT)
+        store.save_instance("zz-live", dict(BASE), soul="# live\n", rt=RT)
+        store.save_instance("zz-doomed", dict(BASE), soul="x", rt=RT)
+        store.trash_instance("zz-doomed", RT)
+        LIVE = {"list": [{"id": "main"}, {"id": "zz-live", "agentDir": "/x/zz-live"}, {"id": "hand-made"}, {"id": "zz-doomed"}]}
+        roster = store.load_roster(RT)
+        real_docker = deploy.docker
+        try:
+            deploy.docker = fake([("config get agents", (0, json.dumps(LIVE)))])
+            pl = deploy.plan(roster, None, RT)
+            ids = [e["id"] for e in pl.agents_block["list"]]
+            record(any("hand-made" in n and "left alone" in n for n in pl.notes) and not any("hand-made" in d for d in pl.drift),
+                   "B7 a hand-made gateway agent is a note, not drift", "; ".join(pl.notes)[:70])
+            record("hand-made" in ids and "zz-doomed" not in ids and pl.remove == ["zz-doomed"],
+                   "B6 full run: hand-made kept in the list, trashed one removed", str(ids))
+            pl = deploy.plan(roster, "zz-new", RT)
+            ids = [e["id"] for e in pl.agents_block["list"]]
+            record(pl.remove == [] and "zz-doomed" in ids and "hand-made" in ids,
+                   "B6 --agent zz-new deletes nothing and keeps every stray in the list", str(ids))
+            record("zz-new" in ids and any("agent/zz-new: does not exist" in d for d in pl.drift),
+                   "B8 the agent of the run is rendered and reported")
+            pl = deploy.plan(roster, "zz-live", RT)
+            ids = [e["id"] for e in pl.agents_block["list"]]
+            record("zz-new" not in ids and not any("zz-new" in d for d in pl.drift),
+                   "B8 --agent zz-live leaves an uncreated zz-new out of the list", str(ids))
+
+            # B9: files the last rollout wrote and this one no longer renders
+            ws = "/data/openclaw/agents/zz-new/workspace"
+            answers = [("config get agents", (0, json.dumps(LIVE))),
+                       (f"cat {ws}/{deploy.RENDERED_RECORD}", (0, "SOUL.md\nskills/old/SKILL.md\nskills/old/Fragen (alt).md\n"))]
+            deploy.docker = fake(answers)
+            pl = deploy.plan(roster, "zz-new", RT)
+            record(sorted(pl.stale) == [f"{ws}/skills/old/Fragen (alt).md", f"{ws}/skills/old/SKILL.md"],
+                   "B9 files in the record but not rendered any more are stale", str(len(pl.stale)))
+            rec_path, _ = deploy.rendered_record(ws, set())
+            record(rec_path in pl.files and "SOUL.md\n" in pl.files[rec_path] and "skills/old" not in pl.files[rec_path],
+                   "B9 the record is rewritten to what is rendered now", pl.files.get(rec_path, "")[:40].replace("\n", "|"))
+            deploy.docker = fake([("config get agents", (0, json.dumps(LIVE)))])
+            pl = deploy.plan(roster, "zz-new", RT)
+            record(pl.stale == [] and any(d.startswith("record/zz-new") for d in pl.drift),
+                   "B9 no record yet: nothing is removed, the record is announced")
+            calls.clear()
+            deploy.docker = fake([])
+            deploy.apply(roster, deploy.Plan(agents_block={"list": []}, stale=[f"{ws}/skills/old/Fragen (alt).md"]), None, RT, lambda _l: None)
+            rm = [" ".join(a) for a, _ in calls if a[:2] == ["sh", "-c"] and "rm -f" in a[-1]]
+            record(len(rm) == 1 and f"{ws}/skills/old/Fragen (alt).md" in shlex.split(rm[0].split("rm -f", 1)[1].split("&&")[0]),
+                   "B9 apply removes a stale file, quoted", rm[0][6:70] if rm else "no rm")
+            calls.clear()
+            deploy.docker = fake([])
+            deploy.apply(roster, deploy.Plan(agents_block={"list": []}, remove=["zz-doomed"]), None, RT, lambda _l: None)
+            record("zz-doomed" not in deploy.trashed_ids(RT), "B6 apply marks the trash once the gateway deleted the agent")
+        finally:
+            deploy.docker = real_docker
+        for aid in ("zz-new", "zz-live"):
+            shutil.rmtree(L / f"instances/{aid}")
+
         # --- the gateway's answers are read, not guessed (review A2) --------------
         # The CLI prints a warning line AFTER its JSON; the old reader turned
         # that into {} and planned every rollout against an empty gateway.
-        def fake(answers):
-            def _docker(*argv, stdin=None):
-                calls.append((list(argv), stdin))
-                for needle, reply in answers:
-                    if needle in " ".join(argv):
-                        return reply
-                return (0, "")
-            return _docker
-        calls: list = []
         real_docker = deploy.docker
         LIVE = '{"list": [{"id": "main"}, {"id": "hand-made"}]}\nWarning: Detected unsettled top-level await\n'
         try:
@@ -354,7 +427,7 @@ def main() -> int:
             calls.clear()
             deploy.docker = fake([("--dry-run", (1, "schema: agents.list[1].name must be a string"))])
             try:
-                deploy.apply({"agents": []}, {"list": []}, {}, ["doomed"], None, lambda _l: None)
+                deploy.apply({"agents": []}, deploy.Plan(agents_block={"list": []}, remove=["doomed"]), None, RT, lambda _l: None)
                 record(False, "a refused dry run stops the rollout", "apply returned")
             except deploy.DeployError as e:
                 record("before anything was changed" in str(e), "a refused dry run stops the rollout", str(e)[:70])
@@ -363,7 +436,7 @@ def main() -> int:
                    "dry run is the first call and no delete follows a refusal", str(len(flat)) + " call(s)")
             calls.clear()
             deploy.docker = fake([])
-            deploy.apply({"agents": []}, {"list": []}, {}, ["doomed"], None, lambda _l: None)
+            deploy.apply({"agents": []}, deploy.Plan(agents_block={"list": []}, remove=["doomed"]), None, RT, lambda _l: None)
             flat = [" ".join(a) for a, _ in calls]
             i_dry = next(i for i, c in enumerate(flat) if "--dry-run" in c)
             i_del = next(i for i, c in enumerate(flat) if "agents delete doomed" in c)

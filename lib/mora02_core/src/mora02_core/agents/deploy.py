@@ -70,6 +70,7 @@ import os
 import posixpath
 import shlex
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -178,6 +179,39 @@ def write_remote(path: str, body: str) -> None:
     )
     if rc != 0:
         raise DeployError(f"could not write {path}: {out.strip()[:200]}")
+
+
+def remove_remote(path: str) -> None:
+    """Delete one file inside the container, and the empty folders it leaves
+    behind (a skill folder whose last file went). `rmdir -p` stops at the
+    first folder that is not empty, which the workspace itself never is."""
+    rc, out = docker(
+        "sh", "-c",
+        f"rm -f {shlex.quote(path)} && rmdir -p {shlex.quote(posixpath.dirname(path))} 2>/dev/null; exit 0",
+    )
+    if rc != 0:
+        raise DeployError(f"could not remove {path}: {out.strip()[:200]}")
+
+
+# The rollout's own record of what it rendered into a workspace, one relative
+# path per line. It is what makes removal possible: a file the roster no
+# longer renders is only known to be the rollout's -- and not the agent's own,
+# or the gateway's -- because this list says so. Nothing outside it is ever
+# removed.
+RENDERED_RECORD = ".mora02-rendered"
+
+
+def rendered_record(ws: str, rels: set[str]) -> tuple[str, str]:
+    return f"{ws}/{RENDERED_RECORD}", "".join(f"{r}\n" for r in sorted(rels))
+
+
+def previously_rendered(ws: str) -> set[str] | None:
+    """What the last rollout wrote into this workspace, or None when it has
+    never written its record (a workspace from before the record existed)."""
+    raw = remote_file(f"{ws}/{RENDERED_RECORD}")
+    if raw is None:
+        return None
+    return {ln.strip() for ln in raw.splitlines() if ln.strip()}
 
 
 def digest(text: str) -> str:
@@ -395,18 +429,33 @@ def _agent_dir(entry: dict, live: dict | None) -> str:
 # comparing, and closing the gap
 # ---------------------------------------------------------------------------
 
-def plan(roster: dict, only: str | None, rt: Roots) -> tuple[list[str], dict, dict, list[str]]:
-    """Work out the difference without touching anything.
+@dataclass
+class Plan:
+    """What a rollout would do, worked out without touching anything.
 
-    Returns (human-readable drift lines, the agents.list to write, the files
-    to write, gateway agents to delete). An empty drift list means the volume
-    already matches the repo.
+    ``drift`` is what differs and would be changed; an empty list means the
+    volume already matches the repo. ``notes`` is what was SEEN and is left
+    as it is -- a hand-made gateway agent, say. The two used to share one
+    list, and a note counted as drift: check mode reported a difference
+    forever, apply mode rolled out every time and said ok (review B7,
+    2026-09-03).
     """
+    drift: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    agents_block: dict = field(default_factory=dict)
+    files: dict[str, str] = field(default_factory=dict)
+    stale: list[str] = field(default_factory=list)
+    remove: list[str] = field(default_factory=list)
+
+
+def plan(roster: dict, only: str | None, rt: Roots) -> Plan:
+    """Work out the difference without touching anything (see Plan)."""
     config = read_config()
     live_agents = {a.get("id"): a for a in (config.get("agents") or {}).get("list") or []}
     live_mcp = (config.get("mcp") or {}).get("servers") or {}
 
     drift: list[str] = []
+    notes: list[str] = []
     agents = [a for a in roster["agents"] if only is None or a["id"] == only]
     if only and not agents:
         raise DeployError(f"no agent {only!r} in either root")
@@ -433,8 +482,13 @@ def plan(roster: dict, only: str | None, rt: Roots) -> tuple[list[str], dict, di
         want = desired_agent_entry(a)
         have = live_agents.get(a["id"])
         if have is None:
-            if only is None or a["id"] == only:
-                drift.append(f"agent/{a['id']}: does not exist")
+            if only is not None and a["id"] != only:
+                # Not this run's agent and not in the gateway yet: it gets no
+                # entry either. An entry for an agent `agents add` never made
+                # named a directory that did not exist, and since it was then
+                # "present", no later rollout created it (review B8).
+                continue
+            drift.append(f"agent/{a['id']}: does not exist")
             rendered.append(want)
             continue
         # Keep fields the gateway maintains itself (agentDir and friends) that
@@ -460,11 +514,17 @@ def plan(roster: dict, only: str | None, rt: Roots) -> tuple[list[str], dict, di
     for stray in live_agents:
         if stray in wanted:
             continue
+        if only is not None and stray != only:
+            # A run for ONE agent touches one agent. Before review B6 the
+            # deletions ignored `only`, and `--agent foo` took every trashed
+            # agent out of the gateway with it.
+            rendered.append(live_agents[stray])
+            continue
         if stray in trashed:
             drift.append(f"agent/{stray}: deleted in the roster, still in the gateway")
             remove.append(stray)
         else:
-            drift.append(f"agent/{stray}: exists in the gateway but not in the roster (left alone)")
+            notes.append(f"agent/{stray}: exists in the gateway but not in the roster (left alone)")
             rendered.append(live_agents[stray])
 
     # --- the workspace files ----------------------------------------------
@@ -473,8 +533,10 @@ def plan(roster: dict, only: str | None, rt: Roots) -> tuple[list[str], dict, di
     # "writing X" for a file it did not change, and a log that says more than it
     # did is a log nobody can use to tell a real change from a no-op.
     files: dict[str, str] = {}
+    stale: list[str] = []
     for a in agents:
-        for path, body in desired_workspace_files(a, rt).items():
+        wanted_files = desired_workspace_files(a, rt)
+        for path, body in wanted_files.items():
             have = remote_file(path)
             if have is None:
                 drift.append(f"file/{path}: missing")
@@ -482,6 +544,25 @@ def plan(roster: dict, only: str | None, rt: Roots) -> tuple[list[str], dict, di
             elif have != body:
                 drift.append(f"file/{path}: differs ({digest(have)} -> {digest(body)})")
                 files[path] = body
+        if not a.get("manage_workspace"):
+            continue
+        # What the last rollout wrote and this one no longer renders -- a
+        # skill taken off the list, a USER.md emptied -- was left in the
+        # gateway before, and the agent went on reading a file nobody could
+        # see any more (review B9, 2026-09-03). Only files named in the
+        # rollout's own record are removed: the agent's and the gateway's
+        # files are not the rollout's to take.
+        ws = a["workspace"]
+        rels = {path[len(ws) + 1:] for path in wanted_files}
+        before = previously_rendered(ws)
+        for rel in sorted((before or set()) - rels):
+            drift.append(f"file/{ws}/{rel}: stale (no longer rendered)")
+            stale.append(f"{ws}/{rel}")
+        if before != rels:
+            record_path, record_body = rendered_record(ws, rels)
+            if before is None:
+                drift.append(f"record/{a['id']}: no record of rendered files yet")
+            files[record_path] = record_body
 
     # --- the per-agent model catalogs --------------------------------------
     # Compared as JSON, not as text: the gateway wrote these with its own key
@@ -505,30 +586,55 @@ def plan(roster: dict, only: str | None, rt: Roots) -> tuple[list[str], dict, di
                 drift.append(f"catalog/{a['id']}: {what}")
                 files[path] = json.dumps(want, ensure_ascii=False, indent=2) + "\n"
 
-    return drift, {"list": rendered}, files, remove
+    return Plan(drift=drift, notes=notes, agents_block={"list": rendered},
+                files=files, stale=stale, remove=remove)
 
 
-def trashed_ids(rt: Roots) -> set[str]:
-    """Ids of agents the builder deleted: folders under instances/.trash/ in
-    either root.
+# Written into a trash folder once the gateway has actually forgotten the
+# agent. The folder is the record of intent; the marker is the record that
+# the intent was carried out. Without it a trashed id stayed "deleted" for
+# ever, and an agent somebody later made by hand under the same name was
+# taken out by the next rollout (review B6, 2026-09-03).
+TRASH_APPLIED = ".gateway-deleted"
+
+
+def _trash_folders(rt: Roots, agent_id: str | None = None) -> list[tuple[str, Path]]:
+    """(id, folder) for every trashed agent in the installation root. The
+    platform root ships no agents (030ad83) and its trash is not read: old
+    scratch folders there held ids as deleted for good.
 
     A trashed folder is named ``<id>-<stamp>`` so two deletions of the same id
     can coexist; the id is everything before the last ``-<14 digits>``.
     """
-    ids: set[str] = set()
-    for trash in [r / "instances" / ".trash" for r in (rt.local, rt.platform) if r is not None]:
-        if not trash.is_dir():
+    out: list[tuple[str, Path]] = []
+    trash = rt.local / "instances" / ".trash" if rt.local is not None else None
+    if trash is None or not trash.is_dir():
+        return out
+    for f in sorted(trash.iterdir()):
+        if not f.is_dir():
             continue
-        for f in trash.iterdir():
-            if not f.is_dir():
-                continue
-            head, _, tail = f.name.rpartition("-")
-            ids.add(head if head and tail.isdigit() and len(tail) == 14 else f.name)
-    return ids
+        head, _, tail = f.name.rpartition("-")
+        aid = head if head and tail.isdigit() and len(tail) == 14 else f.name
+        if agent_id is None or aid == agent_id:
+            out.append((aid, f))
+    return out
 
 
-def apply(roster: dict, agents_block: dict, files: dict[str, str],
-          remove: list[str], only: str | None, say: Callable[[str], None]) -> None:
+def trashed_ids(rt: Roots) -> set[str]:
+    """Ids the builder deleted and the gateway has not yet been told about."""
+    return {aid for aid, f in _trash_folders(rt) if not (f / TRASH_APPLIED).is_file()}
+
+
+def mark_trash_applied(rt: Roots, agent_id: str) -> None:
+    for _, f in _trash_folders(rt, agent_id):
+        try:
+            (f / TRASH_APPLIED).write_text("deleted from the gateway by the rollout\n", encoding="utf-8")
+        except OSError as e:
+            raise DeployError(f"deleted {agent_id} from the gateway, but could not record it in {f}: {e}") from e
+
+
+def apply(roster: dict, p: Plan, only: str | None, rt: Roots,
+          say: Callable[[str], None]) -> None:
     # 0. the config write as a dry run, BEFORE anything is created or deleted.
     #    Step 5 is the only step the gateway validates, and step 4 cannot be
     #    undone: a rollout that deleted first and was refused after left the
@@ -538,7 +644,7 @@ def apply(roster: dict, agents_block: dict, files: dict[str, str],
     #    repair.
     rc, out = docker(
         "openclaw", "config", "patch", "--stdin", "--dry-run",
-        stdin=json.dumps({"agents": agents_block}),
+        stdin=json.dumps({"agents": p.agents_block}),
     )
     if rc != 0:
         raise DeployError(
@@ -567,7 +673,10 @@ def apply(roster: dict, agents_block: dict, files: dict[str, str],
 
     # 2. the workspace files, before the config that grants the skills -- an
     #    allow-listed skill whose file is not there yet is an avoidable warning
-    for path, body in files.items():
+    for path in p.stale:
+        say(f"removing {path}")
+        remove_remote(path)
+    for path, body in p.files.items():
         say(f"writing {path}")
         write_remote(path, body)
 
@@ -589,17 +698,18 @@ def apply(roster: dict, agents_block: dict, files: dict[str, str],
     #    that follows merely confirms a list that no longer names it.
     #    `--force` because the question it would ask has been answered in the
     #    browser already.
-    for aid in remove:
+    for aid in p.remove:
         say(f"deleting agent {aid} from the gateway")
         rc, out = docker("openclaw", "agents", "delete", aid, "--force", "--json")
         if rc != 0:
             raise DeployError(f"could not delete {aid}: {out.strip()[:300]}")
+        mark_trash_applied(rt, aid)
 
     # 5. the config, in one validated write
     say("patching agents.list")
     rc, out = docker(
         "openclaw", "config", "patch", "--stdin",
-        stdin=json.dumps({"agents": agents_block}),
+        stdin=json.dumps({"agents": p.agents_block}),
     )
     if rc != 0:
         raise DeployError(f"config patch failed: {out.strip()[:400]}")
@@ -622,11 +732,12 @@ def run(*, check: bool = False, only: str | None = None,
 
     Returns::
 
-        {"ok": bool, "in_sync": bool, "applied": bool,
-         "drift": [...], "left": [...], "log": [...], "error": str|None}
+        {"ok": bool, "in_sync": bool, "applied": bool, "drift": [...],
+         "notes": [...], "left": [...], "log": [...], "error": str|None}
 
     ``drift`` is what differed before; ``left`` is what still differs after an
-    apply (empty when it took). Raises nothing: an error is a field, so the
+    apply (empty when it took); ``notes`` is what was seen and left alone
+    (never a reason to apply). Raises nothing: an error is a field, so the
     HTTP layer can turn it into a status code and the CLI into an exit code
     without either re-deriving what went wrong.
     """
@@ -639,7 +750,7 @@ def run(*, check: bool = False, only: str | None = None,
             say(line)
 
     result = {"ok": False, "in_sync": False, "applied": False,
-              "drift": [], "left": [], "log": log, "error": None}
+              "drift": [], "notes": [], "left": [], "log": log, "error": None}
     try:
         roster = load_roster(rt)
         # An empty roster at THIS door is a missing mount, not an empty house:
@@ -659,13 +770,14 @@ def run(*, check: bool = False, only: str | None = None,
         # cannot be applied would report drift nobody may close.
         check_tools(roster)
         check_locality(roster, rt)
-        drift, agents_block, files, remove = plan(roster, only, rt)
+        p = plan(roster, only, rt)
     except (StoreError, DeployError) as e:
         result["error"] = str(e)
         return result
 
-    result["drift"] = drift
-    if not drift:
+    result["drift"] = p.drift
+    result["notes"] = p.notes
+    if not p.drift:
         result.update(ok=True, in_sync=True)
         return result
     if check:
@@ -673,7 +785,7 @@ def run(*, check: bool = False, only: str | None = None,
         return result
 
     try:
-        apply(roster, agents_block, files, remove, only, _say)
+        apply(roster, p, only, rt, _say)
     except DeployError as e:
         result["error"] = str(e)
         return result
@@ -681,11 +793,10 @@ def run(*, check: bool = False, only: str | None = None,
 
     # Say whether it actually took, rather than assuming the writes landed.
     try:
-        left, _, _, _ = plan(roster, only, rt)
+        left = plan(roster, only, rt).drift
     except (StoreError, DeployError) as e:
         result["error"] = f"applied, but could not verify: {e}"
         return result
-    left = [d for d in left if "left alone" not in d]
     result["left"] = left
     result["ok"] = not left
     result["in_sync"] = not left
