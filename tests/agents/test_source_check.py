@@ -64,6 +64,11 @@ def test_detection() -> None:
     and the first real note this was tried on slipped straight through.
     """
     print("\ndetection")
+    # These stay in German on purpose, and are the one place in the tree that
+    # does. The pattern reads both languages because a German page states its
+    # restriction in German, and a case list with only English phrases would
+    # leave that half of it untested. Everything a person or an agent READS is
+    # English; this is neither, it is input.
     cases = [
         ("Preis Stand Juni 2026", False),
         ("nicht aus den Quellen bestaetigt", True),

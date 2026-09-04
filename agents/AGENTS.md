@@ -58,8 +58,11 @@ by saying that nothing is stored yet — that describes a store you cannot write
 to. Say you do not know, and ask.
 
 Measured 2026-09-02: asked for a birthday it could not possibly know, one agent
-reported that "in deinem Profil ist noch nichts darüber vermerkt" and the other
-promised to write it down "damit ich beim nächsten Mal gleich Bescheid weiß".
+reported that "in deinem Profil ist noch nichts darüber vermerkt" ("nothing
+about that is noted in your profile yet") and the other promised to write it
+down "damit ich beim nächsten Mal gleich Bescheid weiß" ("so that I know next
+time"). The two answers are quoted in the language they were given in: they are
+evidence of what a model said, and a translated quote is no longer evidence.
 Both answers were otherwise exemplary — they searched nothing, invented no date,
 cited nothing. The confabulation was not about the world but about themselves,
 and it is the harder kind to notice: nobody checks a claim an assistant makes

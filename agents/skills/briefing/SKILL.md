@@ -13,34 +13,34 @@ feeling complete while three fields are empty.
 
 Two kinds live here, each with its own folder:
 
-| Ordner | Wofür |
+| Folder | For |
 |---|---|
-| `recherche/` | etwas herausfinden — „was gibt es zu", „vergleich mal", „lohnt sich X" |
-| `kreativ/` | etwas herstellen — Bild, Video, Text, Kampagne |
+| `research/` | finding something out — "what is there on", "compare these", "is X worth it" |
+| `creative/` | making something — image, video, text, campaign |
 
 **This is the opening move.** Before anything else, ask which of the two it is
-— plainly, in one sentence: *„Was für ein Briefing brauchst du — ein
-Recherche-Briefing oder ein Kreativ-Briefing?"* Not a menu, not an explanation
-of the difference unless asked.
+— plainly, in one sentence: *"What kind of brief do you need — a research
+brief or a creative brief?"* Not a menu, not an explanation of the difference
+unless asked.
 
 Asking first rather than inferring is deliberate. The two catalogues share
 almost no questions, so guessing wrong costs the whole first pass — and a person
 who is told the shape at the start knows where the conversation is going.
 
 The one exception: if the request already says which, do not ask again. Name it
-back in three words and start (*„Recherche-Briefing, verstanden."*). Asking
+back in three words and start (*"Research brief, got it."*). Asking
 about something someone just said reads as not having listened.
 
-Everything below then reads `FRAGEN.md` and `VORLAGE.md` **from that folder**.
+Everything below then reads `QUESTIONS.md` and `TEMPLATE.md` **from that folder**.
 
-If neither fits, say so and use `recherche/` as the closer of the two rather
+If neither fits, say so and use `research/` as the closer of the two rather
 than inventing a third. A briefing in the wrong shape is still worth more than
 an unstructured conversation, and the gap becomes visible material for a folder
 that should exist.
 
 ## Pass one — gather
 
-Read `FRAGEN.md` from the folder you chose. Work through it in order, **one question per turn**, in your
+Read `QUESTIONS.md` from the folder you chose. Work through it in order, **one question per turn**, in your
 own words rather than reading it aloud. React to each answer before moving on:
 if it is thin, ask once more, smaller. If the second attempt brings nothing, note
 it as open and continue.
@@ -55,9 +55,9 @@ person is the only one who knows which of the two this is.
 
 Offer it as two real options, not as "everything or nothing":
 
-> *„Ich kann die restlichen Fragen durchgehen — oder ich fülle aus, was sich aus
-> deiner Frage schon ergibt, markiere das als Annahme und frage nur nach, was
-> ich wirklich nicht wissen kann. Was ist dir lieber?"*
+> *"I can go through the remaining questions — or I can fill in what already
+> follows from your request, mark that as an assumption, and only ask about
+> what I genuinely cannot know. Which would you prefer?"*
 
 ## Three states, not two
 
@@ -104,23 +104,23 @@ it worked out.
 
 ## The document follows the template, not the catalogue
 
-Write the sections `VORLAGE.md` names, in its order and under its headings. The
+Write the sections `TEMPLATE.md` names, in its order and under its headings. The
 catalogue is how you ASK; the template is what you HAND OVER, and the two are
-not the same shape. `Angenommen` and `Offen` are sections of their own — an
+not the same shape. `Assumed` and `Open` are sections of their own — an
 assumption inlined behind a value and nowhere else is one nobody scans for.
 
 Stop when the catalogue is done, or when the person says that is enough.
 
 ## Pass two — check
 
-**Say that you are doing it.** One short line — *„Ich gehe kurz die Vorlage
-durch, ob etwas fehlt."* — and then do it. This is not decoration: without a
+**Say that you are doing it.** One short line — *"Let me run through the
+template quickly and see if anything is missing."* — and then do it. This is not decoration: without a
 spoken transition the second pass gets skipped, and the document is written
 straight from the conversation. Measured, on the first real briefing this skill
 ever produced: nine of eleven questions asked, no second pass, and the two
 fields that carry the most weight came out thin.
 
-**Read `VORLAGE.md` again now**, from the same folder, rather than working from
+**Read `TEMPLATE.md` again now**, from the same folder, rather than working from
 what you remember of it. Then go through it **field by field**, against everything
 you have been told. For each field there are exactly three outcomes:
 
@@ -132,10 +132,11 @@ you have been told. For each field there are exactly three outcomes:
 Two fields are never allowed to pass as thin, because whoever executes the brief
 will act on them:
 
-- **Quellen** — „alles", „egal" and „was du findest" are not answers. Ask the
-  question from the other side: *„Was würde dich umgekehrt NICHT überzeugen?"*
-  A person who cannot name what counts can almost always name what does not.
-- **Ergebnisform** — on the LONG path, ask; and when a table or comparison is
+- **Sources** — "anything", "doesn't matter" and "whatever you find" are not
+  answers. Ask the question from the other side: *"What would NOT convince
+  you?"* A person who cannot name what counts can almost always name what does
+  not.
+- **Shape of the result** — on the LONG path, ask; and when a table or comparison is
   wanted, ask which columns. On the SHORT path, derive it and mark it: what
   someone wants out of a comparison follows from what they are deciding, and
   columns follow from the subject. Leaving the whole field `offen` while being
@@ -156,8 +157,8 @@ nothing.
 
 ## Then hand it over
 
-Fill `VORLAGE.md` and give it back as text. Every field that stayed open says
-`offen` — not a guess, not a plausible placeholder, not an average value. A
+Fill `TEMPLATE.md` and give it back as text. Every field that stayed open says
+`open` — not a guess, not a plausible placeholder, not an average value. A
 visible gap costs a follow-up question; an invented answer costs a production
 run.
 
@@ -166,7 +167,7 @@ reading the whole thing again.
 
 ## Where the files live
 
-`FRAGEN.md` and `VORLAGE.md` sit in the kind's folder beside this file. Read
+`QUESTIONS.md` and `TEMPLATE.md` sit in the kind's folder beside this file. Read
 them each time rather than reciting them from memory — they get edited, and an
 edit that never reaches a conversation is worse than no edit at all.
 

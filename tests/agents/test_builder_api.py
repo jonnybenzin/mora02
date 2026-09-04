@@ -100,7 +100,7 @@ def main() -> int:
 
     st, j = call("GET", "/agents/skills/briefing")
     paths = [f.get("path") for f in j.get("files", [])]
-    record("PASS" if st == 200 and "recherche/FRAGEN.md" in paths and all("content" in f for f in j.get("files", [])) else "FAIL",
+    record("PASS" if st == 200 and "research/QUESTIONS.md" in paths and all("content" in f for f in j.get("files", [])) else "FAIL",
            "skill files readable", ", ".join(paths))
     st, _ = call("GET", "/agents/skills/nope")
     record("PASS" if st == 404 else "FAIL", "unknown skill is 404", f"HTTP {st}")

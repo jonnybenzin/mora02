@@ -19,11 +19,11 @@ What to settle before searching, most of it derivable from the question itself:
 
 | | |
 |---|---|
-| **Winkel** | which wordings, synonyms, English terms, vendor names, opposing views |
-| **Abgrenzung** | what is *not* being asked — usually implied by the question |
-| **Aktualität** | how old an answer may be. „derzeit beste" means recent; a definition does not |
+| **Angles** | which wordings, synonyms, English terms, vendor names, opposing views |
+| **Boundary** | what is *not* being asked — usually implied by the question |
+| **Currency** | how old an answer may be. "currently best" means recent; a definition does not |
 | **Form** | what the answer should look like, which follows from what is being decided |
-| **Rahmen** | the hard constraint the answer must fit — budget, hardware, region, language |
+| **Constraints** | the hard constraint the answer must fit — budget, hardware, region, language |
 
 The frame is the one worth a question if you cannot derive it, because it sieves
 harder than any judgement of quality: an option that does not fit is not an
@@ -167,10 +167,11 @@ the answer would be wrong without.
 
 ### The open points
 
-When you call `notes_review`, it hands back an `offen` list: notes whose own
-restriction says the figure was never established — *nicht bestätigt*, *nicht
-gefunden*, *unklar*. That list is computed from what you wrote, not from what
-you remember.
+When you call `notes_review`, it hands back an `open` list: notes whose own
+restriction says the figure was never established — *not confirmed*, *not
+found*, *unclear*. That list is computed from what you wrote, not from what you
+remember. (The detection reads German as well, so a restriction that comes back
+from a German page in its own words still counts.)
 
 Two endings are allowed for each, and both are complete:
 

@@ -7,7 +7,7 @@ things that decide whether the agent is usable:
   * it opens by asking WHICH kind of briefing — the one turn that is fixed
   * it asks ONE thing at a time, rather than pasting a questionnaire
   * details given in turn three survive into the document — the thread holds
-  * a question answered with "weiß ich nicht" comes out as `offen`, NOT as
+  * a question answered with "I don't know" comes out as `open`, NOT as
     something plausible
 
 The last one is the point. Two planted details and one planted non-answer make
@@ -44,31 +44,31 @@ SHOW = "--show" in sys.argv
 # Planted details. None of them can be guessed from the catalogue, so finding
 # them in the finished document proves the thread carried them.
 ANGLES = "Bosch, Shimano, TQ"
-SOURCE_RULE = "keine Herstellerangaben"
-REGION = "Österreich"
+SOURCE_RULE = "no manufacturer figures"
+REGION = "Austria"
 
 # The planted NON-answer. Question 11 of the research catalogue asks how you
 # know the question is answered. This requester does not know — and the document
 # must say so rather than inventing a criterion.
-DONT_KNOW = "weiß ich nicht"
+DONT_KNOW = "I don't know"
 
 # Answers in the order the catalogue asks. The agent may skip or merge
 # questions, so these are fed in sequence rather than matched to a question:
 # a briefing conversation that needs a lockstep script is not a conversation.
 ANSWERS = [
-    "Ein Recherche-Briefing.",
-    "Welche Mittelmotoren für Lastenräder über 20.000 km halten.",
-    "Ich will eins kaufen und weiß nicht, welcher Antrieb.",
-    f"Ich kenne die Marktübersicht grob. Suchwinkel: {ANGLES}.",
-    f"Unabhängige Tests und Werkstattberichte. {SOURCE_RULE}.",
-    "Nichts älter als drei Jahre.",
-    f"{REGION}, deutsch und englisch.",
-    "Gründlich, nicht nur ein Überblick.",
-    "Eine Vergleichstabelle mit Laufleistung, Reparierbarkeit und Preis.",
-    "Akkus und Rahmen gehören nicht dazu.",
+    "A research brief.",
+    "Which mid-drive motors for cargo bikes last beyond 20,000 km.",
+    "I want to buy one and I don't know which drive.",
+    f"I know the market roughly. Angles: {ANGLES}.",
+    f"Independent tests and workshop reports. {SOURCE_RULE}.",
+    "Nothing older than three years.",
+    f"{REGION}, German and English.",
+    "Thorough, not just an overview.",
+    "A comparison table with mileage, repairability and price.",
+    "Batteries and frames are not part of it.",
     DONT_KNOW,
-    "Nein, das war alles.",
-    "Ja, bitte schreib das Briefing jetzt.",
+    "No, that was all.",
+    "Yes, please write the brief now.",
 ]
 
 results: list[tuple[str, str, str]] = []
@@ -124,7 +124,7 @@ def main() -> int:
 
     # --- 1. the opening move -----------------------------------------------
     first = transcript[0][1].lower()
-    if ("recherche" in first and "kreativ" in first) or "was für ein briefing" in first:
+    if ("research" in first and "creative" in first) or "kind of brief" in first:
         record("PASS", "opening", "asked which kind of briefing")
     else:
         record("FAIL", "opening",
@@ -153,12 +153,12 @@ def main() -> int:
                    f"{needle!r} was given but is not in the document")
 
     # --- 4. THE one that matters: is the gap still a gap? ------------------
-    stop = re.search(r"##\s*Abbruchkriterium\s*\n(.{0,220})", doc, re.S)
+    stop = re.search(r"##\s*Stopping rule\s*\n(.{0,220})", doc, re.S)
     if not stop:
-        record("FAIL", "gap kept open", "no Abbruchkriterium section in the document")
+        record("FAIL", "gap kept open", "no 'Stopping rule' section in the document")
     else:
         body = stop.group(1).strip().lower()
-        if "offen" in body or DONT_KNOW in body:
+        if "open" in body or DONT_KNOW.lower() in body:
             record("PASS", "gap kept open",
                    "the unanswered stopping rule is marked open, not invented")
         else:
@@ -167,7 +167,7 @@ def main() -> int:
             record("FAIL", "gap kept open",
                    f"INVENTED a stopping criterion: {stop.group(1).strip()[:120]}")
 
-    if "## Offen" in doc:
+    if "## Open" in doc:
         record("PASS", "gap list", "the document carries its own list of gaps")
     else:
         record("WARN", "gap list", "no 'Offen' section — the template asks for one")

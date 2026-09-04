@@ -216,7 +216,7 @@ def main() -> int:
 
         sd = store.skill_detail("briefing", RT)
         paths = [f["path"] for f in sd["files"]]
-        record("recherche/FRAGEN.md" in paths and all("content" in f for f in sd["files"]) and sd["root"] == "platform",
+        record("research/QUESTIONS.md" in paths and all("content" in f for f in sd["files"]) and sd["root"] == "platform",
                "skill_detail lists the catalogue with content", ", ".join(paths))
         record(sd["used_by"] == [], "skill_detail names who uses it (nobody here)")
         refuses(lambda: store.skill_detail("../instances", RT), "skill_detail refuses a path", "no skill")

@@ -612,7 +612,7 @@ def skill_detail(name: str, rt: Roots | None = None) -> dict:
 
     Why this exists: the builder showed a skill as a name, a description and
     "5 Datei(en)", and the first person to use it asked where the eight
-    questions were. They were in FRAGEN.md, two folders down, visible to the
+    questions were. They were in QUESTIONS.md, two folders down, visible to the
     agent and to nobody else. A skill's files are the part of an agent that is
     most worth reading and were the only part that could not be.
 
