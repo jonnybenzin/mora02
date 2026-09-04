@@ -5,6 +5,7 @@ FastAPI service for gifer, clipper, typer scripts
 """
 
 import asyncio
+from functools import partial
 import json
 import os
 import re
@@ -272,6 +273,20 @@ def inside(root: Path, candidate: Path, what: str) -> Path:
     return candidate
 
 
+async def _docker_cli(*argv: str, timeout: int) -> subprocess.CompletedProcess:
+    """One `docker` command, in a thread.
+
+    `docker start chatterbox-tts` can legitimately take most of its minute while
+    the container warms its model up, and `status` is polled by a UI panel. On
+    the event loop each of those stopped the whole service -- health checks,
+    pipeline steps, an agent's tool calls (review 3, 2026-09-04).
+    """
+    return await asyncio.to_thread(
+        partial(subprocess.run, list(argv), capture_output=True, text=True,
+                timeout=timeout)
+    )
+
+
 def _checked_run_id(run_id: str, what: str = "run_id") -> str:
     """A run id from a caller, refused as a 422 rather than a 500.
 
@@ -395,7 +410,7 @@ async def list_session_files(session_id: str):
 async def delete_session(session_id: str):
     """Delete session and all its files"""
     session_dir = get_session_dir(session_id)
-    shutil.rmtree(session_dir)
+    await asyncio.to_thread(shutil.rmtree, session_dir)
     return {"message": f"Session {session_id} deleted"}
 
 # ============================================================================
@@ -426,13 +441,19 @@ async def run_gifer(request: GiferRequest):
         from mora02_core.media import create_gif, MediaError
 
         try:
-            create_gif(
-                input_files=image_files,
-                output_path=output_file,
-                durations=request.durations,
-                quality=request.quality,
-                size=request.size,
-            )
+            # In a thread: this is ffmpeg, and the single uvicorn loop it would
+            # otherwise sit on is the one serving the Pilot's polling, the
+            # MCP surface during an agent turn, and every pipeline step
+            # running beside it. The pipeline twin of this call already did
+            # it this way (review 3, 2026-09-04).
+            await asyncio.to_thread(
+                partial(create_gif,
+                    input_files=image_files,
+                    output_path=output_file,
+                    durations=request.durations,
+                    quality=request.quality,
+                    size=request.size,
+                    ))
         except MediaError as e:
             return RunResponse(success=False, error=str(e))
 
@@ -468,15 +489,21 @@ async def run_typer(request: TyperRequest):
         from mora02_core.media import create_text_frame, MediaError
 
         try:
-            create_text_frame(
-                text=request.text,
-                output_path=output_file,
-                size=request.size,
-                template=request.template,
-                font=request.font,
-                fontsize=request.fontsize,
-                layout=request.layout,
-            )
+            # In a thread: this is ffmpeg, and the single uvicorn loop it would
+            # otherwise sit on is the one serving the Pilot's polling, the
+            # MCP surface during an agent turn, and every pipeline step
+            # running beside it. The pipeline twin of this call already did
+            # it this way (review 3, 2026-09-04).
+            await asyncio.to_thread(
+                partial(create_text_frame,
+                    text=request.text,
+                    output_path=output_file,
+                    size=request.size,
+                    template=request.template,
+                    font=request.font,
+                    fontsize=request.fontsize,
+                    layout=request.layout,
+                    ))
         except MediaError as e:
             return RunResponse(success=False, error=str(e))
 
@@ -519,16 +546,22 @@ async def run_clipper(request: ClipperRequest):
         from mora02_core.media import create_clip, MediaError
 
         try:
-            create_clip(
-                input_files=media_files,
-                output_path=output_file,
-                resolution=request.resolution,
-                durations=request.durations,
-                animation=request.animation,
-                direction=request.direction,
-                intensity=request.intensity,
-                transition=request.transition,
-            )
+            # In a thread: this is ffmpeg, and the single uvicorn loop it would
+            # otherwise sit on is the one serving the Pilot's polling, the
+            # MCP surface during an agent turn, and every pipeline step
+            # running beside it. The pipeline twin of this call already did
+            # it this way (review 3, 2026-09-04).
+            await asyncio.to_thread(
+                partial(create_clip,
+                    input_files=media_files,
+                    output_path=output_file,
+                    resolution=request.resolution,
+                    durations=request.durations,
+                    animation=request.animation,
+                    direction=request.direction,
+                    intensity=request.intensity,
+                    transition=request.transition,
+                    ))
         except MediaError as e:
             return RunResponse(success=False, error=str(e))
 
@@ -600,23 +633,25 @@ async def finalize_session(request: FinalizeSessionRequest):
     )
     final_path.mkdir(parents=True, exist_ok=True)
     
-    # Copy output files
-    copied_files = []
-    for f in output_files:
-        if f.is_file():
-            shutil.copy2(f, final_path / f.name)
-            copied_files.append(f.name)
-    
-    # Copy sourcefiles for gifer and clipper
-    sourcefiles = []
-    if request.script_type in ["gifer", "clipper"]:
-        if input_dir.exists():
+    # In a thread: these are finished clips and GIFs, tens of megabytes, and
+    # every byte was copied on the event loop that also serves the Pilot's chat
+    # and any pipeline running beside it (review 3, 2026-09-04).
+    def _copy_out() -> tuple[list, list]:
+        copied, sources = [], []
+        for f in output_files:
+            if f.is_file():
+                shutil.copy2(f, final_path / f.name)
+                copied.append(f.name)
+        if request.script_type in ["gifer", "clipper"] and input_dir.exists():
             sourcefiles_path = final_path / "sourcefiles"
             sourcefiles_path.mkdir(exist_ok=True)
             for f in sorted(input_dir.glob("*")):
                 if f.is_file():
                     shutil.copy2(f, sourcefiles_path / f.name)
-                    sourcefiles.append(f.name)
+                    sources.append(f.name)
+        return copied, sources
+
+    copied_files, sourcefiles = await asyncio.to_thread(_copy_out)
     
     # Convert to host path
     host_path = container_to_host_path(str(final_path))
@@ -634,7 +669,7 @@ async def finalize_session(request: FinalizeSessionRequest):
     )
     
     # Cleanup wip folder
-    shutil.rmtree(session_dir)
+    await asyncio.to_thread(shutil.rmtree, session_dir)
     
     return {
         "success": True,
@@ -682,7 +717,7 @@ async def publish_asset(request: PublishAssetRequest):
     
     # Copy file to destination
     dest_file = inside(dest_dir, dest_dir / safe_segment(request.source_file, "source_file"), "destination")
-    shutil.copy2(source_path, dest_file)
+    await asyncio.to_thread(shutil.copy2, source_path, dest_file)
     
     # Return the filename (this is what goes into SM_content.media_path)
     return {
@@ -708,7 +743,7 @@ async def finalize_file(request: FinalizeRequest):
     final_subdir.mkdir(parents=True, exist_ok=True)
     
     dest_file = final_subdir / safe_segment(request.filename, "filename")
-    shutil.copy2(source_file, dest_file)
+    await asyncio.to_thread(shutil.copy2, source_file, dest_file)
     
     final_url = f"/final/{request.script_type}/{request.filename}"
     host_path = container_to_host_path(str(dest_file))
@@ -1521,12 +1556,17 @@ async def pipeline_runs():
     """List recent pipeline runs (newest first) for the Runs view — a summary per run."""
     d = pipeline_runlog.log_dir()
     runs = []
-    try:
-        files = sorted(Path(d).glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:40]
-    except OSError:
-        files = []
+
+    def _scan() -> list:
+        try:
+            return sorted(Path(d).glob("*.jsonl"),
+                          key=lambda p: p.stat().st_mtime, reverse=True)[:40]
+        except OSError:
+            return []
+
+    files = await asyncio.to_thread(_scan)
     for p in files:
-        events = _read_run_events(p.stem) or []
+        events = await asyncio.to_thread(_read_run_events, p.stem) or []
         start = next((e for e in events if e.get("kind") == "run_start"), {})
         steps = [e for e in events if e.get("kind") == "step"]
         result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
@@ -1558,7 +1598,11 @@ _RUN_VIEW_SKIP = {"kind", "inputs", "params", "out_name"}
 @app.get("/pipeline/run/{run_id}")
 async def pipeline_run_detail(run_id: str):
     """Full step-by-step detail of one run (for the live Runs view)."""
-    events = _read_run_events(os.path.basename(run_id))
+    # In a thread: the Runs view polls this every three seconds for as long as
+    # a run looks alive — which is exactly the window in which this same loop is
+    # driving that run's steps. Reading and parsing a growing log file on it
+    # competed with the work it was reporting on (review 3, 2026-09-04).
+    events = await asyncio.to_thread(_read_run_events, os.path.basename(run_id))
     if events is None:
         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
     start = next((e for e in events if e.get("kind") == "run_start"), {})
@@ -1728,11 +1772,17 @@ async def _step_source_file(inputs: List[str], params: dict) -> dict:
         if not target.is_file():
             raise ValueError(f"{name!r} not found in store {store!r}")
     else:
-        candidates = sorted(
-            (p for p in root.glob("**/*")
-             if p.is_file() and p.suffix.lower() in _STEP_IMAGE_EXTS),
-            key=lambda p: p.stat().st_mtime,
-        )
+        # In a thread: this walks a whole asset store, which holds months of
+        # generated media, and it runs as an ordinary step of any flow that
+        # starts "take the newest file" (review 3, 2026-09-04).
+        def _newest() -> list:
+            return sorted(
+                (p for p in root.glob("**/*")
+                 if p.is_file() and p.suffix.lower() in _STEP_IMAGE_EXTS),
+                key=lambda p: p.stat().st_mtime,
+            )
+
+        candidates = await asyncio.to_thread(_newest)
         if not candidates:
             raise ValueError(f"no image files in store {store!r} ({root})")
         target = candidates[-1] if params.get("pick", "latest") != "oldest" else candidates[0]
@@ -1804,10 +1854,13 @@ async def _step_source_find(inputs: List[str], params: dict) -> dict:
         # file name in an error message (T3 of the material plan -- not
         # visible, rather than refused). An exact path is a different case and
         # is still refused above, because the caller named it themselves.
-        found = sorted(
-            hit for hit in (_inside(p) for p in root.glob(match) if p.is_file())
-            if asset_refs.in_scope(store, str(hit.relative_to(root.resolve())))
-        )
+        def _matches() -> list:
+            return sorted(
+                hit for hit in (_inside(p) for p in root.glob(match) if p.is_file())
+                if asset_refs.in_scope(store, str(hit.relative_to(root.resolve())))
+            )
+
+        found = await asyncio.to_thread(_matches)
 
     if not found:
         # Say what was looked for and where, and how much is there at all: an
@@ -1817,11 +1870,18 @@ async def _step_source_find(inputs: List[str], params: dict) -> dict:
         # from a foreign project; a total that includes them would still say
         # "there is more here than you can see", which is the same leak one
         # size smaller.
-        total = sum(
-            1 for f in root.rglob("*")
-            if f.is_file()
-            and asset_refs.in_scope(store, str(f.relative_to(root.resolve())))
-        )
+        # A SECOND walk of the same store, only to put a number in the error.
+        # Worth keeping -- an empty result with no context sends the reader
+        # hunting in the wrong half of the problem -- but not worth blocking
+        # the loop for.
+        def _count() -> int:
+            return sum(
+                1 for f in root.rglob("*")
+                if f.is_file()
+                and asset_refs.in_scope(store, str(f.relative_to(root.resolve())))
+            )
+
+        total = await asyncio.to_thread(_count)
         raise ValueError(
             f"nothing matches {match!r} in store {store!r} ({root}); "
             f"the store holds {total} files"
@@ -3123,55 +3183,64 @@ async def pipeline_vocab_stats(window_days: int = 30):
 
     cutoff = time.time() - window_days * 86400
     cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
-    stats: dict = {}
-    scanned = 0
-    for path in files:
-        scanned += 1
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        for line in lines:
+
+    def _scan_logs() -> tuple[dict, int]:
+        # In a thread, and it is the whole history: this reads and parses EVERY
+        # run log ever written on a cache miss, and a cache miss follows every
+        # new run. On the loop that cost grew without bound and was paid inline,
+        # blocking the GPU steps it reports on (review 3, 2026-09-04).
+        stats: dict = {}
+        scanned = 0
+        for path in files:
+            scanned += 1
             try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # a half-written line must not cost the whole answer
-            if event.get("kind") != "step":
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
                 continue
-            op = event.get("op")
-            if not op:
-                continue
-            # The window applies to EVERYTHING reported under it. It used to
-            # filter the spend alone, so a `?window_days=1` answer put three
-            # months of runs and failures next to one day of cost — and the
-            # question this endpoint exists to answer is "should I put this op
-            # in a loop", which is exactly the judgement that gets wrong
-            # (review 3, 2026-09-04). Same cheap comparison as before: the log
-            # stamps are ISO, so a string compare needs no parsing.
-            stamp = event.get("ts") or ""
-            if stamp and stamp < cutoff_iso:
-                continue
-            entry = stats.setdefault(op, {"runs": 0, "ok": 0, "failed": 0, "last_ok": None,
-                                          "durations": [], "spend_usd": 0.0, "stores": []})
-            entry["runs"] += 1
-            status = event.get("status")
-            if status == "ok":
-                entry["ok"] += 1
-                ts = event.get("ts")
-                if ts and (entry["last_ok"] is None or ts > entry["last_ok"]):
-                    entry["last_ok"] = ts
-                if isinstance(event.get("duration_ms"), (int, float)):
-                    entry["durations"].append(event["duration_ms"])
-                out = event.get("out")
-                if isinstance(out, str) and out.startswith("asset://"):
-                    store = out[len("asset://"):].split("/", 1)[0]
-                    if store and store not in entry["stores"]:
-                        entry["stores"].append(store)
-            elif status == "failed":
-                entry["failed"] += 1
-            cost = event.get("cost_usd")
-            if isinstance(cost, (int, float)):
-                entry["spend_usd"] += float(cost)
+            for line in lines:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # a half-written line must not cost the whole answer
+                if event.get("kind") != "step":
+                    continue
+                op = event.get("op")
+                if not op:
+                    continue
+                # The window applies to EVERYTHING reported under it. It used to
+                # filter the spend alone, so a `?window_days=1` answer put three
+                # months of runs and failures next to one day of cost — and the
+                # question this endpoint exists to answer is "should I put this op
+                # in a loop", which is exactly the judgement that gets wrong
+                # (review 3, 2026-09-04). Same cheap comparison as before: the log
+                # stamps are ISO, so a string compare needs no parsing.
+                stamp = event.get("ts") or ""
+                if stamp and stamp < cutoff_iso:
+                    continue
+                entry = stats.setdefault(op, {"runs": 0, "ok": 0, "failed": 0, "last_ok": None,
+                                              "durations": [], "spend_usd": 0.0, "stores": []})
+                entry["runs"] += 1
+                status = event.get("status")
+                if status == "ok":
+                    entry["ok"] += 1
+                    ts = event.get("ts")
+                    if ts and (entry["last_ok"] is None or ts > entry["last_ok"]):
+                        entry["last_ok"] = ts
+                    if isinstance(event.get("duration_ms"), (int, float)):
+                        entry["durations"].append(event["duration_ms"])
+                    out = event.get("out")
+                    if isinstance(out, str) and out.startswith("asset://"):
+                        store = out[len("asset://"):].split("/", 1)[0]
+                        if store and store not in entry["stores"]:
+                            entry["stores"].append(store)
+                elif status == "failed":
+                    entry["failed"] += 1
+                cost = event.get("cost_usd")
+                if isinstance(cost, (int, float)):
+                    entry["spend_usd"] += float(cost)
+        return stats, scanned
+
+    stats, scanned = await asyncio.to_thread(_scan_logs)
 
     usage = _spec_op_usage()
     ops_out = {}
@@ -3463,20 +3532,25 @@ async def tts_health():
 async def tts_generate(request: TTSGenerateRequest):
     """Generate speech audio from text — engine routing in the library."""
     try:
-        asset = tts_lib.generate(
-            text=request.text,
-            language=request.language,
-            voice=request.voice,
-            format=request.format,
-            engine_pref=request.engine,
-            speed=request.speed,
-            noise_scale=request.noise_scale,
-            noise_w=request.noise_w,
-            exaggeration=request.exaggeration,
-            cfg_weight=request.cfg_weight,
-            temperature=request.temperature,
-            cb_voice=request.cb_voice,
-        )
+        # In a thread: tts_lib.generate uses synchronous httpx with a timeout
+        # of up to 180 seconds. Awaited on the loop it froze the whole
+        # service for the length of a chatterbox render. Its pipeline
+        # twin tts.speak already did this (review 3, 2026-09-04).
+        asset = await asyncio.to_thread(
+            partial(tts_lib.generate,
+                text=request.text,
+                language=request.language,
+                voice=request.voice,
+                format=request.format,
+                engine_pref=request.engine,
+                speed=request.speed,
+                noise_scale=request.noise_scale,
+                noise_w=request.noise_w,
+                exaggeration=request.exaggeration,
+                cfg_weight=request.cfg_weight,
+                temperature=request.temperature,
+                cb_voice=request.cb_voice,
+                ))
     except MediaError as e:
         # Keep the original error-shape the frontend already handles
         return JSONResponse(
@@ -3505,12 +3579,14 @@ async def tts_voice_upload(
     """Convert an uploaded audio/video file to WAV and register it as a voice."""
     audio_bytes = await file.read()
     try:
-        return tts_lib.voice_library_upload(
-            voice_name=voice_name,
-            audio_bytes=audio_bytes,
-            source_filename=file.filename or "upload",
-            language=language,
-        )
+        # In a thread: this shells out to ffmpeg to convert the sample.
+        return await asyncio.to_thread(
+            partial(tts_lib.voice_library_upload,
+                voice_name=voice_name,
+                audio_bytes=audio_bytes,
+                source_filename=file.filename or "upload",
+                language=language,
+                ))
     except MediaError as e:
         return JSONResponse(
             status_code=400,
@@ -3538,12 +3614,13 @@ async def tts_chatterbox_status():
     for this and the start/stop endpoints (see compose).
     """
     try:
-        result = subprocess.run(
-            ["docker", "inspect", "--format", "{{.State.Status}}", "chatterbox-tts"],
-            capture_output=True, text=True, timeout=10,
+        result = await _docker_cli(
+            "docker", "inspect", "--format", "{{.State.Status}}", "chatterbox-tts",
+            timeout=10,
         )
         container_status = result.stdout.strip() if result.returncode == 0 else "not_found"
-        healthy = container_status == "running" and tts_lib.chatterbox_health()
+        healthy = container_status == "running" and await asyncio.to_thread(
+            tts_lib.chatterbox_health)
         return {
             "container": container_status,
             "healthy": healthy,
@@ -3557,10 +3634,7 @@ async def tts_chatterbox_status():
 async def tts_chatterbox_start():
     """Start the chatterbox-tts container."""
     try:
-        result = subprocess.run(
-            ["docker", "start", "chatterbox-tts"],
-            capture_output=True, text=True, timeout=60,
-        )
+        result = await _docker_cli("docker", "start", "chatterbox-tts", timeout=60)
         if result.returncode != 0:
             return JSONResponse(
                 status_code=500,
@@ -3578,10 +3652,7 @@ async def tts_chatterbox_start():
 async def tts_chatterbox_stop():
     """Stop the chatterbox-tts container."""
     try:
-        result = subprocess.run(
-            ["docker", "stop", "chatterbox-tts"],
-            capture_output=True, text=True, timeout=30,
-        )
+        result = await _docker_cli("docker", "stop", "chatterbox-tts", timeout=30)
         if result.returncode != 0:
             return JSONResponse(
                 status_code=500,

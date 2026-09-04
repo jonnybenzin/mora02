@@ -29,6 +29,7 @@ fi
 run python3 tests/script-runner/test_session_paths.py
 run python3 tests/script-runner/test_path_guards.py
 run python3 tests/script-runner/test_silent_failures.py
+run python3 tests/script-runner/test_loop_free.py
 
 echo
 if [ "$FAILED" = 0 ]; then echo "all script-runner suites passed"; else echo "$FAILED suite(s) failed"; fi
