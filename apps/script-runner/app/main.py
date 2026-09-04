@@ -78,11 +78,6 @@ FINAL_DIR = DATA_DIR / "final"
 CONTAINER_DATA_PATH = "/data"
 HOST_DATA_PATH = "/opt/mora02/output/_default/script-bot"
 
-# Publish destinations (container paths)
-PUBLISH_DESTINATIONS = {
-    "socialmedia": Path("/socialmedia-assets"),  # Mounted volume
-}
-
 # nginx-images URL for assets
 NGINX_BASE_URL = "http://mora02.local:8092/script-bot-assets"
 
@@ -142,12 +137,6 @@ class ClipperRequest(BaseModel):
     direction: str = "90"  # 0-360 degrees
     intensity: str = "20"
     transition: str = "1"  # seconds
-
-class FinalizeRequest(BaseModel):
-    session_id: str
-    filename: str
-    script_type: str  # gifer, clipper, typer
-
 class FinalizeSessionRequest(BaseModel):
     session_id: str
     script_type: str  # gifer, clipper, typer
@@ -162,13 +151,6 @@ class RunResponse(BaseModel):
     preview_url: Optional[str] = None
     slide_number: Optional[int] = None
     error: Optional[str] = None
-
-class PublishAssetRequest(BaseModel):
-    source_type: str  # gifer, clipper, typer
-    source_folder: str  # e.g. "2601241945_abc123"
-    source_file: str  # e.g. "2601241945_abc123.mp4"
-    target_channel: str  # socialmedia, landingpage, etc.
-
 class StockSearchRequest(BaseModel):
     query: str
     count: int = 5  # Number of results to return
@@ -692,118 +674,9 @@ async def finalize_session(request: FinalizeSessionRequest):
         "baserow_entry": baserow_result is not None
     }
 
-@app.post("/publish-asset")
-async def publish_asset(request: PublishAssetRequest):
-    """
-    Publish an asset to a specific channel (e.g., socialmedia).
-    Copies file from script-bot/final to target location.
-    Returns filename for use in SM_content.media_path
-    """
-    # Validate target channel
-    if request.target_channel not in PUBLISH_DESTINATIONS:
-        return {
-            "success": False, 
-            "error": f"Unknown channel: {request.target_channel}. Available: {list(PUBLISH_DESTINATIONS.keys())}"
-        }
-    
-    # Build source path
-    # Every one of the three is a caller-supplied segment, and the result is
-    # both read from and written to. Before review 3 this reached the read-only
-    # customer library and copied out of it into the folder nginx serves.
-    source_path = inside(
-        FINAL_DIR,
-        FINAL_DIR / safe_segment(request.source_type, "source_type")
-                  / safe_segment(request.source_folder, "source_folder")
-                  / safe_segment(request.source_file, "source_file"),
-        "source",
-    )
-    
-    if not source_path.exists():
-        return {"success": False, "error": f"Source file not found: {source_path}"}
-    
-    # Get destination directory
-    dest_dir = PUBLISH_DESTINATIONS[request.target_channel]
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Copy file to destination
-    dest_file = inside(dest_dir, dest_dir / safe_segment(request.source_file, "source_file"), "destination")
-    await asyncio.to_thread(shutil.copy2, source_path, dest_file)
-    
-    # Return the filename (this is what goes into SM_content.media_path)
-    return {
-        "success": True,
-        "channel": request.target_channel,
-        "filename": request.source_file,
-        "media_path": request.source_file,  # Ready for SM_content.media_path
-        "source": str(source_path),
-        "destination": str(dest_file)
-    }
 
-# Legacy finalize endpoint (single file) - kept for backwards compatibility
-@app.post("/finalize")
-async def finalize_file(request: FinalizeRequest):
-    """Move file to final directory and return permanent URL (legacy)"""
-    session_dir = get_session_dir(request.session_id)
-    source_file = session_dir / "output" / safe_segment(request.filename, "filename")
-    
-    if not source_file.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    final_subdir = FINAL_DIR / request.script_type
-    final_subdir.mkdir(parents=True, exist_ok=True)
-    
-    dest_file = final_subdir / safe_segment(request.filename, "filename")
-    await asyncio.to_thread(shutil.copy2, source_file, dest_file)
-    
-    final_url = f"/final/{request.script_type}/{request.filename}"
-    host_path = container_to_host_path(str(dest_file))
-    
-    return {
-        "success": True,
-        "filename": request.filename,
-        "path": host_path,
-        "url": final_url,
-        "script_type": request.script_type
-    }
 
-@app.get("/final/{script_type}/{filename}")
-async def get_final_file(script_type: str, filename: str):
-    """Serve finalized file (legacy single-file endpoint)"""
-    filepath = FINAL_DIR / script_type / filename
-    
-    if not filepath.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    suffix = filepath.suffix.lower()
-    media_type = _media_type(suffix)
-    
-    return FileResponse(filepath, media_type=media_type)
 
-@app.get("/final/{script_type}/{folder}/{filename}")
-async def get_final_folder_file(script_type: str, folder: str, filename: str):
-    """Serve file from finalized folder"""
-    filepath = FINAL_DIR / script_type / folder / filename
-    
-    if not filepath.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    suffix = filepath.suffix.lower()
-    media_type = _media_type(suffix)
-    
-    return FileResponse(filepath, media_type=media_type)
-
-@app.get("/final/{script_type}/{folder}/sourcefiles/{filename}")
-async def get_sourcefile(script_type: str, folder: str, filename: str):
-    """Serve sourcefile from finalized folder"""
-    filepath = FINAL_DIR / script_type / folder / "sourcefiles" / filename
-    
-    if not filepath.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    suffix = filepath.suffix.lower()
-    media_type = _media_type(suffix)
-    
-    return FileResponse(filepath, media_type=media_type)
 
 # ============================================================================
 # STOCK PHOTO SEARCH (Pexels & Pixabay)

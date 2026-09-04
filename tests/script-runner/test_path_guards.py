@@ -114,15 +114,12 @@ def main_() -> int:
         r = client.post("/download/stock", json=body)
         record(r.status_code == 422, f"/download/stock refuses {field}", f"HTTP {r.status_code}")
 
-    r = client.post("/publish-asset", json={
-        "source_type": "gifer", "source_folder": "../../..", "source_file": "x",
-        "target_channel": "socialmedia"})
-    record(r.status_code == 422, "/publish-asset refuses a walking source_folder",
-           f"HTTP {r.status_code}")
-    r = client.post("/publish-asset", json={
-        "source_type": "gifer", "source_folder": "a", "source_file": "../../x",
-        "target_channel": "socialmedia"})
-    record(r.status_code == 422, "/publish-asset refuses a walking source_file",
+    # /publish-asset and the legacy /finalize were deleted after this review
+    # found them: no caller anywhere in the tree, and nginx serves /final/
+    # directly. Their guards went with them; what remains is the rule itself,
+    # which is checked above and at the endpoints that are still called.
+    r = client.post("/publish-asset", json={"source_type": "gifer"})
+    record(r.status_code == 404, "the deleted /publish-asset is gone, not merely unguarded",
            f"HTTP {r.status_code}")
 
     # The session needs an output file: finalize-session returns early ("no
