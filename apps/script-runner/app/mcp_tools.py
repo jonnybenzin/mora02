@@ -77,6 +77,7 @@ import httpx
 from fastapi import APIRouter, Request, Response
 
 from mora02_core import web
+from mora02_core.agents.store import LIMIT_DEFAULTS
 from mora02_core._common import get_logger
 from mora02_core.pipeline import (
     PipelineError,
@@ -120,20 +121,15 @@ _PILOT_URL = os.environ.get("PILOT_URL", "http://pilot:8098")
 #
 # A ceiling sized for one model throttles another. Same lesson as the context
 # window, from the other direction.
-_DEFAULTS = {
-    "page_chars": 2500,
-    "max_queries": 5,
-    "max_urls": 3,
-    "snippet_chars": 160,       # a snippet decides whether to open a page, no more
-    "results_per_query": 5,
-    # Ceilings for the WHOLE turn, not per call. Raising what one call may carry
-    # says nothing about how many calls there will be -- eight pages per read
-    # and five reads is forty pages. A budget makes a turn's cost predictable,
-    # and it is spent rather than forbidden: the tools report what is left and
-    # say plainly when it is gone.
-    "max_pages_total": 12,
-    "max_searches_total": 6,
-}
+# The numbers themselves live with the keys, in mora02_core.agents.store, so
+# the form that sets them, the check that validates them and the tools that
+# spend them cannot drift apart. Note what the two `_total` ones mean: ceilings
+# for the WHOLE turn, not per call. Raising what one call may carry says
+# nothing about how many calls there will be -- eight pages per read and five
+# reads is forty pages. A budget makes a turn's cost predictable, and it is
+# spent rather than forbidden: the tools report what is left and say plainly
+# when it is gone.
+_DEFAULTS = dict(LIMIT_DEFAULTS)
 
 _LIMITS: dict = dict(_DEFAULTS)
 

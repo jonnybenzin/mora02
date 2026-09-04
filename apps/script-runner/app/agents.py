@@ -31,7 +31,7 @@ from mora02_core import auth, pricing
 from mora02_core.agents import AgentError, ask, listing, session_key
 from mora02_core.agents import models as gateway_models
 from mora02_core.agents import deploy as deploy_mod
-from mora02_core.agents.store import (NoRoot, NotFound, StoreError,
+from mora02_core.agents.store import (LIMITS, NoRoot, NotFound, StoreError,
                                       builtin_tools, effective_limits,
                                       instance_detail, is_local_model, iter_instances,
                                       load_manifest, mcp_tool_risk,
@@ -215,6 +215,17 @@ def get_roots():
     return {"platform": str(ROOTS.platform),
             "local": str(ROOTS.local) if ROOTS.local else None,
             "can_create": ROOTS.local is not None}
+
+
+@router.get("/agents/limits")
+def get_limits():
+    """The payload limits an agent may set: key, default and what it means.
+
+    Served rather than repeated in the builder's JavaScript, which used to
+    carry its own copy of the keys and its own help texts.
+    """
+    return {"limits": [{"key": k, "default": v["default"], "help": v["help"]}
+                       for k, v in LIMITS.items()]}
 
 
 @router.get("/agents/skills")

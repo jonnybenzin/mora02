@@ -229,10 +229,28 @@ def local_reasons(manifest: dict, rt: Roots | None = None) -> list[str]:
             reasons.append(f"it holds acting tool(s): {', '.join(acting)}")
     return reasons
 
-LIMIT_KEYS = {
-    "page_chars", "max_urls", "max_queries", "snippet_chars",
-    "results_per_query", "max_pages_total", "max_searches_total",
+# The payload limits an agent may set, with the value that applies when it
+# sets none and the words a person needs to choose one. THREE lists of these
+# keys existed -- here, in the MCP server's _DEFAULTS, and in the builder's
+# JavaScript -- with nothing deriving one from another: a new limit was
+# refused at the form until the first was edited, ignored by the tools until
+# the second was, and invisible until the third (review 2, section E). Exactly
+# the trap the WORKSPACE_EXTRA comment below warns about.
+#
+# The DEFAULTS are sized for a 32k local window; the reasoning, and the
+# measurements behind it, are with the code that spends them (mcp_tools).
+LIMITS: dict[str, dict] = {
+    "page_chars": {"default": 2500, "help": "characters per page read"},
+    "max_urls": {"default": 3, "help": "pages per web_read call"},
+    "max_queries": {"default": 5, "help": "queries per web_search call"},
+    "snippet_chars": {"default": 160, "help": "characters per result snippet"},
+    "results_per_query": {"default": 5, "help": "results per query"},
+    "max_pages_total": {"default": 12, "help": "pages per turn in total"},
+    "max_searches_total": {"default": 6, "help": "searches per turn in total"},
 }
+
+LIMIT_KEYS = frozenset(LIMITS)
+LIMIT_DEFAULTS = {k: v["default"] for k, v in LIMITS.items()}
 
 # Per-agent workspace files besides SOUL.md. The rollout renders exactly these
 # (deploy.desired_workspace_files); the builder edits exactly these. One list, two

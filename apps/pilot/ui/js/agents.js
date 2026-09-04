@@ -43,13 +43,10 @@ var AGB_EXTRA_FILES = [
 
 function _agbEsc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 var AGB_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
-var AGB_LIMIT_KEYS = ['page_chars','max_urls','max_queries','snippet_chars','results_per_query','max_pages_total','max_searches_total'];
-var AGB_LIMIT_HELP = {
-  page_chars: 'characters per page read', max_urls: 'pages per web_read call',
-  max_queries: 'queries per web_search call', snippet_chars: 'characters per result snippet',
-  results_per_query: 'results per query', max_pages_total: 'pages per turn in total',
-  max_searches_total: 'searches per turn in total'
-};
+// The limits an agent may set come from the service (GET /agents/limits):
+// key, default and help text. Carrying a copy here meant a new limit was
+// invisible in this form until someone remembered to add it in a third place.
+var AGB_LIMITS = [];
 
 async function _agbGet(path){
   var r = await fetch(AGB_API + path);
@@ -79,9 +76,11 @@ async function initAgents(){
       _agbGet('/agents/skills'),
       _agbGet('/agents/tools'),
       _agbGet('/agents/models').catch(function(e){ return { models: [], error: e.message }; }),
-      _agbGet('/agents/roots').catch(function(){ return { can_create: true }; })
+      _agbGet('/agents/roots').catch(function(){ return { can_create: true }; }),
+      _agbGet('/agents/limits').catch(function(){ return { limits: [] }; })
     ]);
     _agb.roots = res[4];
+    AGB_LIMITS = res[5].limits || [];
     _agb.roster = res[0].agents || [];
     _agb.skills = res[1].skills || [];
     _agb.tools = res[2].tools || [];
@@ -358,8 +357,9 @@ function _agbRenderLimits(mode){
   }
   var own = (m.limits && !m.limits.same_as) ? m.limits : {};
   var g = '<div class="agb-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">';
-  AGB_LIMIT_KEYS.forEach(function(k){
-    g += '<div class="agb-f"><div class="agb-l">' + k + '</div><input class="agb-in" type="number" min="1" data-agb-lim="' + k + '" value="' + (own[k] != null ? own[k] : '') + '"><div class="agb-hint">' + AGB_LIMIT_HELP[k] + '</div></div>';
+  AGB_LIMITS.forEach(function(L){
+    var k = L.key;
+    g += '<div class="agb-f"><div class="agb-l">' + _agbEsc(k) + '</div><input class="agb-in" type="number" min="1" data-agb-lim="' + _agbEsc(k) + '" placeholder="' + _agbEsc(L['default']) + '" value="' + (own[k] != null ? own[k] : '') + '"><div class="agb-hint">' + _agbEsc(L.help) + '</div></div>';
   });
   box.innerHTML = g + '</div>';
   box.querySelectorAll('[data-agb-lim]').forEach(function(inp){

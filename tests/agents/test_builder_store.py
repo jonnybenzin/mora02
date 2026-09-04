@@ -521,6 +521,20 @@ def main() -> int:
         finally:
             deploy.docker = real_docker
 
+        # --- one list of limits (review 2, section E) -------------------------------
+        import importlib
+        _m = importlib.import_module("mcp_tools") if "mcp_tools" in sys.modules else None
+        record(store.LIMIT_KEYS == frozenset(store.LIMIT_DEFAULTS) == frozenset(store.LIMITS),
+               "keys, defaults and descriptions are the same seven")
+        record(all(isinstance(v.get("default"), int) and v.get("help") for v in store.LIMITS.values()),
+               "every limit carries a default and words for a person")
+        store.save_instance("zz-lim", {**BASE, "limits": {"page_chars": 9000}}, soul="x", rt=RT)
+        record(store.effective_limits(store.load_manifest("zz-lim", RT), RT)["page_chars"] == 9000,
+               "an agent's own value wins over the default")
+        refuses(lambda: store.save_instance("zz-lim", {**BASE, "limits": {"note_chars": 400}}, rt=RT),
+                "a limit nobody defined is still refused", "unknown limit")
+        shutil.rmtree(L / "instances/zz-lim")
+
         # --- one price table (review 2, section E) ----------------------------------
         from mora02_core import pricing as _pricing
         from mora02_core.llm.models import MODELS as _MODELS
