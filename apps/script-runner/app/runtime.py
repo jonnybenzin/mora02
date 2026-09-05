@@ -91,9 +91,10 @@ def create_session() -> str:
 # from the house network without any credential.
 _SESSION_ID_RE = re.compile(r"^[0-9]{10}_[0-9a-f]{6}$")
 
-# A flow name is a file name under pipelines/specs/. Defined here with the other
-# patterns rather than beside its first user: four places build a path from it.
-_FLOW_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
+# A flow name is a file name under pipelines/specs/. The rule lives in the
+# library since the MCP door started saving flows too (September 2026); this
+# name stays for the routes that import it from here.
+from mora02_core.pipeline.spec import FLOW_NAME_RE as _FLOW_NAME_RE  # noqa: E402,F401
 
 
 # The rule itself lives in mora02_core._common, because the library turns

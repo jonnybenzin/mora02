@@ -210,7 +210,7 @@ def main() -> int:
         run_id="run-42",
     )
 
-    async def fake_run(target, args=None):
+    async def fake_run(target, args=None, **kw):
         return FakeRes()
 
     real_run = M.run_pipeline_spec

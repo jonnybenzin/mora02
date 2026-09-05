@@ -121,6 +121,9 @@
     "notes_review": "read",
     "verify": "read",
     "run_status": "read",
+    "flow_ops": "read",
+    "flow_check": "read",
+    "flow_save": "act",
     "flow_run": "act"
   }
 }

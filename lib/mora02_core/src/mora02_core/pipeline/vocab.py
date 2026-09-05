@@ -1186,6 +1186,59 @@ def to_dict() -> dict[str, Any]:
     return {"ops": [op.to_dict() for op in _OPS]}
 
 
+def slim(after: str | None = None) -> list[dict[str, Any]]:
+    """The vocabulary as a model can hold it: the runnable ops, one entry each.
+
+    The full table (``to_dict``) is twelve thousand tokens; this is under three.
+    What a model needs to CHOOSE a step is the op's name, what it does in plain
+    words, what goes in and comes out, and which parameters it must fill; what
+    it may fill is named, not described. ``after`` narrows the list to the ops
+    that can follow a given op: those reading nothing on stdin, or whose input
+    type matches its output. That turns "write a flow" into "which of these
+    fits here" - a choice, which a small model makes well; authorship, which it
+    does not (analysis of 2026-08-28).
+    """
+    prev = _BY_NAME.get(after) if after else None
+    out: list[dict[str, Any]] = []
+    for op in _OPS:
+        if op.status != "wired":
+            continue
+        if prev is not None and op.consumes != "none" and op.input_type not in ("any", prev.output_type):
+            continue
+        needs = []
+        for p in op.params:
+            if p.required:
+                d: dict[str, Any] = {"name": p.name, "desc": p.desc}
+                if p.choices:
+                    d["choices"] = list(p.choices)
+                needs.append(d)
+        may = []
+        for p in op.params:
+            if not p.required and not p.advanced:
+                d = {"name": p.name}
+                if p.choices:
+                    d["choices"] = list(p.choices)
+                if p.default not in (None, ""):
+                    d["default"] = p.default
+                may.append(d)
+        entry: dict[str, Any] = {
+            "op": op.name,
+            "does": op.plain or op.summary,
+            "in": op.input_type if op.consumes != "none" else "nothing",
+            "out": op.output_type,
+            "cost": op.cost,
+            "effect": op.effect,
+        }
+        if op.consumes == "many":
+            entry["in"] = f"several {op.input_type}"
+        if needs:
+            entry["needs"] = needs
+        if may:
+            entry["may"] = may
+        out.append(entry)
+    return out
+
+
 def validate_op(
     name: str, params: dict[str, Any], *, ref_params: "set[str] | frozenset[str]" = frozenset()
 ) -> None:

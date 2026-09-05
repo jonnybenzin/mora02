@@ -84,6 +84,7 @@ from mora02_core import web
 from mora02_core.agents.store import LIMIT_DEFAULTS
 from mora02_core._common import get_logger
 from mora02_core.pipeline import spec as pipeline_spec
+from mora02_core.pipeline import vocab as pipeline_vocab
 from mora02_core.pipeline import (
     PipelineError,
     run_pipeline_spec,
@@ -608,6 +609,77 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "flow_ops",
+        "description": (
+            "Use this when you are BUILDING a flow and need to know which steps "
+            "exist: before proposing any step, and again with `after` set to the "
+            "step you just placed, to see only what can follow it. Returns the "
+            "runnable ops with what each does, what goes in and comes out, the "
+            "parameters it needs and the ones it may take. Also explains the two "
+            "pauses a flow can hold for a human (gate, review). Never guess an "
+            "op name or a parameter - read them here."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "after": {
+                    "type": "string",
+                    "description": "An op name; narrows the answer to the ops that can take its output. Omit for the whole list.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "flow_check",
+        "description": (
+            "Use this on EVERY draft of a flow before you show it to the person "
+            "and before you save it, and again after each correction. It checks "
+            "the spec the way the library will: unknown ops, misspelled or "
+            "missing parameters, a wrong choice, a step wired to one that comes "
+            "later, a picture handed to a text step. Returns ok, or the list of "
+            "problems in words. A flow that has not passed this is not finished."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "spec": {
+                    "type": "object",
+                    "description": "The whole flow: {\"name\": ..., \"steps\": [ {\"<op>\": {...}}, ... ]}.",
+                },
+            },
+            "required": ["spec"],
+        },
+    },
+    {
+        "name": "flow_save",
+        "description": (
+            "Use this ONLY after the person has said yes to the flow you showed "
+            "them, and only once flow_check answered ok. Saves the flow into the "
+            "library under the given name, where they can run it and see it in "
+            "the builder. Does not run anything. Refuses a name that is taken "
+            "unless overwrite is true - ask before overwriting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "2-64 lowercase letters, digits and dashes, e.g. product-teaser-clip.",
+                },
+                "spec": {
+                    "type": "object",
+                    "description": "The whole flow, exactly as flow_check accepted it.",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "Replace a flow of the same name. Only with the person's say-so.",
+                },
+            },
+            "required": ["name", "spec"],
+        },
+    },
+    {
         "name": "web_search",
         "description": (
             "Use this to search the web whenever a question needs information "
@@ -812,6 +884,60 @@ def _text(item: dict, key: str) -> str:
     if isinstance(v, bool) or v is None or isinstance(v, (list, dict, tuple, set)):
         return ""
     return str(v).strip()
+
+
+# The two pauses a flow can hold for a human. They are not ops (the vocabulary
+# does not list them), so the model would never learn them from flow_ops
+# alone - and a flow without a pause before its expensive step is the flow
+# the house rules exist to prevent.
+_PAUSES = [
+    {"step": "gate", "shape": {"gate": "<question to the person>"},
+     "does": "Stops the run and asks the person the question in their inbox; continues only "
+             "after they decide. Put one BEFORE any step that costs money or minutes, or "
+             "that sends something out of the house."},
+    {"step": "review", "shape": {"review": "<question to the person>"},
+     "does": "Like gate, but first SENDS the previous step's output to the person (a picture "
+             "to their phone, say) so they can look at it before deciding."},
+]
+
+
+def _flow_ops(after: str | None) -> dict:
+    ops = pipeline_vocab.slim(after)
+    out: dict = {"ops": ops, "count": len(ops), "pauses": _PAUSES,
+                 "wiring": "A step takes the previous step's output. `\"in\": \"<id>\"` takes another "
+                           "step's; `\"in\": \"none\"` takes nothing; a parameter may be "
+                           "`{\"from\": \"<id>\"}` (an earlier step's output) or "
+                           "`{\"arg\": \"<name>\", \"default\": ...}` (a value the person gives when running)."}
+    if after and pipeline_vocab.get_op(after) is None:
+        # An unknown name would silently come back as the whole list, and a
+        # model reads "everything fits" where it should read "no such op".
+        out["note"] = f"there is no op named {after!r}; this is the whole list - pick the name from it"
+    elif after and not ops:
+        out["note"] = f"no runnable op takes the output of {after!r}"
+    return out
+
+
+def _flow_check(spec: dict) -> dict:
+    problems, warnings = pipeline_spec.check_flow(spec)
+    out: dict = {"ok": not problems, "problems": problems, "warnings": warnings,
+                 "steps": len(spec.get("steps") or []) if isinstance(spec.get("steps"), list) else 0}
+    if problems:
+        out["hint"] = "Fix every problem, then call flow_check again. Op names and parameters come from flow_ops."
+    return out
+
+
+def _flow_save(name: str, spec: dict, overwrite: bool) -> dict:
+    try:
+        out = pipeline_spec.save_flow(name, spec, overwrite=overwrite)
+    except pipeline_spec.BadFlowName as e:
+        return {"error": str(e)}
+    except pipeline_spec.FlowExists as e:
+        return {"error": str(e), "hint": "ask the person whether to replace it, then call again with overwrite=true"}
+    except PipelineError as e:
+        return {"error": str(e), "hint": "run flow_check and fix what it lists before saving"}
+    log.info("flow saved by an agent: %s (%d steps)", name, out["steps"])
+    out["note"] = f"saved as {name!r}; the person can run it with flow_run or from the builder. Nothing was started."
+    return out
 
 
 async def _flows_list() -> dict:
@@ -1095,6 +1221,19 @@ async def _call(name: str, arguments: dict) -> dict:
             return {"error": "flow_run needs a 'flow' name"}
         args = arguments.get("args")
         return await _flow_run(flow.strip(), args if isinstance(args, dict) else None)
+    if name == "flow_ops":
+        return await asyncio.to_thread(_flow_ops, _text(arguments, "after") or None)
+    if name == "flow_check":
+        spec = arguments.get("spec")
+        if not isinstance(spec, dict):
+            return {"ok": False, "problems": ["flow_check needs 'spec': the whole flow as an object"]}
+        return await asyncio.to_thread(_flow_check, spec)
+    if name == "flow_save":
+        spec = arguments.get("spec")
+        if not isinstance(spec, dict):
+            return {"error": "flow_save needs 'spec': the whole flow as an object"}
+        return await asyncio.to_thread(
+            _flow_save, _text(arguments, "name"), spec, bool(arguments.get("overwrite")))
     if name == "notes_review":
         global _REVIEWED
         _REVIEWED = time.time()

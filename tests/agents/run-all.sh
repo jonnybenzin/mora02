@@ -54,6 +54,7 @@ run python3 tests/agents/test_builder_store.py
 if python3 -c "import fastapi" 2>/dev/null; then
     run python3 tests/agents/test_source_check.py
     run python3 tests/agents/test_mcp_input.py
+    run python3 tests/agents/test_flow_author_tools.py
 else
     echo
     echo "=== test_source_check.py + test_mcp_input.py: SKIPPED ==="
@@ -82,6 +83,7 @@ fi
 if [ "$WITH_MODEL" = 1 ]; then
     run python3 tests/agents/test_gate_discipline.py
     run python3 tests/agents/test_briefing.py
+    run python3 tests/agents/test_flow_author.py
 fi
 
 echo

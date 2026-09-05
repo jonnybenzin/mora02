@@ -34,7 +34,6 @@ from mora02_core.pipeline import (
     runbucket as pipeline_runbucket,
     runlog as pipeline_runlog,
     spec as pipeline_spec,
-    vocab as pipeline_vocab,
 )
 from runtime import _checked_run_id, _FLOW_NAME_RE, _log
 
@@ -249,31 +248,6 @@ async def pipeline_flow(name: str):
     raise HTTPException(status_code=404, detail=f"flow {name!r} not found")
 
 
-def _mkdir_owned(path: Path) -> None:
-    """Create a directory (and parents) under the pipelines mount, owned like it.
-
-    The service runs as root in its container; a directory it creates would be
-    root:root on the host, and the person whose checkout this is could neither
-    edit nor delete what lands in it. Each new level takes the owner and mode of
-    the nearest existing parent - portable, no uid in any config.
-    """
-    missing: list[Path] = []
-    cur = path
-    while not cur.exists():
-        missing.append(cur)
-        cur = cur.parent
-    if not missing:
-        return
-    st = cur.stat()
-    for d in reversed(missing):
-        d.mkdir()
-        try:
-            os.chown(d, st.st_uid, st.st_gid)
-            os.chmod(d, 0o775)
-        except OSError:
-            pass
-
-
 # A flow name doubles as its file name, so it has to survive both a file system
 # and a URL. The authoring UI slugifies before it posts; this is the guard for
 # every other caller.
@@ -281,99 +255,28 @@ def _mkdir_owned(path: Path) -> None:
 
 @router.post("/pipeline/flow/{name}")
 async def pipeline_flow_save(name: str, request: Request, overwrite: bool = False):
-    """Save an authored flow to pipelines/specs/<name>.json.
+    """Save an authored flow to this installation's library (pipelines/local/specs/).
 
-    Body = the whole spec: metadata (description, tags) plus steps. It is parsed
-    and checked against the vocabulary BEFORE anything touches disk, so the
-    library can never hold a flow that fails to load back.
-
-    Ops with status "planned" are allowed here on purpose — a flow may be
-    authored ahead of its handler; compiling it is what refuses to run.
+    Body = the whole spec: metadata (description, tags) plus steps. The checks,
+    the wiring materialisation and the write are the library's (save_flow), the
+    same path the MCP flow_save tool takes; this route only maps its refusals
+    onto status codes.
     """
-    if not _FLOW_NAME_RE.fullmatch(name):
-        raise HTTPException(
-            status_code=400,
-            detail="flow name must be 2-64 chars of lowercase letters, digits and dashes",
-        )
     try:
         data = await request.json()
     except ValueError:
         raise HTTPException(status_code=400, detail="body must be JSON")
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=400, detail="spec must be a JSON object")
-
-    # The URL is the authority — it keeps file name and spec name from drifting.
-    data["name"] = name
     try:
-        parsed = pipeline_spec.load_spec(data)
+        # In a thread: it parses, checks and writes a file.
+        out = await asyncio.to_thread(pipeline_spec.save_flow, name, data, overwrite=overwrite)
+    except pipeline_spec.BadFlowName as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except pipeline_spec.FlowExists as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except PipelineError as e:
-        raise HTTPException(status_code=422, detail=f"invalid spec: {e}")
-
-    # A reference forward or into nothing can never become valid, so the library
-    # refuses it here rather than letting the flow sit there until someone runs
-    # it. Ops with status "planned" stay allowed - authoring ahead of a handler
-    # is intended; wiring to a step that does not exist is not.
-    try:
-        pipeline_spec.check_references(parsed)
-        pipeline_spec.check_wire_types(parsed)
-    except PipelineError as e:
-        raise HTTPException(status_code=422, detail=f"invalid wiring: {e}")
-
-    known = pipeline_vocab.op_names()
-    unknown = sorted({s.op for s in parsed.steps if isinstance(s, pipeline_spec.OpStep)} - known)
-    if unknown:
-        raise HTTPException(
-            status_code=422, detail=f"unknown ops: {', '.join(unknown)}"
-        )
-
-    # Write the implicit wiring down before it reaches disk. A step without `in:`
-    # takes the previous step's output, which is invisible in the file and in the
-    # builder - fine in a straight chain, silently wrong the moment a flow has two
-    # branches. Saving is the right moment: the default keeps working, and what
-    # runs is what the file says.
-    data = pipeline_spec.materialize_wiring(data)
-
-    data.setdefault("description", "")
-    data.setdefault("tags", [])
-    data["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # Saved flows are this installation's, never the shipped set: the builder
-    # writes to the local directory and the shipped one changes through git. A
-    # local flow with a shipped name shadows it, which is what "overwrite" means
-    # for a shipped flow - the file in git stays as it is.
-    specs = pipeline_spec.local_specs_dir()
-    _mkdir_owned(specs)
-    target = specs / f"{name}.json"
-    existed = pipeline_spec.resolve_spec_path(name) is not None
-    if existed and not overwrite:
-        raise HTTPException(
-            status_code=409,
-            detail=f"flow {name!r} already exists — pass ?overwrite=true to replace it",
-        )
-    # Write through a temp file so a crash mid-write cannot leave a half spec
-    # that the library endpoint would then skip as unparsable.
-    tmp = target.with_name(f".{name}.json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(tmp, target)
-    # This runs as root inside the container, so a fresh file would land as
-    # root:root in the repo checkout and break `git checkout` on the host.
-    # Hand it to whoever owns the directory — portable, no uid in config.
-    try:
-        st = specs.stat()
-        os.chown(target, st.st_uid, st.st_gid)
-        os.chmod(target, 0o664)
-    except OSError:
-        pass
-    _log.info("flow saved: %s (%d steps, overwrite=%s)", name, len(parsed.steps), existed)
-    return {
-        "ok": True,
-        "name": name,
-        "file": target.name,
-        "source": "local",
-        "steps": len(parsed.steps),
-        "replaced": existed,
-        "updated": data["updated"],
-    }
+        raise HTTPException(status_code=422, detail=str(e))
+    _log.info("flow saved: %s (%d steps, overwrite=%s)", name, out["steps"], out["replaced"])
+    return out
 
 
 @router.delete("/pipeline/flow/{name}")

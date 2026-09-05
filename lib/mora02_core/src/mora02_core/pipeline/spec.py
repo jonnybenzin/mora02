@@ -56,6 +56,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections.abc import Iterable
@@ -158,6 +160,21 @@ class PipelineSpec:
 # ============================================================================
 
 
+# A flow name doubles as its file name, so it has to survive both a file system
+# and a URL. Owned by the library: the HTTP door and the MCP door both build a
+# path from it, and a rule with two copies is a rule with two versions.
+FLOW_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
+FLOW_NAME_RULE = "flow name must be 2-64 chars of lowercase letters, digits and dashes"
+
+
+class BadFlowName(PipelineError):
+    """The name cannot become a file name (or a URL)."""
+
+
+class FlowExists(PipelineError):
+    """A flow of that name is in the library and overwrite was not asked for."""
+
+
 def specs_dir() -> Path:
     """Where the flows SHIPPED with the platform live (tracked in git)."""
     return Path(os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/data/pipelines/specs"))
@@ -232,6 +249,121 @@ def resolve_spec_path(name: str) -> Path | None:
         if hit is not None:
             return hit
     return None
+
+
+def check_flow(data: dict) -> tuple[list[str], list[str]]:
+    """Everything the library would refuse a flow for, and what it would warn about.
+
+    ``(problems, warnings)``: an empty ``problems`` means the flow saves and
+    loads back. The checks are the save endpoint's, gathered in one place so
+    the two doors (HTTP, MCP) and an author asking "is this right yet" get the
+    same answer - and as many answers at once as the shape allows, because a
+    model fixing one error per round is a model that gives up after three.
+    Warnings do not block saving: an op that is planned but not wired may be
+    authored ahead of its handler; it is compiling that refuses to run it.
+    """
+    problems: list[str] = []
+    warnings: list[str] = []
+    if not isinstance(data, dict):
+        return ["the flow must be a JSON object with a \"steps\" list"], warnings
+    try:
+        parsed = load_spec(data)
+    except PipelineError as e:
+        return [str(e)], warnings
+    for check, what in ((check_references, "wiring"), (check_wire_types, "wiring")):
+        try:
+            check(parsed)
+        except PipelineError as e:
+            problems.append(f"{what}: {e}")
+    for st in parsed.steps:
+        if not isinstance(st, OpStep):
+            continue
+        refs = {k for k, v in st.params.items() if isinstance(v, dict) and ("from" in v or "arg" in v)}
+        literal = {k: v for k, v in st.params.items() if k not in refs}
+        try:
+            validate_op(st.op, literal, ref_params=refs)
+        except PipelineError as e:
+            problems.append(f"step {st.id!r}: {e}")
+            continue
+        if not is_wired(st.op):
+            warnings.append(f"step {st.id!r}: op {st.op!r} is planned, not runnable yet - "
+                            "the flow can be saved but not run")
+    return problems, warnings
+
+
+def _mkdir_owned(path: Path) -> None:
+    """Create a directory (and parents), owned like the nearest existing parent.
+
+    The service runs as root in its container; a directory it creates would be
+    root:root on the host, and the person whose checkout this is could neither
+    edit nor delete what lands in it. Portable, no uid in any config.
+    """
+    missing: list[Path] = []
+    cur = path
+    while not cur.exists():
+        missing.append(cur)
+        cur = cur.parent
+    if not missing:
+        return
+    st = cur.stat()
+    for d in reversed(missing):
+        d.mkdir()
+        try:
+            os.chown(d, st.st_uid, st.st_gid)
+            os.chmod(d, 0o775)
+        except OSError:
+            pass
+
+
+def save_flow(name: str, data: dict, *, overwrite: bool = False) -> dict:
+    """Write an authored flow to this installation's library, checked first.
+
+    The whole spec is parsed and checked against the vocabulary BEFORE anything
+    touches disk, so the library can never hold a flow that fails to load back.
+    Raises BadFlowName, FlowExists, or PipelineError with every problem found.
+    Saves to the local directory only: the shipped set changes through git, and
+    a local flow with a shipped flow's name shadows it - that is what
+    ``overwrite`` means for a shipped flow, the file in git stays as it is.
+    """
+    if not isinstance(name, str) or not FLOW_NAME_RE.fullmatch(name):
+        raise BadFlowName(FLOW_NAME_RULE)
+    if not isinstance(data, dict):
+        raise PipelineError("spec must be a JSON object")
+    data = dict(data)
+    data["name"] = name  # the name is the authority; it keeps file and spec from drifting
+    problems, _ = check_flow(data)
+    if problems:
+        raise PipelineError("invalid spec: " + "; ".join(problems))
+    # Write the implicit wiring down before it reaches disk. A step without
+    # `in:` takes the previous step's output, which is invisible in the file
+    # and in the builder - fine in a straight chain, silently wrong the moment
+    # a flow has two branches.
+    data = materialize_wiring(data)
+    data.setdefault("description", "")
+    data.setdefault("tags", [])
+    data["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    specs = local_specs_dir()
+    _mkdir_owned(specs)
+    target = specs / f"{name}.json"
+    existed = resolve_spec_path(name) is not None
+    if existed and not overwrite:
+        raise FlowExists(f"flow {name!r} already exists - pass overwrite to replace it")
+    # Through a temp file, so a crash mid-write cannot leave a half spec that
+    # the library would then skip as unparsable.
+    tmp = target.with_name(f".{name}.json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
+    try:
+        st = specs.stat()
+        os.chown(target, st.st_uid, st.st_gid)
+        os.chmod(target, 0o664)
+    except OSError:
+        pass
+    steps = len(data.get("steps", []))
+    return {
+        "ok": True, "name": name, "file": target.name, "source": "local",
+        "steps": steps, "replaced": existed, "updated": data["updated"],
+    }
 
 
 def load_spec(src: Union[PipelineSpec, dict, str, Path]) -> PipelineSpec:
