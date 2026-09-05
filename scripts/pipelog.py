@@ -67,6 +67,7 @@ def _summary(events: list[dict]) -> dict:
     return {
         "pipeline": start.get("pipeline", "?"),
         "trigger": start.get("trigger") or "?",
+        "batch": start.get("batch"),
         "status": result.get("status", "?"),
         "archived": any(e.get("kind") == "run_archived" for e in events),
         **_totals(events),
@@ -85,6 +86,8 @@ def cmd_list(args) -> int:
         cost = f"  ${r['cost_usd']:.4f}" if r["cost_usd"] else ""
         toks = f"  {r['tokens_out']} tok" if r["tokens_out"] else ""
         mark = "  [archived]" if r["archived"] else ""
+        if r.get("batch"):
+            mark += f"  batch {r['batch'].get('index')}/{r['batch'].get('size')}"
         print(f"{r['run_id']}  {r['pipeline']:<18} {r['trigger']:<9} {r['status']:<12} "
               f"{r['steps']} steps  {r['ms']} ms{toks}{cost}{mark}")
     print(f"\n{len(rows)} run(s) in {runlog.log_dir()}")

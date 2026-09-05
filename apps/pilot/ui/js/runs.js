@@ -30,9 +30,12 @@ async function _runsList(){
     var badge = r.failed ? '<span class="run-badge fail">failed</span>'
               : (r.active ? '<span class="run-badge live">running</span>' : '<span class="run-badge done">done</span>');
     var subj = (r.args && r.args.subject) ? ' · "' + _runEsc(r.args.subject) + '"' : '';
+    // One recipe, many argument sets: the card says where in the batch this run sits.
+    var batch = (r.batch && r.batch.id) ? ' · batch ' + _runEsc(String(r.batch.index)) + '/' + _runEsc(String(r.batch.size)) : '';
+    var test = r.trigger === 'test' ? ' · test' : '';
     return '<div class="run-card" data-run="' + _runEsc(r.run_id) + '"><div class="run-card-h">' +
            '<span class="run-name">' + _runEsc(r.pipeline) + '</span>' + badge + '</div>' +
-           '<div class="run-card-meta">' + r.steps_done + ' steps · last ' + _runEsc(r.last_op || '—') + subj + '</div>' +
+           '<div class="run-card-meta">' + r.steps_done + ' steps · last ' + _runEsc(r.last_op || '—') + subj + batch + test + '</div>' +
            '<div class="run-card-meta" style="opacity:.65">' + _runEsc(r.run_id) + '</div></div>';
   }).join('');
 }
