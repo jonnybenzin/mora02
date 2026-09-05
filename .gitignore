@@ -104,6 +104,10 @@ docker/activepieces/
 pipelines/logs/
 # Pipeline run bucket (per-run step outputs for non-linear fan-in — runtime data)
 pipelines/bucket/
+# This installation's flows (the builder saves here). pipelines/specs/ is the
+# shipped set; a local flow of the same name shadows it. See pipelines/local/README.txt
+pipelines/local/*
+!pipelines/local/README.txt
 
 # Screendesign (Playwright-Screenshots & Design-Input)
 apps/pilot/ui/screendesign/

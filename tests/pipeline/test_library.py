@@ -18,7 +18,8 @@ Usage:
     python3 tests/pipeline/test_library.py
 
 Environment: SCRIPT_RUNNER_URL (default http://127.0.0.1:8096),
-MORA02_PIPELINE_SPECS_DIR (default /opt/mora02/pipelines/specs).
+MORA02_PIPELINE_SPECS_LOCAL_DIR (default /opt/mora02/pipelines/local/specs) - the
+directory the library SAVES to; the shipped flows under pipelines/specs/ are read-only here.
 """
 
 from __future__ import annotations
@@ -33,7 +34,8 @@ import urllib.request
 from pathlib import Path
 
 RUNNER = os.environ.get("SCRIPT_RUNNER_URL", "http://127.0.0.1:8096")
-SPECS = Path(os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/opt/mora02/pipelines/specs"))
+SPECS = Path(os.environ.get("MORA02_PIPELINE_SPECS_LOCAL_DIR", "/opt/mora02/pipelines/local/specs"))
+SHIPPED = Path(os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/opt/mora02/pipelines/specs"))
 
 GOOD_STEPS = [
     {"web.fetch": {"id": "seed", "in": "none", "url": "http://127.0.0.1:8096/health"}},
@@ -160,6 +162,19 @@ def case_delete() -> None:
     status, body = call("DELETE", "/pipeline/flow/lib-does-not-exist-7q4x")
     record("PASS" if status == 404 else "FAIL", "deleting a ghost says so",
            f"{status}: {body[:70]}")
+
+    # A flow shipped with the platform is not this endpoint's to remove: it
+    # would be back with the next checkout, and the library would have lied
+    # about a deletion in between.
+    shipped = sorted(p.stem for p in SHIPPED.glob("*.json")) if SHIPPED.is_dir() else []
+    if shipped:
+        status, body = call("DELETE", f"/pipeline/flow/{urllib.parse.quote(shipped[0], safe='')}")
+        still = (SHIPPED / f"{shipped[0]}.json").is_file()
+        record("PASS" if status == 403 and still else "FAIL",
+               "a shipped flow cannot be deleted through the library",
+               f"{status}: {body[:60]}" + ("" if still else "  AND THE FILE IS GONE"))
+    else:
+        record("n/a", "a shipped flow cannot be deleted through the library", "no shipped flows to test with")
 
 
 def cleanup() -> None:

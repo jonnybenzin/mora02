@@ -159,12 +159,36 @@ class PipelineSpec:
 
 
 def specs_dir() -> Path:
-    """Where the named flows live. One reader of this variable, not four."""
+    """Where the flows SHIPPED with the platform live (tracked in git)."""
     return Path(os.environ.get("MORA02_PIPELINE_SPECS_DIR", "/data/pipelines/specs"))
+
+
+def local_specs_dir() -> Path:
+    """Where the flows of THIS installation live.
+
+    The same split the agents have (agents/ shipped, data/agents/ local): the
+    builder saves here and only here, the shipped set changes through git, and
+    a local flow with a shipped flow's name wins. Inside the pipelines mount
+    next to logs/ and bucket/, so it needs no extra mount; gitignored like them.
+    """
+    return Path(os.environ.get("MORA02_PIPELINE_SPECS_LOCAL_DIR", "/data/pipelines/local/specs"))
+
+
+def spec_dirs() -> list[Path]:
+    """The library's directories in precedence order: local first, then shipped."""
+    return [local_specs_dir(), specs_dir()]
+
+
+def spec_source(path: Path) -> str:
+    """``"local"`` or ``"shipped"`` for a flow file the library returned."""
+    return "local" if Path(path).parent == local_specs_dir() else "shipped"
 
 
 def list_specs() -> list[tuple[Path, dict]]:
     """Every readable flow file, as (path, raw dict), sorted by name.
+
+    Both directories, local before shipped; a name present in both is listed
+    once, from the local one.
 
     Four independent readers of this directory existed -- two HTTP endpoints,
     the op-usage scan and the MCP tool -- each with its own copy of the env
@@ -177,17 +201,21 @@ def list_specs() -> list[tuple[Path, dict]]:
     broken spec hides itself and must not hide the others.
     """
     out: list[tuple[Path, dict]] = []
-    root = specs_dir()
-    if not root.is_dir():
-        return out
-    for path in sorted(root.glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+    seen: set[str] = set()
+    for root in spec_dirs():
+        if not root.is_dir():
             continue
-        if isinstance(data, dict):
-            out.append((path, data))
-    return out
+        for path in sorted(root.glob("*.json")):
+            if path.stem in seen:
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict):
+                out.append((path, data))
+                seen.add(path.stem)
+    return sorted(out, key=lambda pd: pd[0].stem)
 
 
 def resolve_spec_path(name: str) -> Path | None:
@@ -196,9 +224,14 @@ def resolve_spec_path(name: str) -> Path | None:
     Written twice before, once with pathlib and once with os.path, and the two
     sanitised the incoming name differently.
     """
-    base = specs_dir() / os.path.basename(str(name))
-    cands = [base] if base.suffix else [base.with_suffix(e) for e in (".json", ".yaml", ".yml")]
-    return next((p for p in cands if p.is_file()), None)
+    leaf = os.path.basename(str(name))
+    for root in spec_dirs():
+        base = root / leaf
+        cands = [base] if base.suffix else [base.with_suffix(e) for e in (".json", ".yaml", ".yml")]
+        hit = next((p for p in cands if p.is_file()), None)
+        if hit is not None:
+            return hit
+    return None
 
 
 def load_spec(src: Union[PipelineSpec, dict, str, Path]) -> PipelineSpec:

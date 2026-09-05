@@ -93,13 +93,44 @@ def _media_ref(media_path: str | None) -> str | None:
     return None
 
 
+# The one-step flow a scheduled post runs as. A RUN, not a bare step call: a
+# bare call has no run id, so the scheduler's posts never reached the run log -
+# the one place that records what the house published, when, and with which
+# file. As a run it is logged like everything else, with trigger=scheduled, and
+# it is the same spec a person could save in the flow library.
+_PUBLISH_SPEC = {
+    "name": "scheduled-publish",
+    "description": "Publish one due post from the planning table (started by the timer).",
+    "steps": [
+        {"publish.linkedin": {"id": "publish", "in": "none",
+                              "media": {"arg": "media"}, "text": {"arg": "caption"}}},
+    ],
+}
+
+
 def _publish(ref: str | None, caption: str) -> dict:
-    url = f"{STEP_RUNNER_URL}/pipeline/step/publish.linkedin?" + urllib.parse.urlencode(
-        {"text": caption or ""}
+    """Run the publish flow for one post; return the step's output and post id."""
+    payload = json.dumps({
+        "spec": _PUBLISH_SPEC,
+        "args": {"media": ref or "", "caption": caption or ""},
+        "trigger": "scheduled",
+    }).encode()
+    req = urllib.request.Request(
+        f"{STEP_RUNNER_URL}/pipeline/run-spec", data=payload, method="POST",
+        headers={"Content-Type": "application/json"},
     )
-    req = urllib.request.Request(url, data=(ref or "").encode(), method="POST")
-    with urllib.request.urlopen(req, timeout=120) as r:
-        return json.loads(r.read().decode())
+    with urllib.request.urlopen(req, timeout=180) as r:
+        res = json.loads(r.read().decode())
+    run_id = res.get("run_id")
+    if not res.get("ok") or res.get("status") != "ok":
+        raise RuntimeError(f"run {run_id}: {res.get('error') or res.get('status')}")
+    # The post URL and id are in the run's own record of the step.
+    with urllib.request.urlopen(f"{STEP_RUNNER_URL}/pipeline/run/{run_id}", timeout=30) as r:
+        detail = json.loads(r.read().decode())
+    step = next((st for st in detail.get("steps", []) if st.get("step_id") == "publish"), {})
+    if step.get("status") != "ok":
+        raise RuntimeError(f"run {run_id}: {step.get('error') or 'publish step did not finish'}")
+    return {"out": step.get("out"), "log": {"post_id": step.get("post_id")}, "run_id": run_id}
 
 
 def main() -> int:
@@ -151,7 +182,7 @@ def main() -> int:
                 "publish": False,
                 "published_at": now.isoformat(),
             })
-            print(f"  published row {rid} ({name}) [{kind}] -> {post_url}")
+            print(f"  published row {rid} ({name}) [{kind}] -> {post_url}  (run {res.get('run_id')})")
             published += 1
         except urllib.error.HTTPError as e:
             print(f"  FAILED row {rid} ({name}): HTTP {e.code} {e.read().decode()[:200]}",

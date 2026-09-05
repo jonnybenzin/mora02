@@ -38,3 +38,4 @@ lib/mora02_core/src/mora02_core/agents/cli.py | _SAFE.sub('-', conversation)[:64
 lib/mora02_core/src/mora02_core/agents/deploy.py | hexdigest()[:12] | identifier | digest used to compare two workspace files, never shown as content
 lib/mora02_core/src/mora02_core/agents/store.py | got {str(ws)[:80]!r} | listing | the offending value quoted back in a refusal; the caller holds the whole of it
 lib/mora02_core/src/mora02_core/agents/store.py | got {str(ad)[:80]!r} | listing | the offending value quoted back in a refusal; the caller holds the whole of it
+lib/mora02_core/src/mora02_core/pipeline/__init__.py | hexdigest()[:12] | identifier | vocabulary fingerprint in run_start: a hash cut to 12 hex, not content

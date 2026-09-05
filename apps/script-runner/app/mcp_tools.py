@@ -852,7 +852,7 @@ async def _flow_run(flow: str, args: dict | None) -> dict:
         }
 
     try:
-        res = await run_pipeline_spec(target, args=args or None)
+        res = await run_pipeline_spec(target, args=args or None, trigger="agent")
     except PipelineError as e:
         return {"error": f"the flow did not start: {e}"}
 

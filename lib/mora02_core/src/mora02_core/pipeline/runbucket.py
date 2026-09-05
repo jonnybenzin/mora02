@@ -71,6 +71,16 @@ def put(run_id: str | None, step_id: str, value: Any) -> None:
         _log.warning("runbucket put failed for %s/%s: %s", run_id, step_id, e)
 
 
+def items(run_id: str | None) -> dict[str, Any]:
+    """Every stored output of a run, ``{step_id: value}`` - the run's manifest.
+
+    This is what an archive of the run is built from: each value is either a
+    text result or an asset ref, and together they are everything the run
+    produced. Empty when the run has no bucket (or no run id).
+    """
+    return dict(_load(run_id)) if run_id else {}
+
+
 def get(run_id: str | None, step_id: str) -> Any:
     """Fetch an earlier step's stored output. Raises KeyError if absent."""
     data = _load(run_id) if run_id else {}

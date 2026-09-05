@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,7 @@ from mora02_core.pipeline import (
     resume_pipeline,
     run_pipeline,
     run_pipeline_spec,
+    runbucket as pipeline_runbucket,
     runlog as pipeline_runlog,
     spec as pipeline_spec,
     vocab as pipeline_vocab,
@@ -52,6 +54,7 @@ class PipelineRerunRequest(BaseModel):
     spec: Optional[dict] = None     # a spec that may DIFFER from the one that ran
     args: Optional[dict] = None
     runner: Optional[str] = None
+    trigger: str = "manual"         # who started it: manual | scheduled | agent | ...
 
 
 class PipelineResumeRequest(BaseModel):
@@ -115,6 +118,7 @@ class PipelineRunSpecRequest(BaseModel):
     spec: Optional[dict] = None   # an inline spec dict (e.g. from an authoring front-end)
     args: Optional[dict] = None   # variable inputs for the run
     runner: Optional[str] = None
+    trigger: str = "manual"       # recorded in the run log: manual | scheduled | agent
 
 
 # Where named specs live (host pipelines/specs/ via the pipelines mount).
@@ -160,7 +164,8 @@ async def pipeline_run_spec(req: PipelineRunSpecRequest):
         raise HTTPException(status_code=400, detail="provide either 'spec' (inline) or 'name'")
 
     try:
-        res = await run_pipeline_spec(target, args=req.args, runner=req.runner)
+        res = await run_pipeline_spec(target, args=req.args, runner=req.runner,
+                                      trigger=req.trigger)
     except PipelineError as e:
         # Covers compile errors (bad spec / unknown or planned op) and runner transport.
         raise HTTPException(status_code=400, detail=f"pipeline spec error: {e}")
@@ -184,6 +189,7 @@ async def pipeline_rerun(req: PipelineRerunRequest):
         res = await rerun_pipeline_spec(
             spec, source_run_id=req.source_run_id, changed=req.changed,
             overrides=req.overrides, args=req.args, runner=req.runner,
+            trigger=req.trigger,
         )
     except PipelineError as e:
         raise HTTPException(status_code=400, detail=f"pipeline rerun error: {e}")
@@ -227,6 +233,7 @@ async def pipeline_flows():
             "tags": data.get("tags", []),
             "updated": data.get("updated", ""),
             "steps": len(data.get("steps", [])),
+            "source": pipeline_spec.spec_source(path),
         }
         for path, data in await asyncio.to_thread(pipeline_spec.list_specs)
     ]
@@ -236,16 +243,35 @@ async def pipeline_flows():
 @router.get("/pipeline/flow/{name}")
 async def pipeline_flow(name: str):
     """Return one named flow spec (matched by spec name or filename stem)."""
-    specs = pipeline_spec.specs_dir()
-    if specs.is_dir():
-        for p in specs.glob("*.json"):
-            try:
-                spec = json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if spec.get("name") == name or p.stem == name:
-                return spec
+    for p, spec in await asyncio.to_thread(pipeline_spec.list_specs):
+        if spec.get("name") == name or p.stem == name:
+            return spec
     raise HTTPException(status_code=404, detail=f"flow {name!r} not found")
+
+
+def _mkdir_owned(path: Path) -> None:
+    """Create a directory (and parents) under the pipelines mount, owned like it.
+
+    The service runs as root in its container; a directory it creates would be
+    root:root on the host, and the person whose checkout this is could neither
+    edit nor delete what lands in it. Each new level takes the owner and mode of
+    the nearest existing parent - portable, no uid in any config.
+    """
+    missing: list[Path] = []
+    cur = path
+    while not cur.exists():
+        missing.append(cur)
+        cur = cur.parent
+    if not missing:
+        return
+    st = cur.stat()
+    for d in reversed(missing):
+        d.mkdir()
+        try:
+            os.chown(d, st.st_uid, st.st_gid)
+            os.chmod(d, 0o775)
+        except OSError:
+            pass
 
 
 # A flow name doubles as its file name, so it has to survive both a file system
@@ -311,10 +337,14 @@ async def pipeline_flow_save(name: str, request: Request, overwrite: bool = Fals
     data.setdefault("tags", [])
     data["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    specs = pipeline_spec.specs_dir()
-    specs.mkdir(parents=True, exist_ok=True)
+    # Saved flows are this installation's, never the shipped set: the builder
+    # writes to the local directory and the shipped one changes through git. A
+    # local flow with a shipped name shadows it, which is what "overwrite" means
+    # for a shipped flow - the file in git stays as it is.
+    specs = pipeline_spec.local_specs_dir()
+    _mkdir_owned(specs)
     target = specs / f"{name}.json"
-    existed = target.exists()
+    existed = pipeline_spec.resolve_spec_path(name) is not None
     if existed and not overwrite:
         raise HTTPException(
             status_code=409,
@@ -339,6 +369,7 @@ async def pipeline_flow_save(name: str, request: Request, overwrite: bool = Fals
         "ok": True,
         "name": name,
         "file": target.name,
+        "source": "local",
         "steps": len(parsed.steps),
         "replaced": existed,
         "updated": data["updated"],
@@ -358,8 +389,16 @@ async def pipeline_flow_delete(name: str):
             status_code=400,
             detail="flow name must be 2-64 chars of lowercase letters, digits and dashes",
         )
-    target = pipeline_spec.specs_dir() / f"{name}.json"
+    target = pipeline_spec.local_specs_dir() / f"{name}.json"
     if not target.is_file():
+        if (pipeline_spec.specs_dir() / f"{name}.json").is_file():
+            # Shipped with the platform: not this endpoint's to remove. Deleting
+            # it here would come back with the next checkout anyway.
+            raise HTTPException(
+                status_code=403,
+                detail=f"flow {name!r} is shipped with the platform - remove it through git, "
+                       "or save a local flow of the same name to shadow it",
+            )
         raise HTTPException(status_code=404, detail=f"flow {name!r} not found")
     try:
         target.unlink()
@@ -472,6 +511,82 @@ async def pipeline_run_detail(run_id: str):
         "steps": steps,
         "result": result.get("status") if result else None,
     }
+
+
+def _archive_run(run_id: str) -> dict:
+    """Gather everything a run produced into one folder next to its log.
+
+    The bucket is the run's manifest - each step's output, a text value or an
+    asset ref - but the files those refs name sit scattered across the tool
+    stores under timestamps, and ComfyUI's is scratch. This copies them under
+    ``<log_dir>/<run_id>/`` as ``<step_id>__<file>``, writes text outputs as
+    ``<step_id>.txt``, adds the log and the bucket, and a ``manifest.json``
+    saying what came from where. Self-contained on purpose (decided 2026-07-01):
+    the bytes are doubled, and in return the folder can be handed over or
+    replayed without the stores. Idempotent - archiving twice overwrites.
+    """
+    log_dir = Path(pipeline_runlog.log_dir())
+    src_log = log_dir / f"{run_id}.jsonl"
+    if not src_log.is_file():
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+    dest = log_dir / run_id
+    dest.mkdir(parents=True, exist_ok=True)
+    entries: list = []
+    for step_id, value in pipeline_runbucket.items(run_id).items():
+        safe_id = step_id.replace("/", "_")
+        if isinstance(value, str) and value.startswith("asset://"):
+            try:
+                src = asset_refs.resolve_ref(value)
+            except asset_refs.AssetRefError as e:
+                entries.append({"step_id": step_id, "ref": value, "missing": str(e)})
+                continue
+            if not src.is_file():
+                entries.append({"step_id": step_id, "ref": value, "missing": "file not found"})
+                continue
+            target = dest / f"{safe_id}__{src.name}"
+            shutil.copy2(src, target)
+            entries.append({"step_id": step_id, "ref": value, "file": target.name,
+                            "bytes": target.stat().st_size})
+        elif isinstance(value, str):
+            target = dest / f"{safe_id}.txt"
+            target.write_text(value, encoding="utf-8")
+            entries.append({"step_id": step_id, "file": target.name,
+                            "bytes": len(value.encode("utf-8"))})
+        else:
+            target = dest / f"{safe_id}.json"
+            target.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+            entries.append({"step_id": step_id, "file": target.name, "bytes": target.stat().st_size})
+    shutil.copy2(src_log, dest / src_log.name)
+    bucket_file = Path(pipeline_runbucket.bucket_dir()) / f"{run_id}.json"
+    if bucket_file.is_file():
+        shutil.copy2(bucket_file, dest / "bucket.json")
+    events = pipeline_runlog.read_events(run_id)
+    start = next((e for e in events if e.get("kind") == "run_start"), {})
+    manifest = {
+        "run_id": run_id,
+        "pipeline": start.get("pipeline"),
+        "started": start.get("ts"),
+        "archived": datetime.now(timezone.utc).isoformat(),
+        "files": entries,
+        "bytes": sum(e.get("bytes", 0) for e in entries),
+        "missing": sum(1 for e in entries if "missing" in e),
+    }
+    (dest / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    pipeline_runlog.log_event(
+        run_id, "run_archived", path=str(dest), files=len(entries) - manifest["missing"],
+        missing=manifest["missing"], bytes=manifest["bytes"],
+    )
+    manifest["path"] = str(dest)
+    return manifest
+
+
+@router.post("/pipeline/run/{run_id}/archive")
+async def pipeline_run_archive(run_id: str):
+    """Copy a run's outputs, log and bucket into one folder (see _archive_run)."""
+    rid = _checked_run_id(run_id, "run_id")
+    # In a thread: it copies media files, possibly many megabytes of them.
+    return await asyncio.to_thread(_archive_run, rid)
 
 
 _bg_resume_tasks: set = set()  # keep detached resume tasks referenced until done

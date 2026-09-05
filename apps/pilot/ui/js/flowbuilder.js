@@ -52,7 +52,7 @@ function _fbPicker(el, flows, note){
   var h = '<p class="fb-title">Flow library</p>';
   if (note) h += '<p class="fb-note" style="margin:0 0 10px">' + note + '</p>';
   if (!flows.length){
-    h += '<p class="fb-note">No flows in <code>pipelines/specs/</code> yet. Create one and it shows up here.</p>';
+    h += '<p class="fb-note">No flows in the library yet. Create one and it shows up here.</p>';
   } else {
     h += '<div class="fb-pick">';
     flows.forEach(function(f){

@@ -134,6 +134,15 @@ async def resume_pipeline(
         response=response,
         status=res.status, ok=res.ok, is_paused=res.is_paused,
     )
+    # The resumed tail ran to its end (or to the next gate) inside this call, so
+    # this is the run's fate now. Without it the last run_result in the log
+    # stayed the pause from the initial call, and every reader that takes the
+    # newest one - the Runs view, pipelog - showed a finished flow as waiting.
+    runlog.log_event(
+        run_id, "run_result",
+        status=res.status, ok=res.ok, is_paused=res.is_paused,
+        resume_token=res.resume_token, after="resume",
+    )
     return res
 
 
@@ -247,12 +256,35 @@ def resume_pipeline_sync(
     )
 
 
+def _vocab_hash() -> str:
+    """A short fingerprint of the vocabulary a run was compiled against.
+
+    Name and status of every op, hashed: enough to tell that two runs saw
+    different vocabularies (an op added, one promoted from planned to wired)
+    without storing the whole table in every log.
+    """
+    body = "\n".join(sorted(f"{op.name}:{op.status}" for op in vocab.all_ops()))
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:12]
+
+
+def _provenance(trigger: str) -> dict[str, Any]:
+    """What a run_start records about the world it ran in, beyond the spec."""
+    import mora02_core  # the package is initialised by now; its version lives there
+    return {
+        "trigger": trigger,
+        "core_version": getattr(mora02_core, "__version__", None),
+        "vocab_hash": _vocab_hash(),
+        "runner_version": os.environ.get("MORA02_RUNNER_VERSION") or None,
+    }
+
+
 async def run_pipeline_spec(
     spec: Union[PipelineSpec, dict, str, Path],
     *,
     args: dict[str, Any] | None = None,
     runner: str | None = None,
     workspace: str | None = None,
+    trigger: str = "manual",
 ) -> PipelineResult:
     """Compile a mora02 pipeline spec to ``.lobster``, write it, and run it.
 
@@ -298,6 +330,7 @@ async def run_pipeline_spec(
         runner=runner or os.environ.get("MORA02_PIPELINE_RUNNER", "lobster"),
         steps=len(lobster.get("steps", [])),
         lobster_path=path,
+        **_provenance(trigger),
     )
     res = await run_pipeline(path, args=args, runner=runner)
     res.run_id = run_id  # so a pause can be carried to the inbox and back
@@ -318,6 +351,7 @@ async def rerun_pipeline_spec(
     args: dict[str, Any] | None = None,
     runner: str | None = None,
     workspace: str | None = None,
+    trigger: str = "manual",
 ) -> PipelineResult:
     """Re-run only what a change made stale, replaying the rest from an earlier run.
 
@@ -362,6 +396,7 @@ async def rerun_pipeline_spec(
         runner=runner or os.environ.get("MORA02_PIPELINE_RUNNER", "lobster"),
         steps=len(lobster.get("steps", [])),
         lobster_path=path,
+        **_provenance(trigger),
     )
     res = await run_pipeline(path, args=args, runner=runner)
     res.run_id = run_id
@@ -407,8 +442,10 @@ def run_pipeline_spec_sync(
     args: dict[str, Any] | None = None,
     runner: str | None = None,
     workspace: str | None = None,
+    trigger: str = "manual",
 ) -> PipelineResult:
     """Blocking wrapper around :func:`run_pipeline_spec` for sync callers."""
     return asyncio.run(
-        run_pipeline_spec(spec, args=args, runner=runner, workspace=workspace)
+        run_pipeline_spec(spec, args=args, runner=runner, workspace=workspace,
+                          trigger=trigger)
     )
