@@ -281,11 +281,23 @@ def resume_pipeline_sync(
 # Runs started with trigger "test" never notify: the suites fail runs on
 # purpose, dozens per pass, and every one of those would reach a phone.
 
-_FAILED_STATUSES = {"failed", "error"}
+FAILED_STATUSES = frozenset({"failed", "error"})
+
+
+def is_failure(status: str | None, ok: bool | None = None) -> bool:
+    """The one definition of a failed run, for the log readers as well.
+
+    The Runs view and the batch status used to call a run failed only when a
+    STEP had failed; a run the runner never got off the ground (no step, a
+    run_result with status "error") showed as done while the failure report
+    was already on its way to a phone (review 4). ``ok`` is the runner's own
+    flag; a status in FAILED_STATUSES counts on its own.
+    """
+    return ok is False or (status in FAILED_STATUSES)
 
 
 def _run_failed(res: PipelineResult) -> bool:
-    return (not res.ok) or res.status in _FAILED_STATUSES
+    return is_failure(res.status, res.ok)
 
 
 def _failure_lines(run_id: str) -> tuple[str, str, str]:
@@ -302,7 +314,7 @@ def _failure_lines(run_id: str) -> tuple[str, str, str]:
 
 
 async def report_run_failure(run_id: str | None, res: PipelineResult | None = None, *,
-                             error: str | None = None) -> None:
+                             error: str | None = None, headline: str = "failed") -> None:
     """Send the failure of a run to the configured channel, if any. Never raises.
 
     Called after every run_result that is a failure - the initial run, a
@@ -328,10 +340,16 @@ async def report_run_failure(run_id: str | None, res: PipelineResult | None = No
             runlog.log_event(run_id, "notified", channel=channel, ok=False,
                              error=f"MORA02_{channel.upper()}_TARGET is not set")
             return
-        detail = error or (res.error if res is not None and isinstance(res.error, str) else None)
-        message = (f"Flow '{pipeline}' failed.\nRun {run_id}\n{where}"
+        # The runner's own error is a dict ({"type", "message"}), not a string:
+        # the first version checked for a string and always dropped it, exactly
+        # in the case where no step had written a failure of its own (review 4).
+        runner_error = None
+        if res is not None and res.error:
+            runner_error = res.error.get("message") if isinstance(res.error, dict) else str(res.error)
+        detail = error or runner_error
+        message = (f"Flow '{pipeline}' {headline}.\nRun {run_id}\n{where}"
                    + (f"\n{detail}" if detail and detail not in where else ""))
-        await notify(channel, target, message, title=f"mora02: flow '{pipeline}' failed")
+        await notify(channel, target, message, title=f"mora02: flow '{pipeline}' {headline}")
         runlog.log_event(run_id, "notified", channel=channel, target=target, ok=True)
     except NotifyError as e:
         _log.warning("could not report the failure of run %s: %s", run_id, e)
@@ -443,6 +461,38 @@ def new_batch_id() -> str:
     return "batch_" + runlog.new_run_id()
 
 
+def batch_dir() -> str:
+    """Where a batch keeps its own record: ``<log_dir>/batches/<batch_id>.json``."""
+    return os.path.join(runlog.log_dir(), "batches")
+
+
+def write_batch_index(batch_id: str, summary: dict[str, Any]) -> None:
+    """Persist a batch's summary. Never raises - bookkeeping must not stop runs.
+
+    Without it a batch was only ever the sum of the run logs that named it: a
+    set that failed before its run_start was written left no trace, and the
+    status route answered zeros for ever (review 4). It also spares the status
+    route a scan of every log on disk.
+    """
+    try:
+        os.makedirs(batch_dir(), exist_ok=True)
+        path = os.path.join(batch_dir(), f"{batch_id}.json")
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(summary, fh, ensure_ascii=False, default=str)
+        os.replace(tmp, path)
+    except OSError as e:
+        _log.warning("could not write the batch index for %s: %s", batch_id, e)
+
+
+def read_batch_index(batch_id: str) -> dict[str, Any] | None:
+    try:
+        with open(os.path.join(batch_dir(), f"{batch_id}.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
 async def run_pipeline_batch(
     spec: Union[PipelineSpec, dict, str, Path],
     arg_sets: list[dict[str, Any]],
@@ -470,6 +520,11 @@ async def run_pipeline_batch(
     bid = batch_id or new_batch_id()
     size = len(arg_sets)
     runs: list[dict[str, Any]] = []
+    name = spec.name if isinstance(spec, PipelineSpec) else (
+        spec.get("name") if isinstance(spec, dict) else Path(str(spec)).stem)
+    summary: dict[str, Any] = {"batch_id": bid, "pipeline": name, "trigger": trigger, "size": size,
+                               "started": runlog._now_iso(), "finished": None, "runs": runs}
+    write_batch_index(bid, summary)
     for index, args in enumerate(arg_sets, 1):
         record: dict[str, Any] = {"index": index, "args": args}
         try:
@@ -488,15 +543,23 @@ async def run_pipeline_batch(
             # A spec that does not compile fails every set the same way; say
             # so once per set rather than pretending the rest would differ.
             record.update(run_id=None, status="error", ok=False, is_paused=False, error=str(e))
+        except Exception as e:  # noqa: BLE001 - one set must not take the rest down
+            # Anything else - a bug, a broken mount - was a "Task exception was
+            # never retrieved" in the container log and a batch that stopped
+            # after set one with nobody told (review 4).
+            _log.exception("batch %s: set %d raised", bid, index)
+            record.update(run_id=None, status="error", ok=False, is_paused=False,
+                          error=f"{type(e).__name__}: {e}")
         runs.append(record)
-    return {
-        "batch_id": bid,
-        "size": size,
-        "runs": runs,
-        "ok": sum(1 for r in runs if r.get("ok") and not r.get("is_paused")),
-        "paused": sum(1 for r in runs if r.get("is_paused")),
-        "failed": sum(1 for r in runs if not r.get("ok")),
-    }
+        write_batch_index(bid, summary)
+    summary.update(
+        finished=runlog._now_iso(),
+        ok=sum(1 for r in runs if r.get("ok") and not r.get("is_paused")),
+        paused=sum(1 for r in runs if r.get("is_paused")),
+        failed=sum(1 for r in runs if not r.get("ok")),
+    )
+    write_batch_index(bid, summary)
+    return summary
 
 
 async def rerun_pipeline_spec(
