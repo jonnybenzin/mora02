@@ -28,6 +28,14 @@ from pipelines import router as pipelines_router
 from speech import router as speech_router
 from steps import router as steps_router
 from runtime import DATA_DIR, SERVICE_VERSION, WIP_DIR, create_timestamp
+from mora02_core.llm import (
+    LLMSwitchError,
+    get_current_profile as llm_get_current,
+    get_switch_status as llm_get_status,
+    list_profiles as llm_list_profiles,
+    profile_names as llm_valid_profile_names,
+    submit_switch as llm_submit_switch,
+)
 
 # ============================================================================
 # APP SETUP
@@ -147,17 +155,6 @@ async def list_downloads():
 # Talks to the host-side systemd switcher via /llm-switch/ bind mount.
 # Script-Runner has NO docker daemon access — the switch itself runs on the
 # host, triggered by file-drop into /llm-switch/requests/.
-
-from mora02_core.llm import (
-    LLMSwitchError,
-    get_current_profile as llm_get_current,
-    get_switch_status as llm_get_status,
-    list_profiles as llm_list_profiles,
-    profile_names as llm_valid_profile_names,
-    submit_switch as llm_submit_switch,
-    switch_profile_blocking as llm_switch_blocking,
-)
-
 
 class LLMSwitchRequest(BaseModel):
     profile: str

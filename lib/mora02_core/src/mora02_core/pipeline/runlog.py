@@ -25,7 +25,6 @@ import json
 import os
 
 from mora02_core._common import segment_problem
-import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any

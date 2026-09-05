@@ -1,0 +1,38 @@
+# ruff - the linter. One rule set for every Python file in this repository.
+#
+# Why this exists: the split of script-runner's main.py (September 2026) left
+# eight names in steps.py that nothing imported any more - two API keys and the
+# model-switch helpers. Every test suite stayed green, because the ops that use
+# them sit in the paid tiers nobody runs by default. A linter reads code that
+# tests do not execute; this file is what lets it run the same way everywhere.
+#
+#   ruff check .            what CI and the pre-commit hook run
+#   ruff check --fix .      applies the fixes ruff marks as safe
+#   scripts/lint.sh         the same, with the install hint if ruff is missing
+#
+# Rule scope is deliberately ruff's default (pyflakes + the pycodestyle errors):
+# undefined and unused names, bare excepts, one-line-many-statements. Style
+# rules (line length, quotes, import order) are not selected - the goal is a
+# fence against defects, not a formatting debate.
+
+target-version = "py311"
+line-length = 120
+
+extend-exclude = [
+    "scripts/venv_rag",   # a virtualenv someone left behind; untracked
+    "scripts/archive",
+    "docker/ComfyUI",     # third-party checkout
+]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# A package's __init__ re-exports its public names; that is the point of it.
+"__init__.py" = ["F401"]
+# Command parsers written as one `try: x = int(..)` / `except ValueError: pass`
+# pair per option. Forty lines of that shape, deliberately compact; expanding
+# them would double the file for no reader's benefit.
+"apps/pilot/comfyui_client.py" = ["E701", "E702"]
+"apps/pilot/bot_bridge.py" = ["E701", "E702"]
+"scripts/xray/mora02-xray.py" = ["E701"]

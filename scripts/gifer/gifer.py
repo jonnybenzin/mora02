@@ -8,7 +8,6 @@ USAGE:
   gifer [DAUERN] [--quality LEVEL]
 """
 
-import os
 import shutil
 from pathlib import Path
 from PIL import Image, ImageOps
@@ -209,7 +208,7 @@ def parse_durations_from_file(input_dir):
             durations = [int(line.strip()) for line in content.split('\n') if line.strip()]
         
         return durations
-    except:
+    except Exception:
         return None
 
 def get_frame_durations(input_dir, num_frames, default_duration, logger):
@@ -320,7 +319,7 @@ def create_gif(input_dir, output_path, quality_preset, logger):
         
         file_size = output_path.stat().st_size / (1024 * 1024)
         
-        logger.log(f"\n✅ GIF erfolgreich erstellt!")
+        logger.log("\n✅ GIF erfolgreich erstellt!")
         logger.log(f"   📁 Pfad: {output_path}")
         logger.log(f"   📊 Größe: {file_size:.2f} MB")
         logger.log(f"   🎬 Frames: {len(frames)}")
@@ -407,9 +406,9 @@ def main():
     test_images = find_numbered_images(INPUT_DIR)
     if not test_images:
         logger.log(f"ℹ️  Source-Verzeichnis leer: {INPUT_DIR}")
-        logger.log(f"\nBitte Bilder in dieses Verzeichnis kopieren:")
-        logger.log(f"   Format: 01-name.jpg, 02-name.jpg, etc.")
-        logger.log(f"\nDann: gifer 1000,500,2000 --quality high")
+        logger.log("\nBitte Bilder in dieses Verzeichnis kopieren:")
+        logger.log("   Format: 01-name.jpg, 02-name.jpg, etc.")
+        logger.log("\nDann: gifer 1000,500,2000 --quality high")
         return
     
     quality = parse_quality_from_args()
@@ -444,9 +443,9 @@ def main():
     logger.log("=" * 70)
     logger.log(f"\n📁 Archiv: {archive_dir}")
     logger.log(f"   ├── {gif_filename}")
-    logger.log(f"   └── source/")
+    logger.log("   └── source/")
     logger.log(f"       ├── {timestamp}_logs.md")
-    logger.log(f"       └── (Quellbilder)")
+    logger.log("       └── (Quellbilder)")
     
     # Log speichern
     logger.save()

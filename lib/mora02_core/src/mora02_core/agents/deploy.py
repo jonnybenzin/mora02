@@ -323,7 +323,7 @@ def check_locality(roster: dict, rt: Roots) -> None:
             raise DeployError(
                 f"agent {agent.get('id', '<unnamed>')!r} runs on {agent.get('model')!r}, "
                 f"which is not local, but it must: " + "; ".join(why) + ".\n"
-                f"    Steering and sensitive agents stay in the house (ADR-029)."
+                "    Steering and sensitive agents stay in the house (ADR-029)."
             )
     desk = roster.get("letterbox")
     if desk:
@@ -331,8 +331,8 @@ def check_locality(roster: dict, rt: Roots) -> None:
         if why and not desk.get("model"):
             raise DeployError(
                 f"the reception desk ({desk.get('id')}) must run locally -- " + "; ".join(why) + " -- "
-                f"but names no model of its own, so it runs on whatever the gateway defaults to.\n"
-                f"    Give it a local model in agents/gateway.json, or narrow its tool list."
+                "but names no model of its own, so it runs on whatever the gateway defaults to.\n"
+                "    Give it a local model in agents/gateway.json, or narrow its tool list."
             )
         if why and not is_local_model(desk.get("model")):
             raise DeployError(

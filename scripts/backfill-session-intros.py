@@ -659,7 +659,7 @@ def process_file(
         except ValueError as e:
             last_error = f"PARSE FAIL: {e}"
             if attempt == 1 and verbose:
-                print(f"  ⚠ attempt 1 parse failed, retrying...", flush=True)
+                print("  ⚠ attempt 1 parse failed, retrying...", flush=True)
             continue
 
     if dummies is None:
@@ -671,7 +671,7 @@ def process_file(
     # step fails to produce a valid revised version.
     if critique:
         if verbose:
-            print(f"  ↻ running critique pass...", flush=True)
+            print("  ↻ running critique pass...", flush=True)
         try:
             raw_crit = call_critique(
                 clean_content, dummies, title, scene, metaphor,

@@ -297,7 +297,8 @@ def main() -> int:
                "write and read pass the odd path to the shell as one word", cmds[0][:70] if cmds else "")
         record(len(cmds) == 3 and "/tmp/x; echo pwned" in shlex.split(cmds[2]) and ";" not in shlex.split(cmds[2])[:3],
                "a crafted path is one word to the shell, not three commands", cmds[2][:70] if len(cmds) > 2 else "")
-        shutil.rmtree(L / "instances/zz-q"); shutil.rmtree(sk_dir)
+        shutil.rmtree(L / "instances/zz-q")
+        shutil.rmtree(sk_dir)
 
         # audit 2026-09-04: agentDir is a path too, and load_roster does not
         # validate manifests -- so it needs the same pin as workspace.
@@ -509,14 +510,16 @@ def main() -> int:
                    "JSON followed by a warning line is read whole", str(got)[:60])
             deploy.docker = fake([("config get agents", (0, "Warning: {broken\n"))])
             try:
-                deploy._config_key("agents"); record(False, "unreadable object is an error, not {}", "returned")
+                deploy._config_key("agents")
+                record(False, "unreadable object is an error, not {}", "returned")
             except deploy.DeployError as e:
                 record("unreadable" in str(e), "unreadable object is an error, not {}", str(e)[:70])
             deploy.docker = fake([("config get mcp", (1, "not set"))])
             record(deploy._config_key("mcp") == {}, "a key the gateway does not carry reads as {}")
             deploy.docker = fake([("config get agents", (1, "boom"))])
             try:
-                deploy.read_config(); record(False, "unreadable agents section is fatal", "returned")
+                deploy.read_config()
+                record(False, "unreadable agents section is fatal", "returned")
             except deploy.DeployError as e:
                 record("could not read" in str(e), "unreadable agents section is fatal", str(e)[:60])
             calls.clear()

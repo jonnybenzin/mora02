@@ -78,7 +78,7 @@ class Logger:
                 f.write("```\n")
                 f.write('\n'.join(self.log_buffer))
                 f.write("\n```\n")
-        except:
+        except Exception:
             pass
 
 # ============================================================================
@@ -191,7 +191,7 @@ def check_ffmpeg():
     try:
         subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
         return True
-    except:
+    except Exception:
         return False
 
 def get_video_duration(video_path):
@@ -200,7 +200,7 @@ def get_video_duration(video_path):
     result = subprocess.run(cmd, capture_output=True, text=True)
     try:
         return float(result.stdout.strip())
-    except:
+    except Exception:
         return 0
 
 def natural_sort_key(s):
@@ -296,7 +296,7 @@ def parse_array_input(input_str, count, default_value, max_value=None, is_int=Fa
             values.append(default_value)
         
         return values[:count]
-    except:
+    except Exception:
         return [default_value] * count
 
 def parse_animation_array(input_str, count, default_value='pan'):
@@ -416,7 +416,7 @@ def concatenate_with_transitions(clip_paths, clip_durations, transitions, output
         os.unlink(concat_file)
         return result.returncode == 0
     
-    logger.log(f"\n🔗 Verkette Clips mit Übergängen...")
+    logger.log("\n🔗 Verkette Clips mit Übergängen...")
     
     current = clip_paths[0]
     current_duration = clip_durations[0]
@@ -456,7 +456,7 @@ def concatenate_with_transitions(clip_paths, clip_durations, transitions, output
             result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
-            logger.log(f"   ⚠️  Fehler, verwende Hard Cut")
+            logger.log("   ⚠️  Fehler, verwende Hard Cut")
             with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
                 f.write(f"file '{current}'\n")
                 f.write(f"file '{next_clip}'\n")
@@ -467,8 +467,10 @@ def concatenate_with_transitions(clip_paths, clip_durations, transitions, output
             os.unlink(concat_file)
         
         if i > 0 and current != clip_paths[0]:
-            try: os.unlink(current)
-            except: pass
+            try:
+                os.unlink(current)
+            except OSError:
+                pass
         
         current = temp_output
         current_duration = get_video_duration(current)
@@ -508,7 +510,7 @@ def apply_overlay(video_path, overlay_info, output_path, position, scale, loop, 
         shutil.copy(video_path, output_path)
         return False
     
-    logger.log(f"   ✅ Overlay OK")
+    logger.log("   ✅ Overlay OK")
     return True
 
 def apply_parallax_layers(video_path, layers, output_path, direction, intensity, fps, logger):
@@ -537,7 +539,7 @@ def apply_parallax_layers(video_path, layers, output_path, direction, intensity,
         if layer['type'] == 'sequence':
             seq_info = layer['data']
             seq_pattern = str(seq_info['path'] / seq_info['pattern'])
-            filter_complex = f"[1:v]format=rgba[ovr];[0:v][ovr]overlay=(W-w)/2:(H-h)/2:shortest=1"
+            filter_complex = "[1:v]format=rgba[ovr];[0:v][ovr]overlay=(W-w)/2:(H-h)/2:shortest=1"
             cmd = [
                 'ffmpeg', '-y', '-i', str(current_video), '-framerate', str(fps), '-i', seq_pattern,
                 '-filter_complex', filter_complex,
@@ -570,10 +572,12 @@ def apply_parallax_layers(video_path, layers, output_path, direction, intensity,
         shutil.copy(video_path, output_path)
     
     for tf in temp_files[:-1]:
-        try: os.unlink(tf)
-        except: pass
+        try:
+            os.unlink(tf)
+        except OSError:
+            pass
     
-    logger.log(f"   ✅ Parallax OK")
+    logger.log("   ✅ Parallax OK")
     return True
 
 def add_audio(video_path, audio_path, output_path, logger):
@@ -751,7 +755,7 @@ def cleanup_source(input_dir, has_overlay, has_parallax, logger):
         ext = file.suffix.lower()
         if ext in IMAGE_EXTENSIONS or ext in VIDEO_EXTENSIONS:
             file.unlink()
-    logger.log(f"🧹 Source aufgeräumt")
+    logger.log("🧹 Source aufgeräumt")
 
 # ============================================================================
 # HAUPTPROGRAMM
@@ -824,7 +828,7 @@ def main():
             if success and clip_path.exists():
                 clip_durations.append(get_video_duration(clip_path))
         else:
-            logger.log(f"   🎬 Video")
+            logger.log("   🎬 Video")
             success = prepare_video_clip(m['path'], clip_path, width, height, fps, logger)
             
             if success and clip_path.exists():
@@ -834,9 +838,9 @@ def main():
         
         if success and clip_path.exists():
             clip_paths.append(str(clip_path))
-            logger.log(f"   ✅ OK")
+            logger.log("   ✅ OK")
         else:
-            logger.log(f"   ❌ Fehler")
+            logger.log("   ❌ Fehler")
     
     if not clip_paths:
         logger.log("\n❌ Keine Clips!")

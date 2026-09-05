@@ -211,7 +211,7 @@ def case_no_recorded_spec() -> None:
     """Runs from before spec recording must fail clearly, not mysteriously."""
     old = None
     for path in sorted(LOG_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime):
-        evs = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+        evs = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
         start = next((e for e in evs if e.get("kind") == "run_start"), None)
         if evs and (start is None or start.get("spec") is None):
             old = path.stem

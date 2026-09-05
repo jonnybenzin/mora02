@@ -5,7 +5,6 @@ Uses JWT authentication for schema operations
 """
 
 import requests
-import json
 import time
 import sys
 import os

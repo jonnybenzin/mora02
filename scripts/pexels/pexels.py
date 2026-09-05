@@ -97,7 +97,7 @@ def get_file_size(filepath):
     try:
         size_bytes = os.path.getsize(filepath)
         return size_bytes / (1024 * 1024)
-    except:
+    except Exception:
         return 0
 
 def print_usage():
@@ -151,7 +151,7 @@ def main():
     queries, count = parse_args()
     
     print("=" * 70)
-    print(f"Mora02 - Pexels Batch Image Downloader")
+    print("Mora02 - Pexels Batch Image Downloader")
     print("=" * 70)
     print()
     
@@ -178,7 +178,7 @@ def main():
         results = search_pexels(query, count)
         
         if not results:
-            print(f"   ❌ Keine Bilder gefunden\n")
+            print("   ❌ Keine Bilder gefunden\n")
             total_failed += 1
             continue
         
@@ -195,8 +195,10 @@ def main():
             photographer = result['photographer']
             
             ext = ".jpg"
-            if ".png" in image_url: ext = ".png"
-            elif ".jpeg" in image_url: ext = ".jpeg"
+            if ".png" in image_url:
+                ext = ".png"
+            elif ".jpeg" in image_url:
+                ext = ".jpeg"
             
             # Benennung unterscheiden je nach count
             if count > 1:

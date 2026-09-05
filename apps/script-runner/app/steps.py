@@ -13,18 +13,16 @@ Same shape as agents.py, mcp_tools.py and speech.py: a router main.py includes.
 from __future__ import annotations
 
 import asyncio
-from functools import partial
 import json
 import mimetypes
 import os
-import re
 import time
 import uuid
 import httpx
 from pathlib import Path
 from datetime import datetime, timezone
 from contextlib import nullcontext
-from typing import Any, List, Optional
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
@@ -44,18 +42,25 @@ from mora02_core.comfyui import (
     erase_image,
     facefix_image,
 )
-from mora02_core.llm import complete_qwen, complete_qwen_usage, complete_claude_usage
+from mora02_core.llm import (
+    LLMSwitchError,
+    complete_claude_usage,
+    complete_qwen,
+    complete_qwen_usage,
+    profile_names as llm_valid_profile_names,
+    switch_profile_blocking as llm_switch_blocking,
+)
 from mora02_core.media import tts as tts_lib
 from mora02_core.media import MediaError, create_clip, create_gif, create_text_frame, extract_frame, mux_audio
 from mora02_core.notify import notify, NotifyError
-from mora02_core.pipeline import PipelineError, spec as pipeline_spec, vocab as pipeline_vocab, runlog as pipeline_runlog, runbucket as pipeline_runbucket
+from mora02_core.pipeline import spec as pipeline_spec, vocab as pipeline_vocab, runlog as pipeline_runlog, runbucket as pipeline_runbucket
 from mora02_core.publish import post_to_linkedin, LinkedInError
 from mora02_core import web
 
 
 from runtime import (
-    _checked_run_id, _log, container_to_host_path, get_nginx_url,
-    step_out_path, step_segment,
+    PEXELS_API_KEY, PIXABAY_API_KEY, _checked_run_id, _log, step_out_path,
+    step_segment,
 )
 
 router = APIRouter()
@@ -348,20 +353,20 @@ def _label_from(text: str, labels: List[str]) -> str | None:
     """
     body = text.split("</think>", 1)[-1].strip()
     low = body.lower()
-    exact = next((l for l in labels if l.lower() == low), None)
+    exact = next((lab for lab in labels if lab.lower() == low), None)
     if exact:
         return exact
     lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
     if lines:
         last = lines[-1].lower().strip(" .*`\"'")
-        hit = next((l for l in labels if l.lower() == last), None)
+        hit = next((lab for lab in labels if lab.lower() == last), None)
         if hit:
             return hit
     best, best_at = None, -1
-    for l in labels:
-        at = low.rfind(l.lower())
+    for lab in labels:
+        at = low.rfind(lab.lower())
         if at > best_at:
-            best, best_at = l, at
+            best, best_at = lab, at
     return best if best_at >= 0 else None
 
 
@@ -373,7 +378,7 @@ async def _step_llm_classify(inputs: List[str], params: dict) -> dict:
     labels = params.get("labels")
     if not labels:
         raise ValueError("llm.classify needs ?labels= (comma-separated)")
-    label_list = [l.strip() for l in labels.split(",") if l.strip()]
+    label_list = [lab.strip() for lab in labels.split(",") if lab.strip()]
     if not label_list:
         raise ValueError("llm.classify got no usable labels")
     system = ("Classify the user's text into exactly one of these labels: "

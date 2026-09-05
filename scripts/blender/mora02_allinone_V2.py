@@ -547,7 +547,7 @@ for row in range(5):
 
 print(f"\n  Würfel: {cube_count}")
 print(f"  Grid: {total_width} x {grid_height}")
-print(f"  Origin: (0, 0, 0) = Logo-Zentrum")
+print("  Origin: (0, 0, 0) = Logo-Zentrum")
 print(f"  Theme: {THEME}")
 print(f"  Duration: {DURATION_SEC}s @ {FPS}fps")
 print(f"  Effekte: {', '.join(k for k,v in EFFECTS.items() if v.get('enabled'))}")

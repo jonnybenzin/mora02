@@ -412,7 +412,8 @@ class MORA02_OT_render(Operator):
     bl_label = "Render Animation"
 
     def execute(self, context):
-        import datetime, os
+        import datetime
+        import os
         props = context.scene.mora02
         ts = datetime.datetime.now().strftime("%y%m%d%H%M")
         out_dir = bpy.path.abspath(props.render_path)
@@ -1102,7 +1103,7 @@ def unregister():
 
 try:
     unregister()
-except:
+except Exception:
     pass
 
 register()

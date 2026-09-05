@@ -412,7 +412,8 @@ class MORA02_OT_render(Operator):
     bl_label = "Render Animation"
 
     def execute(self, context):
-        import datetime, os
+        import datetime
+        import os
         props = context.scene.mora02
         ts = datetime.datetime.now().strftime("%y%m%d%H%M")
         out_dir = bpy.path.abspath(props.render_path)
@@ -569,7 +570,6 @@ def build_logo(theme="dark"):
     bpy.context.scene.collection.children.link(logo_col)
 
     homes = get_all_home_positions()
-    total_width = get_total_width()
     cx, cy, cz = get_logo_center()
     cube_count = 0
 
@@ -1112,7 +1112,7 @@ def unregister():
 
 try:
     unregister()
-except:
+except Exception:
     pass
 
 register()

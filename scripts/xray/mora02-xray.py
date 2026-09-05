@@ -18,16 +18,14 @@ Erfordert: requests, pyyaml
 
 import os
 import re
-import sys
 import json
 import yaml
-import glob
 import argparse
 import subprocess
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Dict, List
 
 # ============================================================
 # KONFIGURATION
@@ -307,7 +305,7 @@ class XRayScanner:
                 try:
                     if fpath.stat().st_size > 5_000_000:
                         continue
-                except:
+                except Exception:
                     continue
 
                 file_count += 1
@@ -403,7 +401,7 @@ class XRayScanner:
                             if 'BASEROW' in upper and 'TOKEN' in upper and '=' in line:
                                 token = line.split('=', 1)[1].strip().strip('"').strip("'")
                                 break
-                except:
+                except Exception:
                     pass
 
             # Fallback: separates Token-File
@@ -412,7 +410,7 @@ class XRayScanner:
                 if token_file.exists():
                     try:
                         token = open(token_file).read().strip()
-                    except:
+                    except Exception:
                         pass
 
         if not token:
@@ -535,7 +533,7 @@ class XRayScanner:
     # --------------------------------------------------------
     def scan_activepieces(self, ap_url: str = "http://localhost:8089"):
         """Scanne Activepieces Flows aus SQLite DB (AP nutzt SQLITE3, nicht Postgres)."""
-        print(f"  ⚡ Scanning Activepieces (SQLite)...")
+        print("  ⚡ Scanning Activepieces (SQLite)...")
 
         sqlite_path = self.base_dir / "docker" / "activepieces" / ".activepieces" / "database.sqlite"
         if not sqlite_path.exists():
@@ -606,7 +604,7 @@ class XRayScanner:
                         'urls': [], 'paths': [], 'secrets': [],
                         'webhook_url': None,
                     })
-            except:
+            except Exception:
                 pass  # Tabelle existiert evtl. nicht
 
             con.close()
@@ -620,7 +618,7 @@ class XRayScanner:
     # --------------------------------------------------------
     def scan_db_hygiene(self):
         """Prüfe ob Datenbanken existieren deren Services nicht mehr laufen."""
-        print(f"  🧹 DB-Hygiene-Check...")
+        print("  🧹 DB-Hygiene-Check...")
         self.orphaned_dbs = []
 
         # Laufende Service-Namen
@@ -656,7 +654,7 @@ class XRayScanner:
     # --------------------------------------------------------
     def scan_dify(self, dify_data_dir: str = None):
         """Scanne Dify Agents aus DB"""
-        print(f"  🤖 Scanning Dify...")
+        print("  🤖 Scanning Dify...")
 
         for container in ['postgres-dify-new', 'postgres-dify']:
             try:
@@ -699,7 +697,7 @@ class XRayScanner:
                                             'line': 0, 'risk': 'HIGH'
                                         })
                     break
-            except:
+            except Exception:
                 continue
 
         if not self.dify_agents:
@@ -748,7 +746,7 @@ class XRayScanner:
     def generate_markdown_report(self) -> str:
         """Generiere den Hauptreport als Markdown"""
         lines = []
-        lines.append(f"# Mora02 X-Ray Report")
+        lines.append("# Mora02 X-Ray Report")
         lines.append(f"**Generiert:** {datetime.now().strftime('%Y-%m-%d %H:%M')}")
         lines.append(f"**Base:** {self.base_dir}")
         lines.append("")

@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="Piper TTS API", version="1.0.0")

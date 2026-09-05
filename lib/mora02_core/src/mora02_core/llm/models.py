@@ -8,6 +8,7 @@ Update a price there, and every reader of this registry sees it.
 """
 
 from mora02_core import auth, pricing
+from mora02_core.llm.profiles import PROFILES as _PROFILES
 
 # The llama.cpp container is named llama-server for every profile, so this
 # address is stable inside mora02-net and survives a profile switch. It is also
@@ -21,8 +22,6 @@ _QWEN_URL = auth.get("QWEN_URL", "http://llama-server:8080")
 # Derived from mora02_core.llm.profiles.PROFILES (single source of truth).
 # This constant is kept for backward compatibility with callers that imported
 # it directly; new code should prefer profile_label() or PROFILES directly.
-from mora02_core.llm.profiles import PROFILES as _PROFILES
-
 LOCAL_PROFILE_LABELS = {name: meta["label"] for name, meta in _PROFILES.items()}
 
 # `label`, `color`, `tier` drive UI rendering. `color` is the CSS-var key

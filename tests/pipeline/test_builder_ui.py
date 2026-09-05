@@ -64,7 +64,6 @@ def run(page) -> None:
     # group is part of the check: an op inside a group that never opens is an op
     # nobody can reach.
     groups = open_groups(page)
-    headers = page.query_selector_all(".flw-grp-h")
     visible = page.eval_on_selector_all(
         "[data-fl-op]", "els => els.filter(e => e.offsetParent !== null).length")
     record(groups > 0 and visible > 0, "palette groups open",

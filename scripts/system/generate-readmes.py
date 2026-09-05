@@ -4,7 +4,8 @@ Mora02 — README Generator
 Liest jedes Script, schickt es an Qwen, speichert README_draft.md
 """
 
-import json, urllib.request, os, sys
+import json
+import urllib.request
 from pathlib import Path
 
 SCRIPTS_DIR = Path("/opt/mora02/scripts")
@@ -92,7 +93,7 @@ def read_scripts(folder, main_script=None):
                 with open(f, "r") as fh:
                     text = fh.read()
                 content.append(f"=== {f.name} ({len(text.splitlines())} lines) ===\n{text}")
-            except:
+            except Exception:
                 pass
     
     return "\n\n".join(content) if content else None
@@ -145,7 +146,7 @@ def main():
             print(f"  ⚠ Truncating to 30000 chars (was {len(code)})")
             code = code[:30000] + "\n\n# ... (truncated)"
         
-        print(f"  Generating README...")
+        print("  Generating README...")
         try:
             readme = generate_readme(folder, code)
             
@@ -164,10 +165,10 @@ def main():
     for folder, status, info in results:
         print(f"  {status} {folder:20s} {info}")
     print("=" * 60)
-    print(f"\nNext: Review drafts, then rename to README.md:")
+    print("\nNext: Review drafts, then rename to README.md:")
     print(f"  for d in {' '.join(t[0] for t in TARGETS)}; do")
-    print(f'    mv /opt/mora02/scripts/$d/README_draft.md /opt/mora02/scripts/$d/README.md')
-    print(f"  done")
+    print('    mv /opt/mora02/scripts/$d/README_draft.md /opt/mora02/scripts/$d/README.md')
+    print("  done")
 
 
 if __name__ == "__main__":

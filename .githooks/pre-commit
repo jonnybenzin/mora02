@@ -1,12 +1,17 @@
 #!/bin/sh
-# Two-stage commit gate.
+# Three-stage commit gate.
 #
 #   Stage 1  gitleaks      - the VALUE level: does this change carry a secret?
 #   Stage 2  boundary-guard - the ASSIGNMENT level: does this file belong in a
 #                             public application repository at all?
+#   Stage 3  ruff          - the CODE level: does a staged Python file use a
+#                             name it never defined, or import one it never uses?
 #
 # They catch different failure classes. A systemd unit naming the NAS carries no
-# secret and passes stage 1 cleanly, yet publishes a map of this machine.
+# secret and passes stage 1 cleanly, yet publishes a map of this machine. And a
+# file can be clean on both counts while its code cannot run: the split of
+# script-runner's main.py in September 2026 left eight undefined names behind,
+# every test stayed green, and a linter would have refused the commit.
 #
 # ---------------------------------------------------------------- stage 1 ----
 # Refuse commits that carry credentials.
@@ -51,4 +56,28 @@ else
     echo "pre-commit: boundary-guard missing or not executable - commit refused" >&2
     echo "            rather than silently unchecked. Expected: $HOOK_DIR/boundary-guard" >&2
     exit 1
+fi
+
+# ---------------------------------------------------------------- stage 3 ----
+# Refuse commits whose staged Python does not pass ruff (rules: ruff.toml).
+# Only the staged files are checked, and only when there are any; the rest of
+# the tree is scripts/lint.sh's job. Same stance as stage 1 on a missing tool:
+# refused, not silently unchecked. Install: pipx install ruff
+
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+if [ -n "$STAGED_PY" ]; then
+    RUFF=$(command -v ruff 2>/dev/null || true)
+    [ -z "$RUFF" ] && [ -x "$HOME/.local/bin/ruff" ] && RUFF="$HOME/.local/bin/ruff"
+    if [ -z "$RUFF" ]; then
+        echo "pre-commit: ruff is not installed - install it with 'pipx install ruff'." >&2
+        echo "            Commit refused rather than silently unchecked." >&2
+        exit 1
+    fi
+    # shellcheck disable=SC2086
+    if ! "$RUFF" check --no-fix $STAGED_PY; then
+        echo "" >&2
+        echo "pre-commit: ruff found a defect in the staged Python - commit refused." >&2
+        echo "            'bash scripts/lint.sh --fix' applies the safe fixes; the rest by hand." >&2
+        exit 1
+    fi
 fi

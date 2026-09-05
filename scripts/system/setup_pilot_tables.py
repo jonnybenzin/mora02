@@ -2,7 +2,10 @@
 """
 AP20: Baserow-Tabellen für Pilot Bot erstellen
 """
-import requests, json, time, sys, os
+import requests
+import time
+import sys
+import os
 
 BASEROW_URL = "http://mora02.local:8085"
 # Account credentials come from docker/.env, never from this file.
@@ -18,7 +21,8 @@ def get_jwt():
     if resp.status_code == 200:
         print("🔑 JWT ✓")
         return resp.json()["access_token"]
-    print(f"✗ Login failed: {resp.status_code}"); sys.exit(1)
+    print(f"✗ Login failed: {resp.status_code}")
+    sys.exit(1)
 
 def h(jwt):
     return {"Authorization": f"JWT {jwt}", "Content-Type": "application/json"}
@@ -29,7 +33,8 @@ def create_field(jwt, tid, name, ftype, **kw):
     if resp.status_code in [200, 201]:
         print(f"  + {name} ({ftype}) → ID: {resp.json()['id']}")
         return resp.json()
-    print(f"  ✗ {name}: {resp.status_code} - {resp.text}"); return None
+    print(f"  ✗ {name}: {resp.status_code} - {resp.text}")
+    return None
 
 def delete_default_fields(jwt, tid):
     resp = requests.get(f"{BASEROW_URL}/api/database/fields/table/{tid}/", headers=h(jwt))
@@ -46,7 +51,8 @@ def create_table(jwt, name):
         t = resp.json()
         print(f"📋 Created '{name}' → Table ID: {t['id']}")
         return t['id']
-    print(f"✗ Error: {resp.status_code} - {resp.text}"); return None
+    print(f"✗ Error: {resp.status_code} - {resp.text}")
+    return None
 
 def create_row(jwt, tid, data):
     resp = requests.post(f"{BASEROW_URL}/api/database/rows/table/{tid}/?user_field_names=true",
@@ -73,7 +79,8 @@ def main():
     # ── bot_sessions ──
     print()
     t1 = create_table(jwt, "bot_sessions")
-    if not t1: sys.exit(1)
+    if not t1:
+        sys.exit(1)
     time.sleep(0.3)
     delete_default_fields(jwt, t1)
     create_field(jwt, t1, "started_at", "date", date_include_time=True)
@@ -90,7 +97,8 @@ def main():
     # ── bot_context ──
     print()
     t2 = create_table(jwt, "bot_context")
-    if not t2: sys.exit(1)
+    if not t2:
+        sys.exit(1)
     time.sleep(0.3)
     delete_default_fields(jwt, t2)
     create_field(jwt, t2, "key", "text")
@@ -114,7 +122,7 @@ def main():
     print("✅ DONE!")
     print(f"  bot_sessions → Table ID: {t1}")
     print(f"  bot_context  → Table ID: {t2}")
-    print(f"\n⚠️  Trage in config.py ein:")
+    print("\n⚠️  Trage in config.py ein:")
     print(f"  baserow_table_sessions: int = {t1}")
     print(f"  baserow_table_context: int = {t2}")
     print("=" * 50)

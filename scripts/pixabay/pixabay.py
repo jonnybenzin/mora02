@@ -109,7 +109,7 @@ def download_image(url, output_path):
         return True
     except Exception as e:
         print(f"   ❌ Download-Fehler: {e}")
-        return Falsese
+        return False
 
 def get_file_size(filepath):
     """Gibt Dateigröße in MB zurück"""

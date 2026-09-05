@@ -1,4 +1,6 @@
-import uuid, json, os
+import uuid
+import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
@@ -17,12 +19,11 @@ from mora02_core.db import api as db_api
 from mora02_core.db import (
     write_session, read_last_sessions, read_all_sessions,
     read_context, read_known_issues, headers as _baserow_headers,
-    format_sessions_context, format_known_issues, format_context_table,
-    write_feedback, list_feedback, update_feedback,
+    format_sessions_context, format_known_issues, write_feedback, list_feedback, update_feedback,
     save_bucket, list_buckets, delete_bucket,
     save_style_pack, list_style_packs, get_style_pack,
     update_style_pack, delete_style_pack,
-    list_posts, create_post, update_post,
+    create_post, update_post,
 )
 
 # Backward-compat alias: app.py has ~9 spots doing direct httpx calls with
@@ -446,7 +447,6 @@ async def delete_file(request: Request):
 @app.post("/upload/post-media")
 async def upload_post_media(file: UploadFile = File(...)):
     """Upload media file for social media posts."""
-    import shutil
     from datetime import datetime
     try:
         ts = datetime.now().strftime("%y%m%d%H%M")
@@ -1462,7 +1462,7 @@ async def vid_status(prompt_id: str):
                         return {"status": "error", "message": err}
                     return {"status": "error", "message": "No video output"}
             return {"status": "working"}
-    except Exception as e:
+    except Exception:
         return {"status": "working"}
 
 
@@ -1495,7 +1495,7 @@ async def upload_audio_to_comfyui(file: UploadFile = File(...)):
 async def music_generate(request: Request):
     """Queue a music generation job via ComfyUI ACE-Step 1.5, return prompt_id."""
     from comfyui_client import queue_prompt
-    import random, json
+    import random
 
     try:
         body = await request.json()
@@ -1657,7 +1657,7 @@ async def music_status(prompt_id: str):
                         return {"status": "error", "message": err}
                     return {"status": "error", "message": "No audio output found"}
             return {"status": "working"}
-    except Exception as e:
+    except Exception:
         return {"status": "working"}
 
 
