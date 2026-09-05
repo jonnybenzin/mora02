@@ -32,6 +32,8 @@ run python3 tests/script-runner/test_silent_failures.py
 run python3 tests/script-runner/test_loop_free.py
 run python3 tests/script-runner/test_execution_log.py
 run python3 tests/script-runner/test_notify_email.py
+run python3 tests/script-runner/test_failure_notify.py
+run python3 tests/script-runner/test_batch.py
 
 echo
 if [ "$FAILED" = 0 ]; then echo "all script-runner suites passed"; else echo "$FAILED suite(s) failed"; fi

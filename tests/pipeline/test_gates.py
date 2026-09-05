@@ -61,7 +61,9 @@ def _post(path: str, payload: dict) -> dict:
 
 
 def run_spec(spec: dict) -> dict:
-    return _post("/pipeline/run-spec", {"spec": spec})
+    # A test run is a test run: it says so, so a failure on purpose does not
+    # reach anyone's phone (MORA02_RUN_FAILURE_NOTIFY skips trigger "test").
+    return _post("/pipeline/run-spec", {"spec": spec, "trigger": "test"})
 
 
 def resume(token: str, run_id: str | None = None, **kw) -> dict:

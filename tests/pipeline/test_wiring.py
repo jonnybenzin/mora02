@@ -55,7 +55,7 @@ def _post(path: str, data: bytes, ctype: str) -> tuple[int, str]:
 
 
 def run_spec(spec: dict) -> tuple[int, str]:
-    return _post("/pipeline/run-spec", json.dumps({"spec": spec}).encode("utf-8"),
+    return _post("/pipeline/run-spec", json.dumps({"spec": spec, "trigger": "test"}).encode("utf-8"),
                  "application/json")
 
 

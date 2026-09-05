@@ -130,7 +130,7 @@ def check(op: str, tier: int, steps: list, out_type: str, timeout: int = 900) ->
     started = time.monotonic()
     res = post("/pipeline/run-spec",
                {"spec": {"name": f"vocab-{op.replace('.', '-')}-{int(time.time())}",
-                         "steps": steps}}, timeout=timeout)
+                         "steps": steps}, "trigger": "test"}, timeout=timeout)
     took = round(time.monotonic() - started, 1)
     if res.get("http_status"):
         record("FAIL", f"[{tier}] {op}", f"refused: {res.get('detail') or res}")

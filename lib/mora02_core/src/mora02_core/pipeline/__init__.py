@@ -33,6 +33,7 @@ from mora02_core.pipeline.lobster import LobsterRunner
 from mora02_core.pipeline.registry import get_runner, register_runner
 from mora02_core.pipeline import runbucket, runlog, vocab
 from mora02_core._common import get_logger
+from mora02_core.notify import NotifyError, notify
 from mora02_core.pipeline.spec import (
     GateStep,
     OpStep,
@@ -143,6 +144,7 @@ async def resume_pipeline(
         status=res.status, ok=res.ok, is_paused=res.is_paused,
         resume_token=res.resume_token, after="resume",
     )
+    await report_run_failure(run_id, res)
     return res
 
 
@@ -256,6 +258,80 @@ def resume_pipeline_sync(
     )
 
 
+# ---------------------------------------------------------------------------
+# A failed run tells the person
+# ---------------------------------------------------------------------------
+# A run that fails writes its fate into the log and nowhere else; the Runs view
+# shows it to whoever happens to look. The cheap half of "failure paths" (the
+# graph feature, where a step's failure takes another branch) is this: when
+# the fate is failure, say so where the person is. Configured, not assumed:
+#
+#   MORA02_RUN_FAILURE_NOTIFY   signal | email | (unset: no message)
+#   MORA02_<CHANNEL>_TARGET     the recipient, as notify uses it
+#
+# Runs started with trigger "test" never notify: the suites fail runs on
+# purpose, dozens per pass, and every one of those would reach a phone.
+
+_FAILED_STATUSES = {"failed", "error"}
+
+
+def _run_failed(res: PipelineResult) -> bool:
+    return (not res.ok) or res.status in _FAILED_STATUSES
+
+
+def _failure_lines(run_id: str) -> tuple[str, str, str]:
+    """(pipeline name, trigger, one line about the failing step) from the run log."""
+    events = runlog.read_events(run_id)
+    start = next((e for e in events if e.get("kind") == "run_start"), {})
+    failed = next((e for e in reversed(events)
+                   if e.get("kind") == "step" and e.get("status") == "failed"), None)
+    if failed:
+        where = f"step {failed.get('step_id')!r} ({failed.get('op')}): {failed.get('error') or 'failed'}"
+    else:
+        where = "no step reported a failure - the runner stopped"
+    return start.get("pipeline") or run_id, start.get("trigger") or "manual", where
+
+
+async def report_run_failure(run_id: str | None, res: PipelineResult | None = None, *,
+                             error: str | None = None) -> None:
+    """Send the failure of a run to the configured channel, if any. Never raises.
+
+    Called after every run_result that is a failure - the initial run, a
+    re-run, a resume, and the detached resume in script-runner. What is sent
+    is what a person needs to act: which flow, which run, which step, what it
+    said. The act is recorded in the run log as ``notified``, so a message
+    that never arrived can be told from one that was never sent.
+    """
+    if not run_id:
+        return
+    channel = (os.environ.get("MORA02_RUN_FAILURE_NOTIFY") or "").strip().lower()
+    if not channel:
+        return
+    if res is not None and not _run_failed(res):
+        return
+    try:
+        pipeline, trigger, where = _failure_lines(run_id)
+        if trigger == "test":
+            return
+        target = os.environ.get(f"MORA02_{channel.upper()}_TARGET")
+        if not target:
+            _log.warning("run %s failed, but MORA02_%s_TARGET is not set - nobody told", run_id, channel.upper())
+            runlog.log_event(run_id, "notified", channel=channel, ok=False,
+                             error=f"MORA02_{channel.upper()}_TARGET is not set")
+            return
+        detail = error or (res.error if res is not None and isinstance(res.error, str) else None)
+        message = (f"Flow '{pipeline}' failed.\nRun {run_id}\n{where}"
+                   + (f"\n{detail}" if detail and detail not in where else ""))
+        await notify(channel, target, message, title=f"mora02: flow '{pipeline}' failed")
+        runlog.log_event(run_id, "notified", channel=channel, target=target, ok=True)
+    except NotifyError as e:
+        _log.warning("could not report the failure of run %s: %s", run_id, e)
+        runlog.log_event(run_id, "notified", channel=channel, ok=False, error=str(e))
+    except Exception as e:  # reporting a failure must not become one
+        _log.exception("failure report for run %s raised", run_id)
+        runlog.log_event(run_id, "notified", channel=channel, ok=False, error=f"{type(e).__name__}: {e}")
+
+
 def _vocab_hash() -> str:
     """A short fingerprint of the vocabulary a run was compiled against.
 
@@ -285,6 +361,7 @@ async def run_pipeline_spec(
     runner: str | None = None,
     workspace: str | None = None,
     trigger: str = "manual",
+    batch: dict[str, Any] | None = None,
 ) -> PipelineResult:
     """Compile a mora02 pipeline spec to ``.lobster``, write it, and run it.
 
@@ -331,6 +408,7 @@ async def run_pipeline_spec(
         steps=len(lobster.get("steps", [])),
         lobster_path=path,
         **_provenance(trigger),
+        **({"batch": batch} if batch else {}),
     )
     res = await run_pipeline(path, args=args, runner=runner)
     res.run_id = run_id  # so a pause can be carried to the inbox and back
@@ -339,7 +417,73 @@ async def run_pipeline_spec(
         status=res.status, ok=res.ok, is_paused=res.is_paused,
         resume_token=res.resume_token,
     )
+    await report_run_failure(run_id, res)
     return res
+
+
+# ---------------------------------------------------------------------------
+# One spec, many argument sets
+# ---------------------------------------------------------------------------
+
+def new_batch_id() -> str:
+    """Sortable like a run id, and recognisable as not one."""
+    return "batch_" + runlog.new_run_id()
+
+
+async def run_pipeline_batch(
+    spec: Union[PipelineSpec, dict, str, Path],
+    arg_sets: list[dict[str, Any]],
+    *,
+    runner: str | None = None,
+    workspace: str | None = None,
+    trigger: str = "manual",
+    batch_id: str | None = None,
+    on_result=None,
+) -> dict[str, Any]:
+    """Run one spec once per argument set, in order, each as a run of its own.
+
+    The recipe stays the same; the ingredients change. Ten subjects through
+    the same clip flow used to be ten starts and ten waits. Each run here is
+    an ordinary run with its own log, and every log says which batch it came
+    from and where in it (``batch: {id, index, size}``), so the runs can be
+    read as a group afterwards. Sequential on purpose: there is one GPU.
+
+    A run that pauses at a gate is handed to ``on_result`` (the caller files
+    it where a human will see it) and the batch goes on to the next set; the
+    decisions are taken one by one, in the inbox. A run that fails does not
+    stop the others - its failure is reported the way any failed run is - but
+    is counted. Returns the summary: batch id, one line per run, the counts.
+    """
+    bid = batch_id or new_batch_id()
+    size = len(arg_sets)
+    runs: list[dict[str, Any]] = []
+    for index, args in enumerate(arg_sets, 1):
+        record: dict[str, Any] = {"index": index, "args": args}
+        try:
+            res = await run_pipeline_spec(
+                spec, args=args or None, runner=runner, workspace=workspace, trigger=trigger,
+                batch={"id": bid, "index": index, "size": size},
+            )
+            record.update(run_id=res.run_id, status=res.status, ok=res.ok,
+                          is_paused=res.is_paused)
+            if on_result is not None:
+                try:
+                    await on_result(res)
+                except Exception as e:  # filing is the caller's concern, not the batch's
+                    _log.warning("batch %s: on_result for run %s raised: %s", bid, res.run_id, e)
+        except PipelineError as e:
+            # A spec that does not compile fails every set the same way; say
+            # so once per set rather than pretending the rest would differ.
+            record.update(run_id=None, status="error", ok=False, is_paused=False, error=str(e))
+        runs.append(record)
+    return {
+        "batch_id": bid,
+        "size": size,
+        "runs": runs,
+        "ok": sum(1 for r in runs if r.get("ok") and not r.get("is_paused")),
+        "paused": sum(1 for r in runs if r.get("is_paused")),
+        "failed": sum(1 for r in runs if not r.get("ok")),
+    }
 
 
 async def rerun_pipeline_spec(
@@ -405,6 +549,7 @@ async def rerun_pipeline_spec(
         status=res.status, ok=res.ok, is_paused=res.is_paused,
         resume_token=res.resume_token,
     )
+    await report_run_failure(run_id, res)
     return res
 
 

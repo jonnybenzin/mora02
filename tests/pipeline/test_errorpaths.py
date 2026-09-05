@@ -61,7 +61,8 @@ def step(op: str, body: str = "", query: str = "") -> tuple[int, str]:
 
 def run_spec(spec: dict) -> tuple[int, str]:
     return _request("POST", f"{RUNNER}/pipeline/run-spec",
-                    json.dumps({"spec": spec}).encode("utf-8"), "application/json")
+                    json.dumps({"spec": spec, "trigger": "test"}).encode("utf-8"),
+                    "application/json")
 
 
 def log_events(run_id: str) -> list[dict]:

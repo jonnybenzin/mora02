@@ -40,6 +40,10 @@ def record(verdict: str, subject: str, detail: str) -> None:
 
 
 def post(path: str, payload: dict) -> dict:
+    # Every run this suite starts is a test run and says so; a failure on
+    # purpose must not reach a phone (MORA02_RUN_FAILURE_NOTIFY skips "test").
+    if path.startswith("/pipeline/run") or path.startswith("/pipeline/rerun"):
+        payload = {**payload, "trigger": "test"}
     req = urllib.request.Request(f"{RUNNER}{path}", data=json.dumps(payload).encode("utf-8"),
                                  method="POST", headers={"Content-Type": "application/json"})
     try:

@@ -63,7 +63,8 @@ def post(path: str, payload: dict, timeout: int = 600) -> dict:
 
 def run_spec(name: str, steps: list, timeout: int = 600) -> dict:
     return post("/pipeline/run-spec",
-                {"spec": {"name": f"{name}-{int(time.time()*1000)%100000}", "steps": steps}},
+                {"spec": {"name": f"{name}-{int(time.time()*1000)%100000}", "steps": steps},
+                 "trigger": "test"},
                 timeout=timeout)
 
 
