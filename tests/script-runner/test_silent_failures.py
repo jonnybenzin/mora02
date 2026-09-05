@@ -274,6 +274,52 @@ def main_() -> int:
     record(not wrong, "the label is read from the END of the answer, not the start",
            str(wrong)[:90] or f"{len(cases)} shapes")
 
+    # --- the switch the model actually honours ------------------------------
+    # The 256-token ceiling held for a day. qwen36-27b ignores the `/no_think`
+    # prompt suffix, thought for all 256 and was cut off mid-label; and the
+    # library then handed the cut-off THOUGHT to the handler as the answer,
+    # which read "FILL" off its tail (wiring suite, 2026-09-05 07:08).
+    from mora02_core.llm import qwen as _qwen
+
+    class _Resp:
+        def __init__(self, body): self._b = body
+        def raise_for_status(self): pass
+        def json(self): return self._b
+
+    class _Client:
+        sent: list = []
+        reply: dict = {}
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, headers=None):
+            _Client.sent.append(json)
+            return _Resp(_Client.reply)
+
+    def _canned(content, reasoning, finish):
+        return {"choices": [{"message": {"content": content, "reasoning_content": reasoning},
+                             "finish_reason": finish}],
+                "usage": {"prompt_tokens": 9, "completion_tokens": 256}, "model": "m"}
+
+    real_client = _qwen.httpx.AsyncClient
+    _qwen.httpx.AsyncClient = _Client
+    try:
+        _Client.reply = _canned("FILL4", "", "stop")
+        text, usage = asyncio.run(_qwen.complete_qwen_usage([{"role": "user", "content": "t"}], "sys"))
+        sent = _Client.sent[-1]
+        record(sent.get("chat_template_kwargs") == {"enable_thinking": False},
+               "reasoning is switched off through the chat template, per request",
+               str(sent.get("chat_template_kwargs")))
+        record("/no_think" not in sent["messages"][0]["content"],
+               "and the prompt suffix the model ignores is gone")
+        _Client.reply = _canned("", "The user wants me to classify FILL", "length")
+        text, usage = asyncio.run(_qwen.complete_qwen_usage([{"role": "user", "content": "t"}], "sys"))
+        record(text == "" and usage.get("finish_reason") == "length",
+               "an empty answer stays empty - the train of thought is not the answer",
+               repr(text)[:40])
+    finally:
+        _qwen.httpx.AsyncClient = real_client
+
     async def thinking(*a, **k):
         return ("Here's a thinking process:\n1. ALPHA or BETA?\n\nBETA",
                 {"tokens_out": 40, "truncated": False})

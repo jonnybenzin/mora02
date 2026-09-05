@@ -65,20 +65,28 @@ async def complete_qwen_usage(
     response. Pipeline LLM steps use this to log per-step token counts; callers
     that only want the text use the :func:`complete_qwen` wrapper below.
 
-    Qwen3 routes its chain-of-thought to a separate ``reasoning_content`` field;
+    Qwen routes its chain-of-thought to a separate ``reasoning_content`` field;
     a long think can exhaust ``max_tokens`` before any ``content`` is emitted,
-    yielding an empty answer. So value callers disable it via the ``/no_think``
-    soft switch (``think=False``, the default). The ``reasoning_content`` fallback
-    keeps us non-empty even if a server build ignores the switch.
+    yielding an empty answer. Value callers therefore run without it
+    (``think=False``, the default). The switch is the chat template's own
+    ``enable_thinking`` argument, passed per request: the ``/no_think`` prompt
+    suffix this used to send was honoured by Qwen3 and is ignored by Qwen3.6,
+    which thought for 256 tokens regardless and was cut off mid-label (measured
+    2026-09-05 against the live server: 256 tokens and ``length`` with the
+    suffix, 4 tokens and ``stop`` with the argument).
+
+    No fallback to ``reasoning_content`` when ``content`` is empty: that handed
+    a truncated train of thought to callers as if it were the answer, and one
+    of them read a half-written label off its tail.
     """
     _log.debug("complete_qwen user=%s msgs=%d max_tokens=%s think=%s",
                user_id, len(messages), max_tokens, think)
-    system = system_prompt if think else f"{system_prompt}\n/no_think"
     payload = {
         "model": "local",
-        "messages": [{"role": "system", "content": system}] + messages,
+        "messages": [{"role": "system", "content": system_prompt}] + messages,
         "stream": False,
         "temperature": temperature,
+        "chat_template_kwargs": {"enable_thinking": think},
     }
     # No ceiling unless the caller asks for one. A fixed default turns "write a
     # 500 word story" into a sentence that breaks off mid-word: llama.cpp simply
@@ -96,8 +104,6 @@ async def complete_qwen_usage(
     choice = data["choices"][0]
     message = choice["message"]
     content = (message.get("content") or "").strip()
-    if not content:
-        content = (message.get("reasoning_content") or "").strip()
     usage_raw = data.get("usage") or {}
     usage = {
         "tokens_in": usage_raw.get("prompt_tokens"),

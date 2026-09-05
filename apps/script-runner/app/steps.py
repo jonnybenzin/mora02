@@ -378,11 +378,11 @@ async def _step_llm_classify(inputs: List[str], params: dict) -> dict:
         raise ValueError("llm.classify got no usable labels")
     system = ("Classify the user's text into exactly one of these labels: "
               f"{', '.join(label_list)}. Output ONLY the chosen label, nothing else.")
-    # 32 tokens was enough for a model that answers with the label and nothing
-    # else. A model that REASONS first spends the whole budget on "Here's a
-    # thinking process:" and never reaches the label -- measured 2026-09-04 on
-    # qwen36-27b, which the house switched to on 31 August; this op has been
-    # failing since, and the wiring suite was the thing that noticed.
+    # The answer is one label, so 256 tokens is a generous ceiling, not a
+    # budget to think in: the library switches reasoning off for this call.
+    # Raising the ceiling alone was the first fix (2026-09-04, from 32) and
+    # held for a day -- qwen36-27b ignored the prompt-suffix switch, spent all
+    # 256 on its train of thought and was cut off mid-label (2026-09-05).
     text, usage = await complete_qwen_usage(
         [{"role": "user", "content": text_in}], system, max_tokens=256,
     )
