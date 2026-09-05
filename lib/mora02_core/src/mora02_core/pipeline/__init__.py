@@ -122,15 +122,19 @@ async def resume_pipeline(
     order, so the ORDER of these events in the log identifies which gate each
     decision belongs to; the resume token carries no gate id.
     """
+    # Publish the answer BEFORE the runner continues: the resumed leg runs to
+    # its end inside that call, and a step in it reading {"from": "<gate>"}
+    # found nothing while the answer was still in this function's hands
+    # (review 4, reproduced). And before logging the decision: the gate is
+    # identified by counting the decisions already in the log.
+    gate_id = _publish_gate_answer(run_id, response=response, approve=approve, cancel=cancel)
     res = await get_runner(runner).resume(
         token, response=response, approve=approve, cancel=cancel
     )
     res.run_id = run_id
-    # Publish the answer BEFORE logging it: the gate is identified by counting the
-    # decisions already in the log, so an entry written first would shift the count.
-    _publish_gate_answer(run_id, response=response, approve=approve, cancel=cancel)
     runlog.log_event(
         run_id, "gate_decision",
+        gate_id=gate_id,
         decision=gate_decision_label(response=response, approve=approve, cancel=cancel),
         response=response,
         status=res.status, ok=res.ok, is_paused=res.is_paused,
@@ -154,8 +158,11 @@ def _publish_gate_answer(
     response: dict[str, Any] | None,
     approve: bool | None,
     cancel: bool,
-) -> None:
+) -> str | None:
     """Put a human's answer into the run bucket, under the gate it answered.
+
+    Returns the gate's id (None when it could not be derived), so the decision
+    is logged under it - a re-run must never pair decisions by position.
 
     This is what makes feedback usable INSIDE a run: a later step can pull the
     text a human wrote into a param with the ordinary ``{"from": "<gate>"}``
@@ -173,12 +180,12 @@ def _publish_gate_answer(
     breaking a resume that has otherwise already succeeded.
     """
     if not run_id:
-        return
+        return None
     try:
         events = runlog.read_events(run_id)
         start = next((e for e in events if e.get("kind") == "run_start"), None)
         if start is None or not start.get("spec"):
-            return
+            return None
         reused = set(start.get("reused") or ())
         gate_ids = [
             st.id
@@ -187,7 +194,7 @@ def _publish_gate_answer(
         ]
         answered = sum(1 for e in events if e.get("kind") == "gate_decision")
         if answered >= len(gate_ids):
-            return
+            return None
         gate_id = gate_ids[answered]
 
         answer: dict[str, Any] = dict(response or {})
@@ -202,8 +209,10 @@ def _publish_gate_answer(
         for key, value in answer.items():
             if isinstance(value, (str, int, float, bool)) or value is None:
                 runbucket.put(run_id, f"{gate_id}.{key}", value)
+        return gate_id
     except Exception:  # noqa: BLE001 — never let bookkeeping break a resume
         _log.warning("could not publish the gate answer for run %s", run_id)
+        return None
 
 
 def gate_decision_label(
@@ -388,7 +397,11 @@ async def run_pipeline_spec(
 
     ws = workspace or os.environ.get("MORA02_PIPELINE_WORKSPACE", _DEFAULT_WORKSPACE)
     os.makedirs(ws, exist_ok=True)
-    path = os.path.join(ws, f"{loaded.name}.lobster")
+    # One file PER RUN. With one per flow name, a second start of the same
+    # flow overwrote the file before the first run's runner read it, and run A
+    # executed run B's workflow - every step of A in B's log and bucket
+    # (review 4, reproduced). The batch runner made that likely.
+    path = os.path.join(ws, f"{loaded.name}.{run_id}.lobster")
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(lobster, fh, indent=2)
 
@@ -524,7 +537,11 @@ async def rerun_pipeline_spec(
 
     ws = workspace or os.environ.get("MORA02_PIPELINE_WORKSPACE", _DEFAULT_WORKSPACE)
     os.makedirs(ws, exist_ok=True)
-    path = os.path.join(ws, f"{loaded.name}.lobster")
+    # One file PER RUN. With one per flow name, a second start of the same
+    # flow overwrote the file before the first run's runner read it, and run A
+    # executed run B's workflow - every step of A in B's log and bucket
+    # (review 4, reproduced). The batch runner made that likely.
+    path = os.path.join(ws, f"{loaded.name}.{run_id}.lobster")
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(lobster, fh, indent=2)
 
@@ -558,19 +575,35 @@ def _guard_reused_gates(
 ) -> None:
     """Refuse to replay an approval that was never given.
 
-    Gates are reached in spec order and decisions are logged in the order they
-    were made, so the Nth decision answers the Nth gate — the resume token
-    carries no gate id, and this pairing is the only link there is.
+    A decision is matched to its gate by the id the log carries; only a log
+    from before review 4 falls back to spec order, and then to the order of
+    the source run's own spec.
     """
-    gate_ids = [
-        st.id for st in loaded.steps if isinstance(st, (GateStep, ReviewStep))
-    ]
-    decisions = [
-        e.get("decision")
-        for e in runlog.read_events(source_run_id)
-        if e.get("kind") == "gate_decision"
-    ]
-    answered = dict(zip(gate_ids, decisions))
+    events = runlog.read_events(source_run_id)
+    decisions = [e for e in events if e.get("kind") == "gate_decision"]
+    # By id where the log carries one (every decision since review 4). For an
+    # older log the position counts - but against the SOURCE run's own
+    # recorded spec, never against the new one: the new spec may have dropped
+    # a gate, and pairing its ids with the old decisions shifted a rejection
+    # onto the next gate as an approval (review 4, reproduced).
+    answered: dict[str, str | None] = {}
+    positional = [e for e in decisions if not e.get("gate_id")]
+    if positional:
+        start = next((e for e in events if e.get("kind") == "run_start"), None)
+        if start is None or not start.get("spec"):
+            raise PipelineError(
+                f"cannot reuse gates from run {source_run_id}: its log records no spec, "
+                "so its decisions cannot be matched to gates - re-run the gates instead"
+            )
+        reused = set(start.get("reused") or ())
+        source_gates = [
+            st.id for st in load_spec(start["spec"]).steps
+            if isinstance(st, (GateStep, ReviewStep)) and st.id not in reused
+        ]
+        answered.update(zip(source_gates, (e.get("decision") for e in positional)))
+    for e in decisions:
+        if e.get("gate_id"):
+            answered[e["gate_id"]] = e.get("decision")
     for gate in gates_needed:
         verdict = answered.get(gate)
         if verdict != "approve":

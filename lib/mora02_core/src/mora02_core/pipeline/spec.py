@@ -412,6 +412,11 @@ def _parse_spec(data: dict) -> PipelineSpec:
     name = data.get("name")
     if not name or not isinstance(name, str):
         raise PipelineError("spec needs a non-empty string 'name'")
+    # The name becomes a file name when the spec is compiled. The save door and
+    # the name door applied this rule; the inline-spec door did not, and a name
+    # of "../x" wrote the compiled file outside the workspace (review 4).
+    if not FLOW_NAME_RE.fullmatch(name):
+        raise PipelineError(f"spec name {name!r}: {FLOW_NAME_RULE}")
     raw_steps = data.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
         raise PipelineError("spec needs a non-empty 'steps' list")
@@ -459,6 +464,10 @@ def _parse_gate(index: int, value: Any) -> GateStep:
         if not prompt or not isinstance(prompt, str):
             raise PipelineError(f"step {index} (gate): needs a string 'prompt'")
         schema = value.get("responseSchema") or value.get("schema") or dict(_DEFAULT_GATE_SCHEMA)
+        # A schema that is not an object passed every check, was saved, and
+        # crashed the compiler with an AttributeError (review 4).
+        if not isinstance(schema, dict):
+            raise PipelineError(f"step {index} (gate): schema must be an object, got {type(schema).__name__}")
         gate = GateStep(id=str(value["id"]) if value.get("id") else "", prompt=prompt)
         gate.response_schema = schema
         return gate
@@ -489,6 +498,9 @@ def _parse_review(index: int, value: Any) -> ReviewStep:
     review = ReviewStep(id=str(cfg["id"]) if cfg.get("id") else "", prompt=prompt)
     review.notify_params = notify_params
     review.response_schema = cfg.get("responseSchema") or cfg.get("schema") or dict(_DEFAULT_GATE_SCHEMA)
+    if not isinstance(review.response_schema, dict):
+        raise PipelineError(f"step {index} (review): schema must be an object, "
+                            f"got {type(review.response_schema).__name__}")
     return review
 
 
@@ -858,7 +870,10 @@ def _gate_condition(gate_id: str, schemas: dict[str, dict]) -> str | None:
     never be true, so everything behind such a gate was silently skipped while
     the run still reported success. Answering that gate IS the go-ahead.
     """
-    props = (schemas.get(gate_id) or {}).get("properties") or {}
+    schema = schemas.get(gate_id) or {}
+    props = (schema.get("properties") if isinstance(schema, dict) else None) or {}
+    if not isinstance(props, dict):
+        props = {}
     approved = props.get("approved")
     if isinstance(approved, dict) and approved.get("type") == "boolean":
         return f"${gate_id}.response.approved"

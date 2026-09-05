@@ -49,7 +49,7 @@ def call(name: str, args: dict) -> dict:
     return asyncio.run(M._call(name, args))
 
 
-GOOD = {"name": "t", "description": "probe", "steps": [
+GOOD = {"name": "probe-good", "description": "probe", "steps": [
     {"llm.image_prompt": {"id": "prompt", "subject": {"arg": "subject", "default": "x"}}},
     {"image.generate": {"id": "picture", "flow": "photo"}},
     {"review": "ok?"},
@@ -85,7 +85,7 @@ def main() -> int:
            "an unknown `after` says so instead of answering with nothing")
 
     # --- flow_check: every problem at once, in words ---------------------------
-    bad = {"name": "t", "steps": [
+    bad = {"name": "probe-bad", "steps": [
         {"llm.image_prompt": {"id": "prompt", "subjekt": "x"}},          # misspelled param
         {"image.generate": {"id": "picture", "flow": "phot"}},           # bad choice
         {"clip.generate": {"id": "clip", "in": "later"}},                # forward reference
@@ -103,14 +103,14 @@ def main() -> int:
     record(call("flow_check", {"spec": "nonsense"}).get("ok") is False, "a spec that is not an object is refused")
     planned = next((o.name for o in vocab.all_ops() if o.status != "wired"), None)
     if planned:
-        out = call("flow_check", {"spec": {"name": "t", "steps": [{planned: {"id": "p"}}]}})
+        out = call("flow_check", {"spec": {"name": "probe-planned", "steps": [{planned: {"id": "p"}}]}})
         record(out.get("ok") is True and any(planned in w for w in out.get("warnings", [])),
                "a planned op is a warning, not a refusal - authoring ahead of a handler is allowed",
                planned)
 
     # --- flow_save: into the local library, checked, once ----------------------
     record("error" in call("flow_save", {"name": "Bad Name", "spec": GOOD}), "a name that cannot be a file is refused")
-    record("error" in call("flow_save", {"name": "t", "spec": bad}) and not (LOCAL / "t.json").exists(),
+    record("error" in call("flow_save", {"name": "probe-bad", "spec": bad}) and not (LOCAL / "probe-bad.json").exists(),
            "a draft the check refuses is not written")
     out = call("flow_save", {"name": "probe-flow", "spec": GOOD})
     record(out.get("ok") and (LOCAL / "probe-flow.json").is_file() and not (SHIPPED / "probe-flow.json").exists(),
