@@ -183,7 +183,7 @@ def _publish_gate_answer(
         return None
     try:
         events = runlog.read_events(run_id)
-        start = next((e for e in events if e.get("kind") == "run_start"), None)
+        start = runlog.start_of(events)
         if start is None or not start.get("spec"):
             return None
         reused = set(start.get("reused") or ())
@@ -303,7 +303,7 @@ def _run_failed(res: PipelineResult) -> bool:
 def _failure_lines(run_id: str) -> tuple[str, str, str]:
     """(pipeline name, trigger, one line about the failing step) from the run log."""
     events = runlog.read_events(run_id)
-    start = next((e for e in events if e.get("kind") == "run_start"), {})
+    start = runlog.start_of(events) or {}
     failed = next((e for e in reversed(events)
                    if e.get("kind") == "step" and e.get("status") == "failed"), None)
     if failed:
@@ -652,7 +652,7 @@ def _guard_reused_gates(
     answered: dict[str, str | None] = {}
     positional = [e for e in decisions if not e.get("gate_id")]
     if positional:
-        start = next((e for e in events if e.get("kind") == "run_start"), None)
+        start = runlog.start_of(events)
         if start is None or not start.get("spec"):
             raise PipelineError(
                 f"cannot reuse gates from run {source_run_id}: its log records no spec, "

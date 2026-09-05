@@ -111,6 +111,26 @@ def log_event(run_id: str | None, kind: str, **fields: Any) -> None:
         pass
 
 
+def start_of(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The run_start event, or None. Nine call sites wrote this scan by hand."""
+    return next((e for e in events if e.get("kind") == "run_start"), None)
+
+
+def last_result(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The NEWEST run_result, or None. A resumed run writes one per leg, and the
+    first one is the pause, not the fate - a reader that took the first showed
+    a finished flow as waiting."""
+    return next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
+
+
+def has_log(run_id: str) -> bool:
+    """Whether a log file exists for the run - what a 404 is decided on."""
+    try:
+        return os.path.isfile(_path(run_id))
+    except BadRunId:
+        return False
+
+
 def read_events(run_id: str) -> list[dict[str, Any]]:
     """All events of a run, in the order they were written.
 

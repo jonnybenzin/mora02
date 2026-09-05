@@ -83,7 +83,7 @@ def _recover_run_spec(source_run_id: str) -> dict:
     typo'd run id was diagnosed as an old run (review 3, 2026-09-04).
     """
     events = pipeline_runlog.read_events(_checked_run_id(source_run_id, "source_run_id"))
-    start = next((e for e in events if e.get("kind") == "run_start"), None)
+    start = pipeline_runlog.start_of(events)
     if start is None:
         raise HTTPException(status_code=404, detail=f"no run log for {source_run_id!r}")
     spec = start.get("spec")
@@ -209,7 +209,7 @@ async def pipeline_run_batch(req: PipelineBatchRequest):
 def _run_summary(run_id: str) -> dict:
     """What a run's own log says about it: steps done, fate, paused, failed."""
     events = _read_run_events(run_id) or []
-    result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
+    result = pipeline_runlog.last_result(events)
     steps = [e for e in events if e.get("kind") == "step"]
     return {
         "steps_done": len(steps),
@@ -245,7 +245,7 @@ def _batch_status(batch_id: str) -> dict:
         d = pipeline_runlog.log_dir()
         for p in Path(d).glob("*.jsonl"):
             events = _read_run_events(p.stem) or []
-            start = next((e for e in events if e.get("kind") == "run_start"), None)
+            start = pipeline_runlog.start_of(events)
             if not start or (start.get("batch") or {}).get("id") != batch_id:
                 continue
             runs.append({"run_id": p.stem, "index": start["batch"].get("index"),
@@ -437,19 +437,12 @@ async def pipeline_flow_delete(name: str):
 
 
 def _read_run_events(run_id: str):
-    """Parse a run's JSONL log into a list of events, or None if it doesn't exist."""
-    path = os.path.join(pipeline_runlog.log_dir(), f"{run_id}.jsonl")
-    events = []
-    try:
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                try:
-                    events.append(json.loads(line))
-                except ValueError:
-                    continue
-    except OSError:
+    """A run's events, or None when it has no log - the library's reader, with
+    the one difference the routes need: a missing run is a 404, not an empty
+    run. This used to be a copy of the reader with its own path building."""
+    if not pipeline_runlog.has_log(run_id):
         return None
-    return events
+    return pipeline_runlog.read_events(run_id)
 
 
 @router.get("/pipeline/runs")
@@ -468,9 +461,9 @@ async def pipeline_runs():
     files = await asyncio.to_thread(_scan)
     for p in files:
         events = await asyncio.to_thread(_read_run_events, p.stem) or []
-        start = next((e for e in events if e.get("kind") == "run_start"), {})
+        start = pipeline_runlog.start_of(events) or {}
         steps = [e for e in events if e.get("kind") == "step"]
-        result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
+        result = pipeline_runlog.last_result(events)
         last = steps[-1] if steps else None
         try:
             active = (time.time() - p.stat().st_mtime) < 90  # log touched recently
@@ -509,8 +502,8 @@ async def pipeline_run_detail(run_id: str):
     events = await asyncio.to_thread(_read_run_events, os.path.basename(run_id))
     if events is None:
         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
-    start = next((e for e in events if e.get("kind") == "run_start"), {})
-    result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
+    start = pipeline_runlog.start_of(events) or {}
+    result = pipeline_runlog.last_result(events)
     steps = []
     for e in events:
         if e.get("kind") != "step":
@@ -592,8 +585,9 @@ def _archive_run(run_id: str) -> dict:
     if bucket_file.is_file():
         shutil.copy2(bucket_file, dest / "bucket.json")
     events = pipeline_runlog.read_events(run_id)
-    start = next((e for e in events if e.get("kind") == "run_start"), {})
+    start = pipeline_runlog.start_of(events) or {}
     manifest = {
+        "ok": True,
         "run_id": run_id,
         "pipeline": start.get("pipeline"),
         "started": start.get("ts"),

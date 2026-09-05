@@ -34,10 +34,9 @@ RUNNER = os.environ.get("SCRIPT_RUNNER_URL", "http://127.0.0.1:8096")
 
 
 def _read(run_id: str) -> list[dict]:
-    path = Path(runlog.log_dir()) / f"{run_id}.jsonl"
-    if not path.is_file():
-        sys.exit(f"no log for run {run_id!r} at {path}")
-    return [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    if not runlog.has_log(run_id):
+        sys.exit(f"no log for run {run_id!r} in {runlog.log_dir()}")
+    return runlog.read_events(run_id)
 
 
 def _run_files() -> list[Path]:
@@ -60,10 +59,8 @@ def _totals(events: list[dict]) -> dict:
 
 
 def _summary(events: list[dict]) -> dict:
-    start = next((e for e in events if e.get("kind") == "run_start"), {})
-    # The LAST run_result: a resumed run writes one per leg, and the first one
-    # is the pause, not the fate.
-    result = next((e for e in reversed(events) if e.get("kind") == "run_result"), {})
+    start = runlog.start_of(events) or {}
+    result = runlog.last_result(events) or {}
     return {
         "pipeline": start.get("pipeline", "?"),
         "trigger": start.get("trigger") or "?",
@@ -77,8 +74,7 @@ def _summary(events: list[dict]) -> dict:
 def cmd_list(args) -> int:
     rows = []
     for f in _run_files():
-        events = [json.loads(ln) for ln in f.read_text(encoding="utf-8").splitlines() if ln.strip()]
-        rows.append({"run_id": f.stem, **_summary(events)})
+        rows.append({"run_id": f.stem, **_summary(runlog.read_events(f.stem))})
     if args.json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
         return 0

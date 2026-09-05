@@ -270,7 +270,7 @@ def check_flow(data: dict) -> tuple[list[str], list[str]]:
         parsed = load_spec(data)
     except PipelineError as e:
         return [str(e)], warnings
-    for check, what in ((check_references, "wiring"), (check_wire_types, "wiring")):
+    for check, what in ((check_references, "reference"), (check_wire_types, "type")):
         try:
             check(parsed)
         except PipelineError as e:
@@ -278,7 +278,7 @@ def check_flow(data: dict) -> tuple[list[str], list[str]]:
     for st in parsed.steps:
         if not isinstance(st, OpStep):
             continue
-        refs = {k for k, v in st.params.items() if isinstance(v, dict) and ("from" in v or "arg" in v)}
+        refs = {k for k, v in st.params.items() if _is_ref(v) or _is_arg(v)}
         literal = {k: v for k, v in st.params.items() if k not in refs}
         try:
             validate_op(st.op, literal, ref_params=refs)
