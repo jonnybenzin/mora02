@@ -21,7 +21,7 @@
 
 apps/script-runner/app/steps.py | x[:_LOG_VALUE_MAX] | announced | run-log value budget; the record carries truncated=True and the true length
 lib/mora02_core/src/mora02_core/web/client.py | text = text[:max_chars] | data-limit | web.fetch page ceiling; adjustable via ?max_chars=, and the cut is announced in the note above it
-apps/script-runner/app/main.py | reverse=True)[:40] | listing | number of run files listed, not the inside of one
+apps/script-runner/app/pipelines.py | reverse=True)[:40] | listing | number of run files listed, not the inside of one
 apps/pilot/app.py | caption_master | listing | Baserow list preview column, the full caption stays in the row
 apps/pilot/app.py | summary_data.get("goal" | storage | Baserow Name field limit of 255 characters
 apps/pilot/app.py | {now[:16]} | formatting | timestamp cut to minutes for a title, not a text value

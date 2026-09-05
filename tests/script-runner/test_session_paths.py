@@ -58,6 +58,7 @@ import os  # noqa: E402
 os.environ["MORA02_SCRIPT_RUNNER_DATA"] = str(DATA)
 
 import main  # noqa: E402
+import runtime  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 results: list[tuple[str, str, str]] = []
@@ -70,7 +71,7 @@ def record(ok: bool, subject: str, detail: str = "") -> None:
 
 def main_() -> int:
     client = TestClient(main.app)
-    wip = main.WIP_DIR
+    wip = runtime.WIP_DIR
 
     # A neighbour of the session directory, standing in for everything the data
     # mount really carries: the flow library, the run logs, the agent folders.
@@ -114,11 +115,11 @@ def main_() -> int:
            f"{len(list(DATA.iterdir()))} entries still in the data directory")
 
     # --- what must still work ----------------------------------------------
-    sid = main.create_session()
-    record(main.get_session_dir(sid).is_dir(), "a session created here resolves", sid)
+    sid = runtime.create_session()
+    record(runtime.get_session_dir(sid).is_dir(), "a session created here resolves", sid)
     (wip / sid / "input" / "a.txt").write_text("x")
 
-    other = main.create_session()
+    other = runtime.create_session()
     r = client.delete(f"/session/{sid}")
     record(r.status_code == 200, "a real session deletes", f"HTTP {r.status_code}")
     record(not (wip / sid).exists(), "and its directory is gone")

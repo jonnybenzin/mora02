@@ -54,6 +54,7 @@ os.environ["MORA02_SCRIPT_RUNNER_DATA"] = str(DATA)
 os.environ["MORA02_PIPELINE_LOG_DIR"] = str(DATA / "logs")
 
 import main  # noqa: E402
+import pipelines  # noqa: E402
 import speech  # noqa: E402
 import httpx  # noqa: E402
 
@@ -118,13 +119,13 @@ def main_() -> int:
     rid = "20260904_120000_abcdef01"
     (DATA / "logs" / f"{rid}.jsonl").write_text(
         '{"kind": "run_start", "run_id": "%s", "ts": "2026-09-04T12:00:00+00:00"}\n' % rid)
-    real_read = main._read_run_events
+    real_read = pipelines._read_run_events
 
     def slow_read(run_id):
         time.sleep(BLOCK_S)
         return real_read(run_id)
 
-    main._read_run_events = slow_read
+    pipelines._read_run_events = slow_read
     try:
         async def busy2():
             transport = httpx.ASGITransport(app=main.app)
@@ -134,7 +135,7 @@ def main_() -> int:
 
         served, waited = asyncio.run(_probe_while(busy2(), "runlog"))
     finally:
-        main._read_run_events = real_read
+        pipelines._read_run_events = real_read
 
     record(served, "the service answers while a run log is being read")
     record(waited < BLOCK_S / 2,

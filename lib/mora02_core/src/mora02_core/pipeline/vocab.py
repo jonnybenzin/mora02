@@ -11,7 +11,7 @@ derives from it:
     front-ends (visual builder / recording / LLM dialog) can enumerate + validate;
   - the human-readable reference (docs/pipeline-vocabulary.md) is GENERATED from it.
 
-The ops are *implemented* by handlers in ``apps/script-runner/app/main.py``
+The ops are *implemented* by handlers in ``apps/script-runner/app/steps.py``
 (``_PIPELINE_STEPS``); that module guards at startup that its handler keys match
 this registry, so the two cannot silently drift. Adding an op = add a handler
 there AND an :class:`Op` here.

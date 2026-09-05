@@ -53,6 +53,7 @@ DATA = Path(tempfile.mkdtemp(prefix="sr-paths-"))
 os.environ["MORA02_SCRIPT_RUNNER_DATA"] = str(DATA)
 
 import main  # noqa: E402
+import runtime  # noqa: E402
 import steps  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -85,26 +86,26 @@ def main_() -> int:
     client = TestClient(main.app)
 
     # --- the rule ----------------------------------------------------------
-    bad = [v for v in ESCAPES if main._segment_problem(v) is None]
+    bad = [v for v in ESCAPES if runtime._segment_problem(v) is None]
     record(not bad, "every escaping form is refused by the rule", str(bad))
     ok_names = ["a.jpg", "img_260904-1724_pexels_12.jpg", "Fragen (alt).md",
                 "clip-01.mp4", "ärger.png"]
-    bad_ok = [v for v in ok_names if main._segment_problem(v) is not None]
+    bad_ok = [v for v in ok_names if runtime._segment_problem(v) is not None]
     record(not bad_ok, "a real file name still passes (spaces, brackets, umlauts)", str(bad_ok))
-    record(main._segment_problem("x" * 256) is not None, "an absurdly long name is refused")
+    record(runtime._segment_problem("x" * 256) is not None, "an absurdly long name is refused")
 
     # --- the two doors of the same rule ------------------------------------
-    refuses(lambda: main.safe_segment("../x", "f"), "the HTTP door answers 422", HTTPException)
-    refuses(lambda: main.step_segment("../x", "f"), "the step door raises ValueError", ValueError)
-    record(main.safe_segment("a.jpg", "f") == "a.jpg" and main.step_segment("a.jpg", "f") == "a.jpg",
+    refuses(lambda: runtime.safe_segment("../x", "f"), "the HTTP door answers 422", HTTPException)
+    refuses(lambda: runtime.step_segment("../x", "f"), "the step door raises ValueError", ValueError)
+    record(runtime.safe_segment("a.jpg", "f") == "a.jpg" and runtime.step_segment("a.jpg", "f") == "a.jpg",
            "both doors pass a real name through")
 
     # --- containment, the net a pattern cannot provide ---------------------
     root = DATA / "store"
     (root / "sub").mkdir(parents=True, exist_ok=True)
-    record(main.inside(root, root / "sub" / "a.png", "x") is not None,
+    record(runtime.inside(root, root / "sub" / "a.png", "x") is not None,
            "a path inside the root is accepted")
-    refuses(lambda: main.inside(root, root / ".." / "a.png", "x"),
+    refuses(lambda: runtime.inside(root, root / ".." / "a.png", "x"),
             "a path out of the root is refused", HTTPException)
 
     # --- the HTTP endpoints ------------------------------------------------
@@ -125,8 +126,8 @@ def main_() -> int:
 
     # The session needs an output file: finalize-session returns early ("no
     # output files") before it ever builds a path, so an empty one tests nothing.
-    sid = main.create_session()
-    (main.WIP_DIR / sid / "output" / "clip.mp4").write_bytes(b"x")
+    sid = runtime.create_session()
+    (runtime.WIP_DIR / sid / "output" / "clip.mp4").write_bytes(b"x")
     r = client.post("/finalize-session", json={"session_id": sid, "script_type": "../../../etc"})
     record(r.status_code == 422, "/finalize-session refuses a walking script_type",
            f"HTTP {r.status_code}")

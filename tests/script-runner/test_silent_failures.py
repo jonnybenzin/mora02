@@ -61,6 +61,8 @@ os.environ["MORA02_SCRIPT_RUNNER_DATA"] = str(DATA)
 os.environ["MORA02_PIPELINE_LOG_DIR"] = str(LOGS)
 
 import main  # noqa: E402
+import pipelines  # noqa: E402
+import runtime  # noqa: E402
 import steps  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from mora02_core import pricing  # noqa: E402
@@ -209,13 +211,13 @@ def main_() -> int:
     async def boom(*a, **k):
         raise RuntimeError("lobster resume produced no JSON envelope")
 
-    real_resume = main.resume_pipeline
-    main.resume_pipeline = boom
+    real_resume = pipelines.resume_pipeline
+    pipelines.resume_pipeline = boom
     try:
-        req = main.PipelineResumeRequest(token="t", run_id=rid2, background=True)
-        asyncio.run(main._bg_resume_and_refile(req))
+        req = pipelines.PipelineResumeRequest(token="t", run_id=rid2, background=True)
+        asyncio.run(pipelines._bg_resume_and_refile(req))
     finally:
-        main.resume_pipeline = real_resume
+        pipelines.resume_pipeline = real_resume
     events = runlog.read_events(rid2)
     fated = [e for e in events if e.get("kind") == "run_result"]
     record(bool(fated) and fated[0].get("ok") is False,
@@ -239,12 +241,12 @@ def main_() -> int:
     record("raw" not in d and d["run_id"] == "r1" and d["is_paused"],
            "the result shape lives on the dataclass and leaves `raw` out",
            f"{len(d)} fields")
-    record(main._pipeline_result_to_dict(res) == d,
+    record(pipelines._pipeline_result_to_dict(res) == d,
            "and the HTTP layer hands back exactly that")
 
-    record(main._media_type(".webm") == "video/webm" and main._media_type(".webp") == "image/webp",
+    record(runtime._media_type(".webm") == "video/webm" and runtime._media_type(".webp") == "image/webp",
            "the file routes know the types their four tables disagreed about")
-    record(main._media_type(".zzz") == "application/octet-stream",
+    record(runtime._media_type(".zzz") == "application/octet-stream",
            "and an unknown suffix keeps the old fallback")
 
     from mora02_core.pipeline import spec as _spec

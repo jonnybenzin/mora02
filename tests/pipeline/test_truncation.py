@@ -39,6 +39,8 @@ SCAN = [
     # would leave the inventory simply by moving to another file.
     "apps/script-runner/app/main.py",
     "apps/script-runner/app/steps.py",
+    "apps/script-runner/app/media.py",
+    "apps/script-runner/app/pipelines.py",
     "apps/script-runner/app/runtime.py",
     "apps/script-runner/app/speech.py",
     "apps/pilot/app.py",

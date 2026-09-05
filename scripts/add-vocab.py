@@ -306,7 +306,7 @@ def main() -> int:
 
     print("\n--- Op (planned) to be added to vocab.py ---\n")
     print(op_src)
-    print("\n--- handler stub to paste into apps/script-runner/app/main.py ---\n")
+    print("\n--- handler stub to paste into apps/script-runner/app/steps.py ---\n")
     print(stub)
 
     if args.dry_run:
@@ -318,7 +318,7 @@ def main() -> int:
     regenerate_doc()
     print(f"\n✓ added {spec['name']!r} to the vocabulary (status: planned) + regenerated docs.")
     print("\nTo make it runnable (promotion):")
-    print("  1. paste the handler stub above into main.py and implement it")
+    print("  1. paste the handler stub above into steps.py and implement it")
     print(f"  2. register it in _PIPELINE_STEPS: {spec['name']!r}: {'_step_' + spec['name'].replace('.', '_')}")
     print(f"  3. set status=\"wired\" on the {spec['name']!r} Op in vocab.py, regenerate, rebuild script-runner")
     return 0

@@ -26,7 +26,7 @@ scripts/vocab.py <cmd> --json         # machine-readable
 
 ## Op status
 
-- 🟢 **wired** — a handler exists in `apps/script-runner/app/main.py`
+- 🟢 **wired** — a handler exists in `apps/script-runner/app/steps.py`
   (`_PIPELINE_STEPS`); runnable today.
 - 🟡 **planned** — the capability exists as a lib/endpoint, but no pipeline
   handler yet. It is in the vocabulary as a contract/menu; the compiler refuses
@@ -74,11 +74,11 @@ JSON spec shape (for the non-interactive / automation path):
 ### Step 2: promote planned → wired (the manual half)
 
 1. Paste the printed stub `_step_<name>(inputs, params)` into
-   `apps/script-runner/app/main.py` and implement it — call your service/lib,
+   `apps/script-runner/app/steps.py` and implement it — call your service/lib,
    return `{"ok": True, "op": "<name>", "out": <ref-or-text>, "type": "<wire-type>"}`.
    The step contract (stdin = newline-separated input refs/values, params = query
    string, `out` = the single stdout string) is in the "PIPELINE STEP VOCABULARY"
-   section header of `main.py`.
+   section header of `steps.py`.
 2. Register it in the `_PIPELINE_STEPS` dict.
 3. Set `status="wired"` on the `Op` in `vocab.py`, run
    `python3 scripts/gen-pipeline-vocab-doc.py`, and rebuild script-runner.
