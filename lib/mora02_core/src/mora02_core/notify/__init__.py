@@ -52,6 +52,10 @@ async def notify(
     or a URL it can fetch); with media set, ``message`` may be empty (caption-less).
     ``backend`` overrides ``MORA02_NOTIFY_BACKEND`` for this one call.
     """
+    # One call, any channel: the chat channels ride the gateway, mail does not.
+    # Choosing the backend by channel here keeps that fact out of every caller.
+    if backend is None and channel == "email":
+        backend = "email"
     adapter = get_adapter(backend)
     return await adapter.send(channel, target, message, title=title, link=link, media=media)
 

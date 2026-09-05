@@ -845,22 +845,24 @@ _OPS: tuple[Op, ...] = (
     Op(
         name="notify",
         summary="Send the previous step's output (type-aware) to a channel, no pause; pass it through.",
-        plain="Sends the previous step's result (image/video/text) to a chat without pausing, just a heads-up.",
+        plain="Sends the previous step's result (image/video/text) to a chat or by mail without pausing, just a heads-up.",
         bucket="delivery",
         runs_on='gateway',
-        service='OpenClaw gateway → Signal',
+        service='OpenClaw gateway → Signal; SMTP → e-mail',
         effect='outward',
         caveats=(
             'An image with a caption goes as TWO messages: the picture, then the words. The gateway cuts a caption sent with media down to its first character.',
             'Passes its input through unchanged, so the chain continues.',
+            'channel=email sends over SMTP, not the gateway: a picture or clip travels as an attachment, in one mail.',
         ),
         requires=(
-            'the OpenClaw gateway container',
+            'the OpenClaw gateway container (chat channels)',
             'MORA02_SIGNAL_TARGET, unless ?target= is given',
+            'for channel=email: MORA02_SMTP_HOST/USER/PASSWORD and MORA02_EMAIL_TARGET',
         ),
         params=(
-            Param("channel", default="signal", desc="notify channel"),
-            Param("target", desc="recipient; falls back to env MORA02_SIGNAL_TARGET"),
+            Param("channel", default="signal", desc="notify channel: signal (gateway) or email (SMTP)"),
+            Param("target", desc="recipient (number or mail address); falls back to env MORA02_<CHANNEL>_TARGET"),
             Param("message", desc="optional caption / text body"),
             Param("title", desc="optional title prepended to message"),
             Param("link", desc="optional link appended to message"),
@@ -957,6 +959,8 @@ _OPS: tuple[Op, ...] = (
         ),
         params=(
             Param("text", desc="post caption/body text (often a {\"from\": <llm step>} ref)"),
+            Param("media", desc="asset ref of the picture to post when none arrives on stdin "
+                                "(a scheduled run hands it in as {\"arg\": \"media\"})"),
             Param("author", desc="author URN urn:li:person:…; falls back to env MORA02_LINKEDIN_AUTHOR"),
             Param("visibility", type="enum", default="PUBLIC",
                   choices=("PUBLIC", "CONNECTIONS"), desc="post visibility"),

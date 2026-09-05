@@ -12,6 +12,7 @@ import os
 
 from mora02_core.notify._errors import NotifyError
 from mora02_core.notify.base import NotifyAdapter
+from mora02_core.notify.email import EmailAdapter
 from mora02_core.notify.log import LogAdapter
 from mora02_core.notify.openclaw import OpenClawAdapter
 
@@ -39,3 +40,4 @@ def get_adapter(name: str | None = None) -> NotifyAdapter:
 # so registering instances at import time is safe even with no gateway running.
 register_adapter(OpenClawAdapter())
 register_adapter(LogAdapter())
+register_adapter(EmailAdapter())

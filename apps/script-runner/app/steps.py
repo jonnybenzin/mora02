@@ -13,7 +13,9 @@ Same shape as agents.py, mcp_tools.py and speech.py: a router main.py includes.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import subprocess
 import mimetypes
 import os
 import time
@@ -863,14 +865,19 @@ async def _step_notify(inputs: List[str], params: dict) -> dict:
 
     Generalizes notify.image: an ``asset://`` ref on stdin is resolved to a file
     and sent as ``media`` (image/video/audio — whatever it is); any other stdin
-    value is sent as the message text. Params: target (E.164; or env
-    MORA02_SIGNAL_TARGET), channel (default "signal"), message (caption / extra
-    text), title, link. Like notify.image, a media file is sent by the gateway
-    container, so its store must be mounted there at the same resolved path.
+    value is sent as the message text. Params: channel (default "signal";
+    "email" goes over SMTP instead of the gateway), target (E.164 number or
+    mail address; falls back to env MORA02_<CHANNEL>_TARGET, e.g.
+    MORA02_SIGNAL_TARGET, MORA02_EMAIL_TARGET), message (caption / extra text),
+    title, link. A media file for a chat channel is sent by the gateway
+    container, so its store must be mounted there at the same resolved path;
+    for mail it is attached from here.
     """
-    target = params.get("target") or os.environ.get("MORA02_SIGNAL_TARGET")
+    channel = params.get("channel", "signal")
+    target_env = f"MORA02_{channel.upper()}_TARGET"
+    target = params.get("target") or os.environ.get(target_env)
     if not target:
-        raise ValueError("notify needs a target (?target= or MORA02_SIGNAL_TARGET)")
+        raise ValueError(f"notify needs a target (?target= or {target_env})")
 
     # stdin reaches a step split into LINES (see the step endpoint). An asset ref
     # is a single line, so inputs[0] identifies it — but a text value must be
@@ -1349,6 +1356,12 @@ async def _step_publish_linkedin(inputs: List[str], params: dict) -> dict:
     # ref check, but use the whole input as the text body.
     incoming = inputs[0] if inputs else ""
     body_text = "\n".join(inputs).strip()
+    # A run started by the scheduler has no earlier step to put the picture on
+    # stdin; it hands the ref in through ?media= (from the run's args). stdin
+    # keeps precedence, so a wired chain behaves as before.
+    if not incoming.startswith("asset://") and str(params.get("media", "")).startswith("asset://"):
+        incoming = params["media"]
+        body_text = ""
     image_bytes = None
     image_mime = "image/png"
     if incoming.startswith("asset://"):
@@ -1523,14 +1536,7 @@ _VOCAB_STATS_CACHE: dict = {"signature": None, "payload": None}
 def _spec_op_usage() -> dict:
     """op name -> [flow names that use it], read from the saved library."""
     usage: dict[str, list] = {}
-    specs = pipeline_spec.specs_dir()
-    if not specs.is_dir():
-        return usage
-    for path in sorted(specs.glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
+    for path, data in pipeline_spec.list_specs():
         for raw in data.get("steps") or []:
             if isinstance(raw, dict) and len(raw) == 1:
                 op = next(iter(raw))
@@ -1680,6 +1686,66 @@ def _ref_name(value):
 
 _LOG_VALUE_MAX = 200  # per-input value budget in the run log
 
+# Above this a file is not hashed: the run log is written while the run waits,
+# and a checksum over gigabytes is a pause nobody asked for. Recorded as null,
+# not omitted, so a reader can tell "not computed" from "not a file".
+_HASH_MAX_BYTES = 512 * 1024 * 1024
+
+
+def _file_facts(ref) -> dict | None:
+    """What an output FILE is, for the run log: size, checksum, dimensions.
+
+    The run log named the file an op produced but said nothing about it, so
+    "did this run make the same picture as that one" and "why is the clip
+    twelve seconds" were questions for the file system. Runs in a thread (it
+    reads the whole file); never raises - a fact that cannot be read is left
+    out, the step is not touched by it.
+    """
+    if not _ref_name(ref):
+        return None
+    try:
+        path = asset_refs.resolve_ref(ref)
+        st = path.stat()
+    except Exception:
+        return None
+    facts: dict = {"bytes": st.st_size, "sha256": None}
+    if st.st_size <= _HASH_MAX_BYTES:
+        h = hashlib.sha256()
+        try:
+            with open(path, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                    h.update(chunk)
+            facts["sha256"] = h.hexdigest()
+        except OSError:
+            pass
+    kind = asset_refs.wire_type(path.suffix)
+    if kind == "image":
+        try:
+            from PIL import Image
+            with Image.open(path) as im:
+                facts["width"], facts["height"] = im.size
+        except Exception:
+            pass
+    elif kind in ("video", "audio"):
+        # ffprobe ships with ffmpeg, which the media ops need anyway.
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries",
+                 "format=duration:stream=width,height", "-of", "json", str(path)],
+                capture_output=True, text=True, timeout=15,
+            )
+            info = json.loads(probe.stdout or "{}")
+            dur = (info.get("format") or {}).get("duration")
+            if dur is not None:
+                facts["duration_s"] = round(float(dur), 3)
+            for stream in info.get("streams") or []:
+                if stream.get("width") and stream.get("height"):
+                    facts["width"], facts["height"] = stream["width"], stream["height"]
+                    break
+        except Exception:
+            pass
+    return facts
+
 
 def _log_inputs(inputs: List[str]) -> list:
     """Compact per-input record for the run log: ref+name, or a value.
@@ -1826,15 +1892,18 @@ async def pipeline_step(op: str, request: Request):
     # the run over it is a design mistake. The op's key is dropped, and the drop
     # is recorded rather than hidden.
     _reserved = {"kind", "run_id", "step_id", "op", "params", "inputs", "out",
-                 "out_name", "out_type", "status", "duration_ms", "error"}
+                 "out_name", "out_type", "out_file", "status", "duration_ms", "error"}
     clashes = sorted(set(extra) & _reserved)
     extra = {k: v for k, v in extra.items() if k not in _reserved}
     if clashes:
         extra["log_field_clash"] = clashes
         _log.warning("op %s attaches reserved log field(s) %s - dropped", op, clashes)
+    # Off the loop, and only for a run: a direct step call has no log to feed.
+    out_file = await asyncio.to_thread(_file_facts, out) if run_id else None
     pipeline_runlog.log_event(
         run_id, "step", step_id=step_id, op=op, params=params,
         inputs=_log_inputs(inputs), out=out, out_name=_ref_name(out),
+        out_file=out_file,
         out_type=result.get("type"), status="ok",
         duration_ms=round((time.monotonic() - started) * 1000),
         **extra,

@@ -116,7 +116,7 @@ The step *ops* a mora02 pipeline is built from, grouped by kind. Each op has a p
 | Op | What it does | Status |
 |----|--------------|--------|
 | [`notify.image`](#notifyimage) | Sends an image to your phone chat so you can look at it, then passes it along unchanged. | 🟢 |
-| [`notify`](#notify) | Sends the previous step's result (image/video/text) to a chat without pausing, just a heads-up. | 🟢 |
+| [`notify`](#notify) | Sends the previous step's result (image/video/text) to a chat or by mail without pausing, just a heads-up. | 🟢 |
 
 ## Reference
 
@@ -966,6 +966,7 @@ Posts text (and optionally an image) to LinkedIn and returns the post link.
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `text` | string | no |  | post caption/body text (often a {"from": <llm step>} ref) |
+| `media` | string | no |  | asset ref of the picture to post when none arrives on stdin (a scheduled run hands it in as {"arg": "media"}) |
 | `author` | string | no |  | author URN urn:li:person:…; falls back to env MORA02_LINKEDIN_AUTHOR |
 | `visibility` | enum | no | `PUBLIC` | post visibility (one of: PUBLIC, CONNECTIONS) |
 
@@ -997,26 +998,27 @@ Sends an image to your phone chat so you can look at it, then passes it along un
 
 #### `notify` 🟢
 
-Sends the previous step's result (image/video/text) to a chat without pausing, just a heads-up.
+Sends the previous step's result (image/video/text) to a chat or by mail without pausing, just a heads-up.
 
 *Technical:* Send the previous step's output (type-aware) to a channel, no pause; pass it through.
 
 - **Default step id:** `notify`  
 - **Consumes (stdin):** one (optional) (any)  
 - **Emits (stdout):** any
-- **Runs on:** gateway — OpenClaw gateway → Signal  
+- **Runs on:** gateway — OpenClaw gateway → Signal; SMTP → e-mail  
 - **Money:** free  
 - **Side effect:** **leaves the house** — visible outside this machine  
-- **Needs:** the OpenClaw gateway container; MORA02_SIGNAL_TARGET, unless ?target= is given
+- **Needs:** the OpenClaw gateway container (chat channels); MORA02_SIGNAL_TARGET, unless ?target= is given; for channel=email: MORA02_SMTP_HOST/USER/PASSWORD and MORA02_EMAIL_TARGET
 
 **Worth knowing:**
 - An image with a caption goes as TWO messages: the picture, then the words. The gateway cuts a caption sent with media down to its first character.
 - Passes its input through unchanged, so the chain continues.
+- channel=email sends over SMTP, not the gateway: a picture or clip travels as an attachment, in one mail.
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `channel` | string | no | `signal` | notify channel |
-| `target` | string | no |  | recipient; falls back to env MORA02_SIGNAL_TARGET |
+| `channel` | string | no | `signal` | notify channel: signal (gateway) or email (SMTP) |
+| `target` | string | no |  | recipient (number or mail address); falls back to env MORA02_<CHANNEL>_TARGET |
 | `message` | string | no |  | optional caption / text body |
 | `title` | string | no |  | optional title prepended to message |
 | `link` | string | no |  | optional link appended to message |
