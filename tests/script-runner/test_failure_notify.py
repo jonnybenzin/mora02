@@ -134,8 +134,15 @@ def main() -> int:
         pipeline.run_pipeline = real_run
     record(len(Recorder.calls) == n + 1 and res.run_id in Recorder.calls[-1]["message"],
            "run_pipeline_spec reports a failed run on its own", Recorder.calls[-1]["message"].replace("\n", " | ")[:90] if len(Recorder.calls) > n else "no call")
-    record("no step reported a failure" in Recorder.calls[-1]["message"] if len(Recorder.calls) > n else False,
-           "and says so when no step wrote a failure of its own")
+    msg = Recorder.calls[-1]["message"] if len(Recorder.calls) > n else ""
+    record("no step reported a failure" in msg, "and says so when no step wrote a failure of its own")
+    record("the runner gave up" in msg,
+           "and carries the runner's own message, which is a dict, not a string", msg.replace("\n", " | ")[-60:])
+    asyncio.run(pipeline.report_run_failure(rid, error="the inbox did not take it",
+                                            headline="is waiting at a gate nobody was told about"))
+    record("is waiting at a gate" in Recorder.calls[-1]["message"] and "inbox" in Recorder.calls[-1]["message"],
+           "a run stuck at an unfiled gate is reported under its own headline",
+           Recorder.calls[-1]["message"].split("\n")[0][:70])
 
     width = max(len(s) for _, s, _ in results)
     failed = 0

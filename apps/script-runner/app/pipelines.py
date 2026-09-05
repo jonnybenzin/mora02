@@ -27,8 +27,11 @@ from pydantic import BaseModel
 from mora02_core import assets as asset_refs
 from mora02_core.pipeline import (
     PipelineError,
+    is_failure,
     new_batch_id,
+    read_batch_index,
     report_run_failure,
+    write_batch_index,
     rerun_pipeline_spec,
     run_pipeline_batch,
     resume_pipeline,
@@ -182,7 +185,18 @@ async def pipeline_run_batch(req: PipelineBatchRequest):
     if len(req.arg_sets) > 100:
         raise HTTPException(status_code=422, detail="at most 100 argument sets per batch")
     target = _spec_target(req)
+    # Checked BEFORE answering "started": a spec that cannot compile failed
+    # every set in the background and the status route answered zeros for
+    # ever, indistinguishable from "not yet started" (review 4).
+    data = target if isinstance(target, dict) else json.loads(Path(target).read_text(encoding="utf-8"))
+    problems, _ = pipeline_spec.check_flow(data)
+    if problems:
+        raise HTTPException(status_code=422, detail="invalid spec: " + "; ".join(problems))
     bid = new_batch_id()
+    # The index exists before the answer leaves, so a status call that races
+    # the background task finds the batch rather than nothing.
+    write_batch_index(bid, {"batch_id": bid, "pipeline": data.get("name"), "trigger": req.trigger,
+                            "size": len(req.arg_sets), "started": None, "finished": None, "runs": []})
     task = asyncio.create_task(run_pipeline_batch(
         target, req.arg_sets, runner=req.runner, trigger=req.trigger, batch_id=bid,
         on_result=_file_gate,
@@ -192,33 +206,64 @@ async def pipeline_run_batch(req: PipelineBatchRequest):
     return {"ok": True, "batch_id": bid, "size": len(req.arg_sets), "status": "started"}
 
 
+def _run_summary(run_id: str) -> dict:
+    """What a run's own log says about it: steps done, fate, paused, failed."""
+    events = _read_run_events(run_id) or []
+    result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
+    steps = [e for e in events if e.get("kind") == "step"]
+    return {
+        "steps_done": len(steps),
+        "result": result.get("status") if result else None,
+        "paused": bool(result and result.get("is_paused")),
+        "failed": any(s.get("status") == "failed" for s in steps)
+                  or (bool(result) and is_failure(result.get("status"), result.get("ok"))),
+    }
+
+
 def _batch_status(batch_id: str) -> dict:
-    """Every run whose run_start names this batch, read from the logs."""
-    d = pipeline_runlog.log_dir()
-    runs = []
-    for p in Path(d).glob("*.jsonl"):
-        events = _read_run_events(p.stem) or []
-        start = next((e for e in events if e.get("kind") == "run_start"), None)
-        if not start or (start.get("batch") or {}).get("id") != batch_id:
-            continue
-        result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
-        steps = [e for e in events if e.get("kind") == "step"]
-        runs.append({
-            "run_id": p.stem, "index": start["batch"].get("index"), "size": start["batch"].get("size"),
-            "args": start.get("args"),
-            "steps_done": len(steps),
-            "failed": any(s.get("status") == "failed" for s in steps),
-            "result": result.get("status") if result else None,
-            "paused": bool(result and result.get("is_paused")),
-        })
+    """The batch's own index, each run enriched from its log.
+
+    The index is written by the batch runner as it goes (review 4): it holds
+    the sets that failed before a run existed, and it spares this route a
+    scan of every log on disk. A batch from before the index is rebuilt from
+    the logs, as it was.
+    """
+    index = read_batch_index(batch_id)
+    runs: list = []
+    if index is not None:
+        for r in index.get("runs", []):
+            entry = {"run_id": r.get("run_id"), "index": r.get("index"), "size": index.get("size"),
+                     "args": r.get("args"), "error": r.get("error")}
+            if r.get("run_id"):
+                entry.update(_run_summary(r["run_id"]))
+            else:
+                entry.update(steps_done=0, result="error", paused=False, failed=True)
+            runs.append(entry)
+        size = index.get("size") or 0
+        finished = index.get("finished")
+    else:
+        d = pipeline_runlog.log_dir()
+        for p in Path(d).glob("*.jsonl"):
+            events = _read_run_events(p.stem) or []
+            start = next((e for e in events if e.get("kind") == "run_start"), None)
+            if not start or (start.get("batch") or {}).get("id") != batch_id:
+                continue
+            runs.append({"run_id": p.stem, "index": start["batch"].get("index"),
+                         "size": start["batch"].get("size"), "args": start.get("args"),
+                         **_run_summary(p.stem)})
+        size = max((r.get("size") or 0 for r in runs), default=0)
+        finished = None
     runs.sort(key=lambda r: r.get("index") or 0)
     return {
+        "ok": True,
         "batch_id": batch_id,
+        "pipeline": (index or {}).get("pipeline"),
         "started": len(runs),
-        "size": max((r.get("size") or 0 for r in runs), default=0),
+        "size": size,
+        "finished": finished,
         "done": sum(1 for r in runs if r["result"] == "ok"),
         "paused": sum(1 for r in runs if r["paused"]),
-        "failed": sum(1 for r in runs if r["failed"] or r["result"] in ("error", "failed")),
+        "failed": sum(1 for r in runs if r["failed"]),
         "runs": runs,
     }
 
@@ -439,7 +484,8 @@ async def pipeline_runs():
             "steps_done": len(steps),
             "last_op": last.get("op") if last else None,
             "last_status": last.get("status") if last else None,
-            "failed": any(s.get("status") == "failed" for s in steps),
+            "failed": any(s.get("status") == "failed" for s in steps)
+                      or (bool(result) and is_failure(result.get("status"), result.get("ok"))),
             "active": active,
             "result": result.get("status") if result else None,
             "trigger": start.get("trigger"),
@@ -614,6 +660,13 @@ async def _bg_resume_and_refile(req: "PipelineResumeRequest") -> None:
                 req.run_id or d.get("run_id"), "run_result", ok=False,
                 status="paused_unfiled",
                 error=f"paused at a further gate, but the inbox did not take it: {e}",
+            )
+            # The one state in which a run waits for ever is the one that told
+            # nobody (review 4): it goes out on the failure channel.
+            await report_run_failure(
+                req.run_id or d.get("run_id"),
+                error=f"paused at a further gate, but the inbox did not take it: {e}",
+                headline="is waiting at a gate nobody was told about",
             )
 
 

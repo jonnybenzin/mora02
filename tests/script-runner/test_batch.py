@@ -99,6 +99,24 @@ def main_() -> int:
     record(filed == [summary["runs"][1]["run_id"]], "the paused run, and only it, was handed to the caller to file",
            str(filed))
     record(summary["batch_id"].startswith("batch_"), "a batch id is recognisable as not a run id", summary["batch_id"])
+    idx = pipeline.read_batch_index(summary["batch_id"]) or {}
+    record(idx.get("finished") and len(idx.get("runs", [])) == 3 and idx.get("pipeline") == "batch-probe",
+           "the batch writes its own index with every set and its fate", str(list(idx))[:80])
+
+    # --- a set that raises something other than a PipelineError -----------------
+    calls = {"n": 0}
+
+    async def flaky_run(path, args=None, runner=None):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise TypeError("a bug in a handler")
+        return PipelineResult(ok=True, status="ok", runner="fake")
+
+    pipeline.run_pipeline = flaky_run
+    s2 = asyncio.run(pipeline.run_pipeline_batch(SPEC, [{}, {}, {}], runner="fake"))
+    pipeline.run_pipeline = Script.run
+    record(len(s2["runs"]) == 3 and s2["failed"] == 1 and "TypeError" in (s2["runs"][1].get("error") or ""),
+           "a set that raises is recorded and the batch goes on to the next", str(s2["runs"][1].get("error"))[:60])
 
     # --- the endpoint answers at once; the status route reads the group back --
     Script.seen_args.clear()
@@ -115,10 +133,14 @@ def main_() -> int:
             s = await c.get(f"/pipeline/batch/{first.get('batch_id', 'batch_none')}")
             bad = await c.post("/pipeline/run-batch", json={"spec": SPEC, "arg_sets": []})
             walk = await c.get("/pipeline/batch/batch_..%2Fetc")
-            return r.status_code, first, s.status_code, s.json(), bad.status_code, walk.status_code
+            broken = await c.post("/pipeline/run-batch", json={
+                "spec": {"name": "broken", "steps": [{"image.generat": {}}]}, "arg_sets": [{}]})
+            runs = await c.get("/pipeline/runs")
+            return (r.status_code, first, s.status_code, s.json(), bad.status_code, walk.status_code,
+                    broken.status_code, broken.json(), runs.json())
 
     try:
-        code, first, scode, status, bad, walk = asyncio.run(via_http())
+        code, first, scode, status, bad, walk, bcode, bbody, runs_list = asyncio.run(via_http())
     finally:
         pipelines._PILOT_URL = real_pilot
     record(code == 200 and first.get("status") == "started" and first.get("size") == 2,
@@ -129,6 +151,15 @@ def main_() -> int:
            "and counts their fates", f"done={status.get('done')} paused={status.get('paused')} failed={status.get('failed')}")
     record(bad == 400, "an empty batch is refused", str(bad))
     record(walk in (404, 422), "a batch id that walks is refused", str(walk))
+    record(bcode == 422 and "image.generat" in (bbody.get("detail") or ""),
+           "a spec that cannot compile is refused BEFORE the batch is called started", f"HTTP {bcode}")
+    record(status.get("ok") is True and status.get("pipeline") == "batch-probe",
+           "the status answer carries ok and the flow's name, like the other routes")
+    # the runs list: a run the runner failed without a step is failed, not done
+    failed_run = next((r for r in runs_list.get("runs", []) if r.get("result") == "error"), None)
+    record(bool(failed_run) and failed_run.get("failed") is True,
+           "a run that failed at the runner level shows as failed in the runs list",
+           str(failed_run.get("result") if failed_run else "no such run"))
 
     width = max(len(s) for _, s, _ in results)
     failed = 0
