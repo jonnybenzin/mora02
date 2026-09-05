@@ -27,7 +27,10 @@ from pydantic import BaseModel
 from mora02_core import assets as asset_refs
 from mora02_core.pipeline import (
     PipelineError,
+    new_batch_id,
+    report_run_failure,
     rerun_pipeline_spec,
+    run_pipeline_batch,
     resume_pipeline,
     run_pipeline,
     run_pipeline_spec,
@@ -120,11 +123,113 @@ class PipelineRunSpecRequest(BaseModel):
     trigger: str = "manual"       # recorded in the run log: manual | scheduled | agent
 
 
-# Where named specs live (host pipelines/specs/ via the pipelines mount).
-# Where named specs live. Read through the library so the four readers of this
-# directory agree, and so a test can point it somewhere without knowing which
-# module happens to hold the constant (review 3, 2026-09-04).
-_PIPELINE_SPECS_DIR = pipeline_spec.specs_dir()
+def _spec_target(req) -> "dict | str":
+    """The spec a run request names: an inline dict, or the file a name resolves to."""
+    if req.spec is not None:
+        # Second door for the same rule as on save: write the implicit wiring
+        # down. The builder runs the editor's stack WITHOUT saving it first, so
+        # materialising only on save would leave the commonest path implicit -
+        # and the spec recorded in the run log (which a partial re-run later
+        # reads back) would not say what actually ran.
+        return pipeline_spec.materialize_wiring(req.spec)
+    if req.name:
+        # The same pattern the flow-library endpoints apply to a name before
+        # they build a path from it (review 3).
+        stem = req.name[:-len(Path(req.name).suffix)] if Path(req.name).suffix else req.name
+        if not _FLOW_NAME_RE.fullmatch(stem):
+            raise HTTPException(status_code=422, detail=f"name: {req.name!r} is not a flow name")
+        found = pipeline_spec.resolve_spec_path(req.name)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"no spec named {req.name!r} in the library")
+        return str(found)
+    raise HTTPException(status_code=400, detail="provide either 'spec' (inline) or 'name'")
+
+
+class PipelineBatchRequest(BaseModel):
+    name: Optional[str] = None      # a flow from the library ...
+    spec: Optional[dict] = None     # ... or an inline spec
+    arg_sets: list[dict]            # one entry per run; {} for a run without arguments
+    runner: Optional[str] = None
+    trigger: str = "manual"
+
+
+_bg_batches: set = set()
+
+
+async def _file_gate(res) -> None:
+    """A batch run that pauses goes to the Pilot inbox, like a resumed one does."""
+    d = _pipeline_result_to_dict(res)
+    if not (d.get("is_paused") and d.get("resume_token")):
+        return
+    async with httpx.AsyncClient(timeout=10.0) as c:
+        r = await c.post(f"{_PILOT_URL}/inbox/refile", json=d)
+    if r.status_code >= 400:
+        raise RuntimeError(f"the inbox answered HTTP {r.status_code}")
+
+
+@router.post("/pipeline/run-batch")
+async def pipeline_run_batch(req: PipelineBatchRequest):
+    """Start one flow once per argument set, in the background; answer at once.
+
+    Ten runs of a clip flow are ten times a minute or more, so the HTTP call
+    does not wait: it hands back the batch id, the runs start one after the
+    other, and GET /pipeline/batch/{id} shows how far they got. Every run is
+    a normal run with its own log, marked with the batch. A run that pauses
+    at a gate is filed into the inbox; the batch goes on.
+    """
+    if not req.arg_sets:
+        raise HTTPException(status_code=400, detail="arg_sets must hold at least one entry")
+    if len(req.arg_sets) > 100:
+        raise HTTPException(status_code=422, detail="at most 100 argument sets per batch")
+    target = _spec_target(req)
+    bid = new_batch_id()
+    task = asyncio.create_task(run_pipeline_batch(
+        target, req.arg_sets, runner=req.runner, trigger=req.trigger, batch_id=bid,
+        on_result=_file_gate,
+    ))
+    _bg_batches.add(task)
+    task.add_done_callback(_bg_batches.discard)
+    return {"ok": True, "batch_id": bid, "size": len(req.arg_sets), "status": "started"}
+
+
+def _batch_status(batch_id: str) -> dict:
+    """Every run whose run_start names this batch, read from the logs."""
+    d = pipeline_runlog.log_dir()
+    runs = []
+    for p in Path(d).glob("*.jsonl"):
+        events = _read_run_events(p.stem) or []
+        start = next((e for e in events if e.get("kind") == "run_start"), None)
+        if not start or (start.get("batch") or {}).get("id") != batch_id:
+            continue
+        result = next((e for e in reversed(events) if e.get("kind") == "run_result"), None)
+        steps = [e for e in events if e.get("kind") == "step"]
+        runs.append({
+            "run_id": p.stem, "index": start["batch"].get("index"), "size": start["batch"].get("size"),
+            "args": start.get("args"),
+            "steps_done": len(steps),
+            "failed": any(s.get("status") == "failed" for s in steps),
+            "result": result.get("status") if result else None,
+            "paused": bool(result and result.get("is_paused")),
+        })
+    runs.sort(key=lambda r: r.get("index") or 0)
+    return {
+        "batch_id": batch_id,
+        "started": len(runs),
+        "size": max((r.get("size") or 0 for r in runs), default=0),
+        "done": sum(1 for r in runs if r["result"] == "ok"),
+        "paused": sum(1 for r in runs if r["paused"]),
+        "failed": sum(1 for r in runs if r["failed"] or r["result"] in ("error", "failed")),
+        "runs": runs,
+    }
+
+
+@router.get("/pipeline/batch/{batch_id}")
+async def pipeline_batch_status(batch_id: str):
+    """How far a batch got: its runs, each with steps done and its fate."""
+    if not batch_id.startswith("batch_"):
+        raise HTTPException(status_code=422, detail="not a batch id")
+    _checked_run_id(batch_id[len("batch_"):], "batch_id")
+    return await asyncio.to_thread(_batch_status, batch_id)
 
 
 @router.post("/pipeline/run-spec")
@@ -136,32 +241,7 @@ async def pipeline_run_spec(req: PipelineRunSpecRequest):
     drives the whole spec → compile → run → run-log chain; the compiled .lobster is
     written to the OpenClaw workspace and left for inspection.
     """
-    if req.spec is not None:
-        # Second door for the same rule as on save: write the implicit wiring
-        # down. The builder runs the editor's stack WITHOUT saving it first, so
-        # materialising only on save would leave the commonest path implicit -
-        # and the spec recorded in the run log (which a partial re-run later
-        # reads back) would not say what actually ran. Resolution is unchanged;
-        # only the silence goes.
-        target = pipeline_spec.materialize_wiring(req.spec)
-    elif req.name:
-        # The same pattern the flow-library endpoints apply to a name before
-        # they build a path from it. This sibling did not, so a name with `..`
-        # in it chose which spec file to compile AND RUN (review 3).
-        stem = req.name[:-len(Path(req.name).suffix)] if Path(req.name).suffix else req.name
-        if not _FLOW_NAME_RE.fullmatch(stem):
-            raise HTTPException(status_code=422, detail=f"name: {req.name!r} is not a flow name")
-        found = pipeline_spec.resolve_spec_path(req.name)
-        match = str(found) if found else None
-        if match is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"no spec named {req.name!r} in {_PIPELINE_SPECS_DIR}",
-            )
-        target = match
-    else:
-        raise HTTPException(status_code=400, detail="provide either 'spec' (inline) or 'name'")
-
+    target = _spec_target(req)
     try:
         res = await run_pipeline_spec(target, args=req.args, runner=req.runner,
                                       trigger=req.trigger)
@@ -362,6 +442,8 @@ async def pipeline_runs():
             "failed": any(s.get("status") == "failed" for s in steps),
             "active": active,
             "result": result.get("status") if result else None,
+            "trigger": start.get("trigger"),
+            "batch": start.get("batch"),
         })
     return {"runs": runs}
 
@@ -516,6 +598,7 @@ async def _bg_resume_and_refile(req: "PipelineResumeRequest") -> None:
             req.run_id, "run_result", ok=False, status="failed",
             error=f"background resume failed: {e}",
         )
+        await report_run_failure(req.run_id, error=f"background resume failed: {e}")
         return
     d = _pipeline_result_to_dict(res)
     if d.get("is_paused") and d.get("resume_token"):

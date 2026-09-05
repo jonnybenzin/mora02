@@ -5,9 +5,11 @@ in, what happens in between, where the person wants to look, where the result
 goes, what changes per run, and the name. Ask them one at a time, in your own
 words; skip what an earlier answer already settled.
 
-The first two get no offers. From the third on, offer two or three shapes an
-answer could take - derived from their answers, never generic - and always the
-honest empty one.
+The first may name the kinds of thing the machine makes, nothing more; the
+second gets no offers. From the third on, offer two or three shapes an answer
+could take - derived from their answers, never generic - and always the
+honest empty one. Questions 4 and 5 are asked even when the answer seems
+obvious.
 
 ---
 
@@ -16,8 +18,9 @@ honest empty one.
 What is the thing that should be there when the flow has run? One picture, a
 short clip, a song, a piece of text, a post that is live, a file in a folder?
 
-*No offers here. Push back on a wish that names no artefact: "something for
-the shop" is a purpose, "a nine-second clip with music" is an artefact.*
+*The kinds are the only offer allowed here - never a subject. Push back on a
+wish that names no artefact: "something for the shop" is a purpose, "a
+nine-second clip with music" is an artefact.*
 
 ## 2. What the person brings
 
@@ -51,7 +54,9 @@ wrong one for a flow that publishes; say so if it is.*
 ## 5. Where the result goes
 
 What happens to the finished thing? It stays in the library to look at, it is
-sent to their phone, it goes out by mail, it is published?
+sent to their phone, it goes out by mail, it is published? Always asked: a
+pause in the middle shows the person an intermediate picture, it does not
+deliver the result.
 
 *Offer the ways the vocabulary has. Publishing is a decision, not a delivery -
 if they say "publish", ask whether a pause before it is wanted (it is).*

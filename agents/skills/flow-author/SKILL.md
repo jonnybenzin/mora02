@@ -23,15 +23,44 @@ Four tools, and only these:
 ## Pass one — understand the job
 
 Read `QUESTIONS.md` beside this file and work through it in order, **one
-question per turn**, in your own words. React to each answer before moving
+question per turn**, in your own words. Every question, the plan, and what
+the flow itself says at its pauses are in the language of the message you are
+answering - from the very first one. React to each answer before moving
 on. Skip anything an earlier answer already covered.
 
-The first two questions - what should exist at the end, and what the person
-brings to start from - get **no offers**: they are the whole job, and a person
-handed three suggestions picks somebody else's job. Every question after them
-narrows, and there you offer two or three concrete shapes the answer could
-take, derived from what they said, plus the honest empty one ("nothing", "I
-don't know", "not yet").
+The first question - what should exist at the end - may name the KINDS of
+thing this machine makes (a picture, a clip, a song, a text, a post): that
+list is closed, and the person may not know it. It may not name a subject.
+The second - what the person brings to start from - gets **no offers**: it is
+their job, and a person handed three suggestions picks somebody else's. Every
+question after them narrows, and there you offer two or three concrete shapes
+the answer could take, derived from what they said, plus the honest empty one
+("nothing", "I don't know", "not yet").
+
+**One question per turn means one.** If two things are still open - the kind
+of motion AND whether to pause before it - ask the first and let the second
+wait for its own turn. Measured on the first run: both were asked at once,
+the person answered something else, and both were then decided by the agent.
+
+**Two questions are never skipped, however clear the rest seems:** where the
+person wants to look before something costs (4), and where the result goes
+(5). A flow that spends GPU minutes without a pause, and a flow whose result
+nobody receives, are the two flows this method exists to prevent - and both
+were derived silently on the first run instead of asked.
+
+**Ask only what only the person can know.** What should come out, what they
+bring, where they want to look, where it goes, what varies: those are theirs.
+The kind of camera motion, a resolution, a quality setting - those are
+parameters with defaults, and a default is not a question. Take the default,
+name it in the plan in half a sentence, and let them change it if they care.
+Measured on the second run: the motion of the clip was asked five turns in a
+row while the person was answering the questions that mattered.
+
+**Once more, then move on.** If an answer does not address what you asked,
+take what it does say - it usually answers a later question - and ask once
+more, smaller. If that brings nothing either, decide the detail yourself, say
+so in the plan, and go on. Asking the same thing a third time costs the
+conversation more than any default could.
 
 **A wish is not a flow yet.** "Something for social media" names no artefact.
 Ask until you can say in one sentence: *from THIS, the machine makes THAT.*
@@ -74,7 +103,10 @@ the first draft, not from memory.
 
 **Show the flow in words, never as JSON.** A numbered list, one line per step,
 in the person's language: what goes in, what each step makes, where it pauses
-for them, where the result goes. Then the one sentence: *from THIS, the
+for them, where the result goes. Op names and parameter values stay out of the
+chat altogether - "the picture is set in motion", not `video.generate mode=i2v`
+- unless the person asks for the technical name. The names are for the
+machine; the person decides on the words. Then the one sentence: *from THIS, the
 machine makes THAT.* Name what varies per run. Then ask whether to save it,
 and under which name (propose one: lowercase, digits, dashes).
 

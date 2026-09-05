@@ -64,15 +64,15 @@ Offer it as two real options, not as "everything or nothing":
 This is what makes the short path worth taking. Every field of the template is
 in exactly one of three states, and they must be told apart:
 
-| Zustand | Wann | Wie es im Dokument steht |
+| State | When | How it appears in the document |
 |---|---|---|
-| **beantwortet** | jemand hat es gesagt | der Wert |
-| **angenommen** | folgt aus der Frage oder dem Zweck | der Wert, dazu `(angenommen)` |
-| **offen** | folgt aus nichts und wurde nicht gesagt | `offen` |
+| **answered** | somebody said it | the value |
+| **assumed** | it follows from the question or the purpose | the value, marked `(assumed)` |
+| **open** | it follows from nothing and nobody said it | `open` |
 
 **Derive what follows.** A question about the best self-hosted open-weight video
 models already contains its search angles, already rules out closed APIs, and
-already implies that a three-year-old answer is worthless. Writing `offen` there
+already implies that a three-year-old answer is worthless. Writing `open` there
 is not caution, it is refusing to read the question. Whoever executes the brief
 would have to make the same inference anyway — unwritten, unchecked, and
 invisible.
@@ -90,13 +90,13 @@ the person corrects in five seconds by glancing at a list.
   when the question does not say, what convinces them, and **when they would
   call it enough**.
 
-`Abbruchkriterium` is the hard case and the one that keeps slipping. It is not a
+`Stopping rule` is the hard case and the one that keeps slipping. It is not a
 fact about the subject — it is this person's judgement of sufficiency, and there
-is nothing to derive it from. Writing *„beendet, wenn eine klare Empfehlung
-vorliegt"* sounds like a criterion and is a tautology: it says the research ends
+is nothing to derive it from. Writing *"ends when a clear recommendation is
+at hand"* sounds like a criterion and is a tautology: it says the research ends
 when it has succeeded. Measured: this field was correctly left open, and then
 invented one round later, after the pressure to derive was tightened. **It stays
-`offen` unless the person said it.**
+`open` unless the person said it.**
 
 That is why a short brief has one or two open fields, not nine — and not zero.
 A brief with nothing open has stopped distinguishing what it was told from what
@@ -139,12 +139,12 @@ will act on them:
 - **Shape of the result** — on the LONG path, ask; and when a table or comparison is
   wanted, ask which columns. On the SHORT path, derive it and mark it: what
   someone wants out of a comparison follows from what they are deciding, and
-  columns follow from the subject. Leaving the whole field `offen` while being
+  columns follow from the subject. Leaving the whole field `open` while being
   able to list the candidates in the gap section is the worst of both — it
   neither asked nor decided.
 
   The rule against inventing columns is about *how they are written down*, not
-  about whether they may be derived. `(angenommen)` plus a line in the
+  about whether they may be derived. `(assumed)` plus a line in the
   assumptions list is correctable in five seconds; the same columns written as
   agreed are not.
 
@@ -179,8 +179,8 @@ neglect.
 
 It is not a document that gets filed. It is the **order** somebody else works
 from — a person, or an agent that searches and reads. Two of its fields carry
-that weight: *Quellen* settles every later argument about whether an answer is
-any good, and *Abbruchkriterium* is the difference between an order and a wish.
+that weight: *Sources* settles every later argument about whether an answer is
+any good, and *Stopping rule* is the difference between an order and a wish.
 
 That is also why a gap here costs more than elsewhere. Whoever executes the
 brief will fill an empty field with a guess, and a guessed source criterion
