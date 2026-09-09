@@ -674,20 +674,20 @@ services:
  # ============================================================================
 
   penpot-backend:
-    image: penpotapp/backend:2.12.1 
+    image: penpotapp/backend:2.17.2 
     container_name: penpot-backend
     restart: unless-stopped
     volumes:
       - /opt/mora02/volumes/penpot-assets:/opt/data/assets
     environment:
       PENPOT_FLAGS: "enable-registration enable-login-with-password disable-email-verification disable-smtp disable-google-fonts-provider"
-      PENPOT_PUBLIC_URI: "http://mora02.local:8101"
+      PENPOT_PUBLIC_URI: "http://localhost:8101"
       PENPOT_DATABASE_URI: "postgresql://postgres-tools/penpot"
       PENPOT_DATABASE_USERNAME: penpot
       PENPOT_DATABASE_PASSWORD: ${PENPOT_DATABASE_PASSWORD}
       PENPOT_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis-dify:6379/1"
-      PENPOT_ASSETS_STORAGE_BACKEND: assets-fs
-      PENPOT_STORAGE_ASSETS_FS_DIRECTORY: /opt/data/assets
+      PENPOT_OBJECTS_STORAGE_BACKEND: fs
+      PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets
       PENPOT_TELEMETRY_ENABLED: "false"
       PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
     depends_on:
@@ -697,7 +697,7 @@ services:
       - mora02-net
 
   penpot-exporter:
-    image: penpotapp/exporter:2.12.1
+    image: penpotapp/exporter:2.17.2
     container_name: penpot-exporter
     restart: unless-stopped
     extra_hosts:
@@ -714,7 +714,7 @@ services:
       - mora02-net
 
   penpot-frontend:
-    image: penpotapp/frontend:2.12.1
+    image: penpotapp/frontend:2.17.2
     container_name: penpot-frontend
     restart: unless-stopped
     ports:
@@ -723,7 +723,7 @@ services:
       - /opt/mora02/volumes/penpot-assets:/opt/data/assets
     environment:
       PENPOT_FLAGS: "enable-registration enable-login-with-password disable-email-verification disable-google-fonts-provider"
-      PENPOT_PUBLIC_URI: "http://mora02.local:8101"
+      PENPOT_PUBLIC_URI: "http://localhost:8101"
       PENPOT_BACKEND_URI: "http://penpot-backend:6060"
       PENPOT_EXPORTER_URI: "http://penpot-exporter:6061"
     depends_on:
