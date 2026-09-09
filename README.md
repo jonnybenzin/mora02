@@ -87,7 +87,7 @@ Honestly, probably not without surgery. This is my personal lab, not a deployabl
 
 ## Status
 
-Phase 0 of a longer refactor just shipped (this commit) — secrets out of code, env-driven config, history rewritten. Next up: extracting shared logic into a `mora02_core` Python library so the apps stop duplicating Baserow / LLM / ComfyUI clients. Single-author, vibe coded on evenings and weekends.
+Actively maintained, single-author, evenings and weekends. Shared logic lives in the `mora02_core` library (Baserow, LLM, ComfyUI, pipeline, notify, publish); the apps consume it. A native pipeline layer with human-in-the-loop gates has replaced the external workflow tools that used to run here. Every third-party image is pinned to a version; `scripts/docker/image-check.py` reports what the registries have newer.
 
 ## License
 
