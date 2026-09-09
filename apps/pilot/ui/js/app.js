@@ -5,7 +5,7 @@
    No inline onclick — all events via data-action attributes.
    ═══════════════════════════════════════════════════════════════ */
 
-const API_BASE = 'http://mora02.local:8098';
+/* API_BASE lives in auth.js now (loaded first): one origin, one token wrapper */
 const CONTENT = document.getElementById('content');
 
 let sessionId = null;

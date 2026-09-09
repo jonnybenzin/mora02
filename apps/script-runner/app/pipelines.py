@@ -165,7 +165,7 @@ async def _file_gate(res) -> None:
     if not (d.get("is_paused") and d.get("resume_token")):
         return
     async with httpx.AsyncClient(timeout=10.0) as c:
-        r = await c.post(f"{_PILOT_URL}/inbox/refile", json=d)
+        r = await c.post(f"{_PILOT_URL}/inbox/refile", json=d, headers=_PILOT_HEADERS)
     if r.status_code >= 400:
         raise RuntimeError(f"the inbox answered HTTP {r.status_code}")
 
@@ -616,6 +616,9 @@ async def pipeline_run_archive(run_id: str):
 
 _bg_resume_tasks: set = set()  # keep detached resume tasks referenced until done
 _PILOT_URL = os.environ.get("PILOT_URL", "http://pilot:8098")
+# Pilot requires its shared token since auth stage 1; the callback into the
+# inbox is a server-to-server call and carries it like the browser does.
+_PILOT_HEADERS = {"Authorization": f"Bearer {os.environ.get('MORA02_PILOT_TOKEN', '')}"}
 
 
 async def _bg_resume_and_refile(req: "PipelineResumeRequest") -> None:
@@ -644,7 +647,7 @@ async def _bg_resume_and_refile(req: "PipelineResumeRequest") -> None:
     if d.get("is_paused") and d.get("resume_token"):
         try:
             async with httpx.AsyncClient(timeout=10.0) as c:
-                r = await c.post(f"{_PILOT_URL}/inbox/refile", json=d)
+                r = await c.post(f"{_PILOT_URL}/inbox/refile", json=d, headers=_PILOT_HEADERS)
             if r.status_code >= 400:
                 raise RuntimeError(f"the inbox answered HTTP {r.status_code}")
         except Exception as e:

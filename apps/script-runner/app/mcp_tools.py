@@ -98,6 +98,9 @@ router = APIRouter(tags=["mcp"])
 # Where named specs live -- the same directory /pipeline/flows reads, so the
 # agent picks from exactly the library a human sees in the Pilot.
 _PILOT_URL = os.environ.get("PILOT_URL", "http://pilot:8098")
+# Pilot requires its shared token since auth stage 1; the callback into the
+# inbox is a server-to-server call and carries it like the browser does.
+_PILOT_HEADERS = {"Authorization": f"Bearer {os.environ.get('MORA02_PILOT_TOKEN', '')}"}
 
 # What the tools may put into the model's context, and it is a hard budget.
 #
@@ -1042,7 +1045,7 @@ async def _refile_gate(res, flow: str) -> str | None:
     }
     try:
         async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.post(f"{_PILOT_URL}/inbox/refile", json=payload)
+            r = await c.post(f"{_PILOT_URL}/inbox/refile", json=payload, headers=_PILOT_HEADERS)
         # A 4xx/5xx used to count as success: the item was never filed and the
         # model was told the decision was waiting for someone.
         if r.status_code >= 400:

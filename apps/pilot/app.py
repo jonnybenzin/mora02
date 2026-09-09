@@ -1,4 +1,5 @@
 import asyncio
+import secrets
 import uuid
 import json
 import os
@@ -242,6 +243,41 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Pilot Bot", version="0.1.0", lifespan=_lifespan)
+
+
+# ── Auth stage 1: one shared token ──────────────────────────────
+# Pilot is the single front door to the stack (it proxies /sr/* to the
+# script-runner, which holds the Docker socket). Until today anyone on the
+# LAN could start pipelines, publish posts or spend Claude credits through
+# it. Stage 1 is deliberately small: one token from docker/.env, sent as
+# a bearer header by the UI (stored once in localStorage) and by the
+# script-runner for its callbacks. No users, no login form - that is
+# stage 3, the multi-user step. /health stays open for the compose
+# healthcheck; CORS preflights carry no token by design.
+PILOT_TOKEN = os.environ.get("MORA02_PILOT_TOKEN", "").strip()
+AUTH_EXEMPT_PATHS = {"/health"}
+
+
+def _token_from(request: Request) -> str:
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return request.headers.get("x-pilot-token", "").strip()
+
+
+@app.middleware("http")
+async def _require_token(request: Request, call_next):
+    if request.method == "OPTIONS" or request.url.path in AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not PILOT_TOKEN:
+        # fail closed: an unset token must not mean an open door
+        return JSONResponse(status_code=503, content={"error": "MORA02_PILOT_TOKEN is not set on the server"})
+    if not secrets.compare_digest(_token_from(request), PILOT_TOKEN):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"},
+                            headers={"WWW-Authenticate": "Bearer"})
+    return await call_next(request)
+
+
 # Pilot has no auth yet; a wildcard here would let any web page in the user's
 # browser call every route below and read the answer (review 5, A1). Only the
 # two origins the UI is served from, plus localhost for the workstation itself.

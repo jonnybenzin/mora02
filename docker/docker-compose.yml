@@ -570,6 +570,7 @@ services:
       - MORA02_LINKEDIN_AUTHOR=${MORA02_LINKEDIN_AUTHOR}
       - MORA02_SIGNAL_TARGET=${MORA02_SIGNAL_TARGET}
       - MORA02_RUN_FAILURE_NOTIFY=${MORA02_RUN_FAILURE_NOTIFY:-}
+      - MORA02_PILOT_TOKEN=${MORA02_PILOT_TOKEN}   # for the /inbox/refile callbacks into Pilot
       - MORA02_ASSET_STORE_LIBRARY=/library
       - MORA02_ASSET_URLPATH_LIBRARY=/library-assets
       - MORA02_AGENTS_LOCAL_DIR=/data/agents-local
@@ -718,6 +719,8 @@ services:
     environment:
       - PILOT_BASEROW_TOKEN=${BASEROW_TOKEN}
       - PILOT_SCRIPT_RUNNER_URL=http://script-runner:8096
+      # auth stage 1: the one token every caller of Pilot presents (UI, script-runner callbacks)
+      - MORA02_PILOT_TOKEN=${MORA02_PILOT_TOKEN}
       # mora02_core library env (no PILOT_ prefix)
       - BASEROW_TOKEN=${BASEROW_TOKEN}
       - BASEROW_URL=http://baserow:80

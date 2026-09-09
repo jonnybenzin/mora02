@@ -70,9 +70,14 @@ def record(verdict: str, subject: str, detail: str) -> None:
 
 def _json(url: str, payload: dict | None = None, timeout: int = 300) -> dict:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {"Content-Type": "application/json"}
+    # Pilot requires its shared token since auth stage 1 (MORA02_PILOT_TOKEN,
+    # from docker/.env); the script-runner does not
+    token = os.environ.get("MORA02_PILOT_TOKEN", "")
+    if token and url.startswith(PILOT):
+        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(
-        url, data=data, method="POST" if data else "GET",
-        headers={"Content-Type": "application/json"})
+        url, data=data, method="POST" if data else "GET", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8") or "{}")

@@ -5,6 +5,16 @@ and the why; this file names the milestones and any security fix that
 users of this repository should know about. Versions follow calendar
 versioning: `vYYYY.MM.N`, N counting releases within the month.
 
+## Unreleased
+
+**Security**
+- Pilot auth stage 1: every API call needs the shared token from
+  `MORA02_PILOT_TOKEN` (`Authorization: Bearer …`). The UI asks for it once
+  and keeps it in the browser; the script-runner sends it on its callbacks;
+  `/health` stays open for the compose healthcheck. Pilot was the one
+  unauthenticated front door to the stack, including the proxy to the
+  script-runner.
+
 ## v2026.09.1 — 2026-09-09
 
 The container audit and the first OpenSSF pass.
