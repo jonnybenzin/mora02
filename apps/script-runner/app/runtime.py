@@ -117,6 +117,22 @@ def _media_type(suffix: str) -> str:
     return guess or "application/octet-stream"
 
 
+# The standard library's built-in table is short; the rest comes from the
+# OS file /etc/mime.types, which the slim container image does not ship.
+# Without this, .webp answered as application/octet-stream inside the
+# container while the same call on the host said image/webp - found the
+# first time the suite ran in the image (2026-09-09). Register the types
+# the file routes actually serve, so the answer does not depend on the OS.
+for _suffix, _type in {
+    ".webp": "image/webp",
+    ".webm": "video/webm",
+    ".m4a": "audio/mp4",
+    ".gif": "image/gif",
+    ".mp4": "video/mp4",
+}.items():
+    mimetypes.add_type(_type, _suffix)
+
+
 def safe_segment(value: Any, what: str) -> str:
     """One path segment, from an HTTP caller. 422 for anything that is not a name.
 

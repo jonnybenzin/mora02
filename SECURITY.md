@@ -9,7 +9,8 @@ gets fixed.
 
 Please do **not** open a public issue for anything security-relevant.
 
-- Preferred: GitHub's private vulnerability reporting for this repository
+- Preferred: GitHub's private vulnerability reporting for this repository:
+  https://github.com/jonnybenzin/mora02/security/advisories/new
   ("Security" tab -> "Report a vulnerability"). The report is visible only
   to the maintainer.
 - Anything that is clearly not sensitive (a dependency bump, a hardening
@@ -37,4 +38,6 @@ side (rotate a key, recreate a container), the commit message says so.
 - A boundary guard refuses host-specific artefacts (paths, private
   addresses, systemd units) in this public repository.
 - ruff runs on every staged Python file.
+- Known vulnerabilities in pinned Python dependencies are checked against
+  https://osv.dev (OpenSSF Scorecard run) and fixed by raising the pin.
 - Services bind to `127.0.0.1` unless they must be reached from the LAN.
