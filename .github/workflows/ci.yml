@@ -1,0 +1,48 @@
+# Stage 1 of continuous integration: only what already runs on the
+# workstation, nothing that would first have to become green. The
+# pre-commit hook is the local counterpart; this runs on every push, from
+# any machine, on a fresh runner - which is what catches "works only because
+# something is still installed here".
+#
+# Deliberately NOT here: the suites under tests/ (they need the running
+# Docker stack: script-runner, Baserow, ComfyUI) - those stay on
+# run-all.sh on mora02. What runs on GitHub is lint, the stack-free library
+# tests, and a vulnerability audit of the pinned Python dependencies.
+#
+# Actions are pinned by commit SHA, not by tag: a tag can be moved.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"   # the version the containers run
+
+      - name: Tools (pinned)
+        run: pip install ruff==0.16.6 pytest==9.1.1 pytest-asyncio==1.4.0 pip-audit==2.10.1
+
+      - name: ruff (rules in ruff.toml)
+        run: ruff check .
+
+      - name: Library tests (stack-free)
+        run: |
+          pip install ./lib/mora02_core
+          pytest lib/mora02_core/tests -q
+
+      - name: Known vulnerabilities in pinned dependencies
+        run: |
+          for f in apps/pilot/requirements.txt apps/script-runner/requirements.txt apps/piper-api/requirements.txt; do
+            echo "== $f"; pip-audit -r "$f"
+          done
