@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 import json
 import os
@@ -229,8 +230,14 @@ async def _check_profile_label_drift() -> None:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    await _check_schema_drift()
-    await _check_profile_label_drift()
+    # The checks write reminders into Baserow; a 400 from there (a missing
+    # field, a rotated token) must not stop Pilot from serving chat
+    # (review 5, B7). Reads inside them were guarded, the writes were not.
+    for check in (_check_schema_drift, _check_profile_label_drift):
+        try:
+            await check()
+        except Exception as e:
+            print(f"[boot] {check.__name__} failed, continuing: {e}")
     yield
 
 
@@ -573,9 +580,8 @@ async def list_posts():
 
 @app.get("/costs/monthly")
 async def monthly_costs():
-    """Return current month costs per model: Baserow (historical) + RAM (active sessions)."""
+    """Return current month costs per model from the bot_costs ledger (574)."""
     import httpx as _httpx
-    from config import MODELS
     now = datetime.now(timezone.utc)
     current_month = now.strftime("%Y-%m")
     costs = {"qwen": 0.0, "haiku": 0.0, "sonnet": 0.0, "opus": 0.0, "nanban": 0.0}
@@ -594,32 +600,9 @@ async def monthly_costs():
     except Exception:
         pass
 
-    # 2. Active RAM sessions
-    for sid, session in store.sessions.items():
-        for msg in session.messages:
-            if msg.model and msg.model in MODELS and msg.role == "assistant":
-                m = MODELS[msg.model]
-                cost = (msg.tokens_in / 1_000_000) * m["cost_input_per_1m"] + \
-                       (msg.tokens_out / 1_000_000) * m["cost_output_per_1m"]
-                costs[msg.model] = costs.get(msg.model, 0.0) + cost
-
-    # 3. Ended sessions this month (bot_sessions table)
-    try:
-        async with _httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{settings.baserow_url}/api/database/rows/table/{settings.baserow_table_sessions}/?user_field_names=true&size=200&order_by=-id",
-                headers=_bh())
-            rows = resp.json().get("results", []) if resp.status_code == 200 else []
-        for row in rows:
-            ended = row.get("ended_at") or ""
-            if ended[:7] == current_month:
-                model = row.get("model_used", "qwen")
-                cost = float(row.get("cost_usd") or 0)
-                if model in costs:
-                    costs[model] += cost
-    except Exception:
-        pass
-
+    # bot_costs (574) is written after EVERY paid call (persist_cost_to_baserow,
+    # persist_image_cost_to_baserow). Adding open sessions and ended sessions
+    # on top counted each dollar twice (review 5, B1).
     total = round(sum(costs.values()), 4)
     return {
         "month": current_month,
@@ -683,9 +666,15 @@ async def set_prompt(sid: str, request: Request):
     if prompt:
         updates["system_prompt"] = prompt
     if "temperature" in body:
-        updates["temperature"] = max(0.0, min(1.5, float(body["temperature"])))
+        try:
+            updates["temperature"] = max(0.0, min(1.5, float(body["temperature"])))
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content={"error": "temperature must be a number"})
     if "max_tokens" in body:
-        updates["max_tokens"] = max(256, min(8192, int(body["max_tokens"])))
+        try:
+            updates["max_tokens"] = max(256, min(8192, int(body["max_tokens"])))
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content={"error": "max_tokens must be an integer"})
     if not prompt and "temperature" not in body and "max_tokens" not in body:
         session_settings.pop(sid, None)
         return {**DEFAULT_SETTINGS, "session_id": sid, "is_default": True, "action": "reset"}
@@ -828,7 +817,7 @@ async def end_session(sid: str, request: Request):
 
 @app.get("/posts")
 async def get_posts():
-    return {"results": await list_posts(), "next": None}
+    return {"results": (await list_posts()).get("posts", []), "next": None}
 
 
 @app.post("/posts")
@@ -1048,7 +1037,6 @@ async def styles_upload(name: str, files: List[UploadFile] = File(...)):
         return JSONResponse(status_code=400, content={"error": "Invalid name"})
 
     target_dir = Path(settings.styles_base_path) / safe_name
-    target_dir.mkdir(parents=True, exist_ok=True)
 
     saved = 0
     for f in files:
@@ -1065,6 +1053,7 @@ async def styles_upload(name: str, files: List[UploadFile] = File(...)):
         too_large = _upload_too_large(f)
         if too_large:
             return too_large
+        target_dir.mkdir(parents=True, exist_ok=True)   # only once a file passed every check
         dest = target_dir / f.filename
         content = await f.read()
         dest.write_bytes(content)
@@ -1100,121 +1089,131 @@ async def styles_list_folders():
     return JSONResponse(content={"folders": folders, "base_path": settings.styles_base_path})
 
 
+# One process, so a lock is enough: two answers finishing together both read
+# old_total and the second PATCH silently dropped the first (review 5, B2).
+_cost_lock = asyncio.Lock()
+
+
 async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: int):
     """Increment monthly costs in bot_costs table (574) after every paid API call."""
-    m = MODELS.get(model_key)
-    if not m or m.get("type") == "openai_compatible" or (tokens_in == 0 and tokens_out == 0):
-        return
-    import httpx as _httpx
-    cost = (tokens_in / 1_000_000) * m["cost_input_per_1m"] +            (tokens_out / 1_000_000) * m["cost_output_per_1m"]
-    if cost == 0:
-        return
+    async with _cost_lock:
+        m = MODELS.get(model_key)
+        if not m or m.get("type") == "openai_compatible" or (tokens_in == 0 and tokens_out == 0):
+            return
+        import httpx as _httpx
+        cost = (tokens_in / 1_000_000) * m["cost_input_per_1m"] + (tokens_out / 1_000_000) * m["cost_output_per_1m"]
+        if cost == 0:
+            return
 
-    now = datetime.now(timezone.utc)
-    current_month = now.strftime("%Y-%m")
-    cost_field = f"cost_{model_key}"
+        now = datetime.now(timezone.utc)
+        current_month = now.strftime("%Y-%m")
+        cost_field = f"cost_{model_key}"
 
-    try:
-        async with _httpx.AsyncClient(timeout=10.0) as client:
-            # Find current month row
-            resp = await client.get(
-                f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-                headers=_bh())
-            rows = resp.json().get("results", []) if resp.status_code == 200 else []
+        try:
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                # Find current month row
+                resp = await client.get(
+                    f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
+                    headers=_bh())
+                rows = resp.json().get("results", []) if resp.status_code == 200 else []
 
-            row_id = None
-            old_model_cost = 0.0
-            old_total = 0.0
-            old_tokens_in = 0
-            old_tokens_out = 0
-            for row in rows:
-                if row.get("month") == current_month:
-                    row_id = row["id"]
-                    old_model_cost = float(row.get(cost_field) or 0)
-                    old_total = float(row.get("cost_total") or 0)
-                    old_tokens_in = int(row.get("tokens_in") or 0)
-                    old_tokens_out = int(row.get("tokens_out") or 0)
-                    break
+                row_id = None
+                old_model_cost = 0.0
+                old_total = 0.0
+                old_tokens_in = 0
+                old_tokens_out = 0
+                for row in rows:
+                    if row.get("month") == current_month:
+                        row_id = row["id"]
+                        old_model_cost = float(row.get(cost_field) or 0)
+                        old_total = float(row.get("cost_total") or 0)
+                        # Baserow returns number fields as text with decimals
+                        # ("953.0000"); int() on that raised, and every booking
+                        # after the first of a month failed silently (review 5, probe)
+                        old_tokens_in = int(float(row.get("tokens_in") or 0))
+                        old_tokens_out = int(float(row.get("tokens_out") or 0))
+                        break
 
-            update_data = {
-                cost_field: str(round(old_model_cost + cost, 4)),
-                "cost_total": str(round(old_total + cost, 4)),
-                "tokens_in": str(old_tokens_in + tokens_in),
-                "tokens_out": str(old_tokens_out + tokens_out),
-            }
+                update_data = {
+                    cost_field: str(round(old_model_cost + cost, 4)),
+                    "cost_total": str(round(old_total + cost, 4)),
+                    "tokens_in": str(old_tokens_in + tokens_in),
+                    "tokens_out": str(old_tokens_out + tokens_out),
+                }
 
-            if row_id:
-                # Update existing row
-                await client.patch(
-                    f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
-                    headers=_bh(), json=update_data)
-            else:
-                # Create new month row
-                update_data["month"] = current_month
-                update_data["sessions_total"] = "0"
-                for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus", "cost_nanban"]:
-                    if k not in update_data:
-                        update_data[k] = "0"
-                await client.post(
-                    f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
-                    headers=_bh(), json=update_data)
-    except Exception as e:
-        print(f"[persist_cost] Error: {e}")
+                if row_id:
+                    # Update existing row
+                    await client.patch(
+                        f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
+                        headers=_bh(), json=update_data)
+                else:
+                    # Create new month row
+                    update_data["month"] = current_month
+                    update_data["sessions_total"] = "0"
+                    for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus", "cost_nanban"]:
+                        if k not in update_data:
+                            update_data[k] = "0"
+                    await client.post(
+                        f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
+                        headers=_bh(), json=update_data)
+        except Exception as e:
+            print(f"[persist_cost] Error: {e}")
 
 
 async def persist_image_cost_to_baserow(flow_key: str, image_count: int):
     """Increment monthly image generation costs in bot_costs table (574)."""
-    from comfyui_client import load_registry
-    import httpx as _httpx
+    async with _cost_lock:
+        from comfyui_client import load_registry
+        import httpx as _httpx
 
-    registry = load_registry()
-    flow_config = registry["flows"].get(flow_key, {})
-    cost_per_image = flow_config.get("cost_per_image", 0)
-    if cost_per_image == 0 or image_count == 0:
-        print(f"[persist_image_cost] skipped: flow={flow_key}, cost_per_image={cost_per_image}, count={image_count}")
-        return
+        registry = load_registry()
+        flow_config = registry["flows"].get(flow_key, {})
+        cost_per_image = flow_config.get("cost_per_image", 0)
+        if cost_per_image == 0 or image_count == 0:
+            print(f"[persist_image_cost] skipped: flow={flow_key}, cost_per_image={cost_per_image}, count={image_count}")
+            return
 
-    cost = cost_per_image * image_count
-    now = datetime.now(timezone.utc)
-    current_month = now.strftime("%Y-%m")
+        cost = cost_per_image * image_count
+        now = datetime.now(timezone.utc)
+        current_month = now.strftime("%Y-%m")
 
-    try:
-        async with _httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-                headers=_bh())
-            rows = resp.json().get("results", []) if resp.status_code == 200 else []
+        try:
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
+                    headers=_bh())
+                rows = resp.json().get("results", []) if resp.status_code == 200 else []
 
-            row_id = None
-            old_nanban = 0.0
-            old_total = 0.0
-            for row in rows:
-                if row.get("month") == current_month:
-                    row_id = row["id"]
-                    old_nanban = float(row.get("cost_nanban") or 0)
-                    old_total = float(row.get("cost_total") or 0)
-                    break
+                row_id = None
+                old_nanban = 0.0
+                old_total = 0.0
+                for row in rows:
+                    if row.get("month") == current_month:
+                        row_id = row["id"]
+                        old_nanban = float(row.get("cost_nanban") or 0)
+                        old_total = float(row.get("cost_total") or 0)
+                        break
 
-            update_data = {
-                "cost_nanban": str(round(old_nanban + cost, 4)),
-                "cost_total": str(round(old_total + cost, 4)),
-            }
+                update_data = {
+                    "cost_nanban": str(round(old_nanban + cost, 4)),
+                    "cost_total": str(round(old_total + cost, 4)),
+                }
 
-            if row_id:
-                await client.patch(
-                    f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
-                    headers=_bh(), json=update_data)
-            else:
-                update_data["month"] = current_month
-                update_data["sessions_total"] = "0"
-                for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus"]:
-                    update_data[k] = "0"
-                await client.post(
-                    f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
-                    headers=_bh(), json=update_data)
-        print(f"[persist_image_cost] {flow_key}: {image_count} images, ${cost:.4f}")
-    except Exception as e:
-        print(f"[persist_image_cost] Error: {e}")
+                if row_id:
+                    await client.patch(
+                        f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
+                        headers=_bh(), json=update_data)
+                else:
+                    update_data["month"] = current_month
+                    update_data["sessions_total"] = "0"
+                    for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus"]:
+                        update_data[k] = "0"
+                    await client.post(
+                        f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
+                        headers=_bh(), json=update_data)
+            print(f"[persist_image_cost] {flow_key}: {image_count} images, ${cost:.4f}")
+        except Exception as e:
+            print(f"[persist_image_cost] Error: {e}")
 
 
 @app.post("/chat/{sid}")
@@ -1224,6 +1223,9 @@ async def chat(sid: str, request: Request):
     image_data = body.get("image", None)
     if not user_message and not image_data:
         return JSONResponse(status_code=400, content={"error": "Empty message"})
+    if not user_message and image_data:
+        # an empty text block is rejected by the Messages API (review 5, B4)
+        user_message = "Describe this image."
 
     session = store.get_or_create(sid)
     classification = classify_input(user_message)
@@ -1326,6 +1328,7 @@ async def chat(sid: str, request: Request):
         return JSONResponse(content={"type": "command_result", "result": text, "model": "comfyui"})
 
     if classification["type"] == "tool_widget":
+        session.add_user_message(user_message)
         return JSONResponse(content={"type": "tool_widget"})
 
     if classification["type"] == "session_done":
@@ -1342,19 +1345,28 @@ async def chat(sid: str, request: Request):
     async def event_generator():
         full_response = ""
         usage = {"input_tokens": 0, "output_tokens": 0}
-        async for chunk in stream_llm(session.get_history_for_llm(),
-                                       get_system_prompt(sid, model_key), model_key,
-                                       image_data, s["temperature"], s["max_tokens"]):
-            if chunk["type"] == "text":
-                full_response += chunk["content"]
-                yield {"event": "text", "data": json.dumps({"content": chunk["content"]})}
-            elif chunk["type"] == "done":
-                usage = chunk.get("usage", usage)
-                yield {"event": "done", "data": json.dumps({"model": model_key, "usage": usage})}
-        session.add_assistant_message(full_response, model=model_key,
-                                       tokens_in=usage.get("input_tokens", 0),
-                                       tokens_out=usage.get("output_tokens", 0))
-        await persist_cost_to_baserow(model_key, usage.get("input_tokens", 0), usage.get("output_tokens", 0))
+        try:
+            async for chunk in stream_llm(session.get_history_for_llm(),
+                                           get_system_prompt(sid, model_key), model_key,
+                                           image_data, s["temperature"], s["max_tokens"]):
+                if chunk["type"] == "text":
+                    full_response += chunk["content"]
+                    yield {"event": "text", "data": json.dumps({"content": chunk["content"]})}
+                elif chunk["type"] == "done":
+                    usage = chunk.get("usage", usage)
+                    yield {"event": "done", "data": json.dumps({"model": model_key, "usage": usage})}
+                elif chunk["type"] == "error":
+                    # a failed model call used to end the stream silently (review 5, B5)
+                    yield {"event": "error", "data": json.dumps({"error": chunk.get("error", "model call failed")})}
+        finally:
+            # STOP in the browser closes the generator at a yield; the tokens
+            # were still billed, so the turn and its cost are booked with
+            # whatever arrived (review 5, B6)
+            if full_response or usage.get("output_tokens"):
+                session.add_assistant_message(full_response, model=model_key,
+                                               tokens_in=usage.get("input_tokens", 0),
+                                               tokens_out=usage.get("output_tokens", 0))
+                await persist_cost_to_baserow(model_key, usage.get("input_tokens", 0), usage.get("output_tokens", 0))
 
     return EventSourceResponse(event_generator())
 
@@ -1423,8 +1435,9 @@ async def vid_status(prompt_id: str):
                         return {"status": "error", "message": err}
                     return {"status": "error", "message": "No video output"}
             return {"status": "working"}
-    except Exception:
-        return {"status": "working"}
+    except Exception as e:
+        # ComfyUI unreachable or a malformed answer polled as "working" forever (review 5, B8)
+        return {"status": "error", "message": f"status check failed: {e}"}
 
 
 ## ═══════════════════════════════════════════════════════════════
@@ -1465,10 +1478,13 @@ async def music_generate(request: Request):
         body = await request.json()
         tags = body.get("tags", "")
         lyrics = body.get("lyrics", "")
-        duration = int(body.get("duration", 30))
+        try:
+            duration = int(body.get("duration", 30))
+            steps = int(body.get("steps", 8))
+            bpm = int(body.get("bpm", 120))
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content={"error": "duration, steps and bpm must be integers"})
         seed = body.get("seed", -1)
-        steps = int(body.get("steps", 8))
-        bpm = int(body.get("bpm", 120))
         key = body.get("key", "C major")
         time_sig = body.get("time_signature", "4")
         language = body.get("language", "en")
@@ -1621,8 +1637,9 @@ async def music_status(prompt_id: str):
                         return {"status": "error", "message": err}
                     return {"status": "error", "message": "No audio output found"}
             return {"status": "working"}
-    except Exception:
-        return {"status": "working"}
+    except Exception as e:
+        # ComfyUI unreachable or a malformed answer polled as "working" forever (review 5, B8)
+        return {"status": "error", "message": f"status check failed: {e}"}
 
 
 # ============================================================================
@@ -1639,7 +1656,10 @@ async def _script_runner_pipeline(path: str, payload: dict) -> dict:
     import httpx
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(f"{settings.script_runner_url}{path}", json=payload)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # raise_for_status() dropped the body, which is where script-runner
+            # puts the validation message (review 5, B9)
+            raise RuntimeError(f"script-runner {resp.status_code}: {resp.text[:500]}")
         return resp.json()
 
 
@@ -1806,10 +1826,14 @@ async def script_runner_proxy(path: str, request: Request):
         return JSONResponse(
             {"detail": f"script-runner unreachable: {e!r}"}, status_code=502
         )
+    # content-disposition survives, so an archive download keeps its file name (review 5, C8)
+    passthrough = {k: v for k, v in resp.headers.items()
+                   if k.lower() in ("content-disposition", "cache-control")}
     return Response(
         content=resp.content,
         status_code=resp.status_code,
         media_type=resp.headers.get("content-type"),
+        headers=passthrough,
     )
 
 

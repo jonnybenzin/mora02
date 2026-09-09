@@ -33,6 +33,12 @@ async def stream_qwen(
             "POST", MODELS["qwen"]["endpoint"],
             json=payload, headers={"Content-Type": "application/json"},
         ) as resp:
+            if resp.status_code >= 400:
+                # without this a 4xx/5xx streamed no "data:" lines at all and
+                # the caller saw a model with nothing to say (review 5, B5)
+                body = (await resp.aread()).decode("utf-8", "replace")[:200]
+                yield {"type": "error", "error": f"llama.cpp answered {resp.status_code}: {body}"}
+                return
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue

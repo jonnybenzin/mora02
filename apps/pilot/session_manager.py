@@ -36,6 +36,12 @@ class Session:
 
     def get_history_for_llm(self, max_messages: int = 50) -> list[dict]:
         recent = self.messages[-max_messages:]
+        # The Messages API requires the first turn to be the user's. With an
+        # odd total the slice starts on an assistant turn, and because the
+        # parity never changes, every later call of the session failed -
+        # silently, as an empty bubble (review 5, B3).
+        while recent and recent[0].role != "user":
+            recent = recent[1:]
         return [{"role": m.role, "content": m.content} for m in recent]
 
     def get_total_cost(self) -> float:

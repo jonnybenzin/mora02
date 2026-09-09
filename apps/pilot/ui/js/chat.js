@@ -193,6 +193,9 @@ async function handleSSEStream(resp) {
             scrollToBottom();
           }
           if (data.model) model = data.model;
+          /* the server now sends an error event when the model call fails
+             (review 5, B5); before, the stream just ended in an empty bubble */
+          if (data.error) addSystemMessage('Error: ' + data.error);
         } catch (e) {}
       }
     }
@@ -1155,11 +1158,11 @@ async function updateStats() {
   loadMonthlyCost();
   if (!sessionId) return;
   try {
-    var resp = await fetch(API_BASE + '/session/' + sessionId + '/stats');
+    var resp = await fetch(API_BASE + '/session/' + sessionId + '/status');
     if (!resp.ok) return;
     var d = await resp.json();
     var el = document.getElementById('chat-stats');
-    if (el) el.textContent = (d.messages||0) + ' msgs \u00b7 ' +
+    if (el) el.textContent = (d.message_count||0) + ' msgs \u00b7 ' +
       (d.tokens_in||0) + '\u2193 ' + (d.tokens_out||0) + '\u2191 \u00b7 $' + (d.cost_usd||0).toFixed(3);
   } catch (e) {}
 }
@@ -1170,7 +1173,7 @@ async function loadMonthlyCost() {
     if (!resp.ok) return;
     var d = await resp.json();
     var el = document.getElementById('monthly-cost');
-    if (el) el.textContent = (d.total || 0).toFixed(2) + '\u20ac';
+    if (el) el.textContent = '$' + (d.total || 0).toFixed(2);
   } catch (e) {}
 }
 

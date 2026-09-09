@@ -75,7 +75,7 @@ async function postLoadList() {
     var allPosts = [];
     var page = 1;
     while (true) {
-      var url = postApiUrl() + '&size=50&page=' + page + '&order_by=-created_at';
+      var url = postApiUrl() + '?size=50&page=' + page + '&order_by=-created_at';
       console.log('[POST] Loading:', url);
       var resp = await fetch(url, { headers: postHeaders() });
       var data = await resp.json();

@@ -15,6 +15,7 @@ import json as _json
 from datetime import datetime, timezone
 
 import httpx
+from urllib.parse import quote
 
 from mora02_core import auth
 from mora02_core._common import get_logger
@@ -84,7 +85,9 @@ async def write_session(data: dict, *, user_id: str = "default") -> dict | None:
 async def read_last_sessions(n: int = 3, *, user_id: str = "default") -> list[dict]:
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
-            f"{_url()}/api/database/rows/table/{TABLE_SESSIONS}/?user_field_names=true&size={n}",
+            # newest first: without order_by Baserow hands out the OLDEST n rows
+            # and the sort below only reorders those (review 5, B10)
+            f"{_url()}/api/database/rows/table/{TABLE_SESSIONS}/?user_field_names=true&size={n}&order_by=-id",
             headers=_headers(),
         )
         if resp.status_code == 200:
@@ -357,7 +360,7 @@ async def get_style_pack_by_name(name: str, *, user_id: str = "default") -> dict
     """Get a style pack by name (for --style lookup)."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
-            f"{_url()}/api/database/rows/table/{TABLE_STYLE_PACKS}/?user_field_names=true&filter__name__equal={name}&size=1",
+            f"{_url()}/api/database/rows/table/{TABLE_STYLE_PACKS}/?user_field_names=true&filter__name__equal={quote(name, safe='')}&size=1",
             headers=_headers(),
         )
         if resp.status_code == 200:

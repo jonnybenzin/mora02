@@ -871,12 +871,7 @@ async function spScanFolder() {
 
     /* Show preview thumbnails (first 8) */
     if (gridEl && data.images && data.images.length) {
-      /* Build a URL-safe base path for nginx serving */
-      var basePath = path.startsWith('/data/styles/') ? path.replace('/data/styles/', '') : path;
-      gridEl.innerHTML = data.images.slice(0, 8).map(function(fname) {
-        return '<div class="sp-preview-thumb" style="background-image:url(\'/api/styles/scan-folder?path=' + encodeURIComponent(path) + '\')"></div>';
-      }).join('');
-      /* Note: previews won't load until we have a proper image serving endpoint — placeholder for now */
+      /* Placeholders: previews need an image-serving route for /data/styles, which does not exist yet */
       gridEl.innerHTML = data.images.slice(0, 8).map(function() {
         return '<div class="sp-preview-thumb" style="background:var(--c-grey2)"></div>';
       }).join('');
