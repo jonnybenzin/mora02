@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from sse_starlette.sse import EventSourceResponse
 from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT, get_local_profile_label
+from mora02_core._common import segment_problem
 from router import classify_input
 from session_manager import store
 import inbox_store
@@ -19,17 +20,18 @@ from mora02_core.db import api as db_api
 from mora02_core.db import (
     write_session, read_last_sessions, read_all_sessions,
     read_context, read_known_issues, headers as _baserow_headers,
-    format_sessions_context, format_known_issues, write_feedback, list_feedback, update_feedback,
+    format_sessions_context, format_known_issues, write_feedback,
     save_bucket, list_buckets, delete_bucket,
-    save_style_pack, list_style_packs, get_style_pack,
-    update_style_pack, delete_style_pack,
+    save_style_pack, list_style_packs, delete_style_pack,
     create_post, update_post,
 )
 
-# Backward-compat alias: app.py has ~9 spots doing direct httpx calls with
-# BASEROW_HEADERS. Phase 1.x future cleanup will migrate them to api.update/
-# api.query/etc. For now, evaluate once at startup like the old client did.
-BASEROW_HEADERS = _baserow_headers()
+# The raw-httpx call sites below still build their own headers; they will move
+# to db_api eventually. Evaluated per call, not at import: a missing or rotated
+# BASEROW_TOKEN must fail the one request, not keep the whole service from
+# starting (review 5, A8; auth.require says the same).
+def _bh() -> dict:
+    return _baserow_headers()
 
 
 async def _check_schema_drift() -> None:
@@ -233,7 +235,15 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Pilot Bot", version="0.1.0", lifespan=_lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"],
+# Pilot has no auth yet; a wildcard here would let any web page in the user's
+# browser call every route below and read the answer (review 5, A1). Only the
+# two origins the UI is served from, plus localhost for the workstation itself.
+ALLOWED_ORIGINS = [
+    "http://mora02.local:8092", "http://mora02.local:8098",
+    "http://localhost:8092", "http://localhost:8098",
+    "http://127.0.0.1:8092", "http://127.0.0.1:8098",
+]
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS,
                    allow_methods=["*"], allow_headers=["*"])
 
 session_settings: dict[str, dict] = {}
@@ -284,7 +294,7 @@ async def get_cost_summary() -> str:
     async with _httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-            headers=BASEROW_HEADERS)
+            headers=_bh())
         months = resp.json().get("results", []) if resp.status_code == 200 else []
 
     # Current week from bot_sessions (Monday 00:00)
@@ -393,6 +403,22 @@ async def health():
     return {"status": "ok", "service": "pilot", "port": settings.port}
 
 
+# ── Uploads ──────────────────────────────────────────────────────
+# Every upload is read into memory in one go; without a ceiling a single
+# request can take the container down (review 5, A7). 100 MB covers the
+# largest reference video the tools accept.
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+POST_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm", ".mov"}
+
+
+def _upload_too_large(f: UploadFile) -> JSONResponse | None:
+    """413 if the multipart part declares more than the ceiling; None to proceed."""
+    size = getattr(f, "size", None)
+    if size is not None and size > MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"success": False, "error": "Upload too large"})
+    return None
+
+
 # ── File deletion ────────────────────────────────────────────────
 FILE_PATH_MAP = {
     "/comfyui/wip/": "/output/comfyui-wip/",
@@ -405,7 +431,6 @@ FILE_PATH_MAP = {
 @app.delete("/api/files/delete")
 async def delete_file(request: Request):
     """Delete a generated asset from the filesystem."""
-    import shutil
     body = await request.json()
     url = body.get("url", "")
 
@@ -428,17 +453,20 @@ async def delete_file(request: Request):
     # Resolve and validate against path traversal
     resolved = Path(local_path).resolve()
     allowed = [Path(m).resolve() for m in FILE_PATH_MAP.values()]
-    if not any(str(resolved).startswith(str(a)) for a in allowed):
+    # is_relative_to, not a string prefix: "/output/gifer-backup" starts with
+    # "/output/gifer" as text but is not inside it (review 5, A2)
+    if not any(resolved == a or resolved.is_relative_to(a) for a in allowed):
         return JSONResponse(status_code=403, content={"success": False, "error": "Access denied"})
 
     if not resolved.exists():
         return JSONResponse(status_code=404, content={"success": False, "error": "File not found"})
+    # This route deletes one generated asset. A directory here means the url
+    # named a mount root ("/comfyui/wip/") - refusing is the only safe answer.
+    if resolved.is_dir():
+        return JSONResponse(status_code=400, content={"success": False, "error": "Not a file"})
 
     try:
-        if resolved.is_dir():
-            shutil.rmtree(resolved)
-        else:
-            resolved.unlink()
+        resolved.unlink()
         return JSONResponse(content={"success": True})
     except Exception as e:
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
@@ -448,10 +476,20 @@ async def delete_file(request: Request):
 async def upload_post_media(file: UploadFile = File(...)):
     """Upload media file for social media posts."""
     from datetime import datetime
+    too_large = _upload_too_large(file)
+    if too_large:
+        return too_large
+    # /socialmedia is served by nginx-images from the same origin as the Pilot
+    # UI, with directory listing on. An uploaded .html would run as the UI's
+    # own script (review 5, A4) - only the media types a post can carry.
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in POST_MEDIA_EXTENSIONS:
+        return JSONResponse(status_code=400, content={"success": False, "error": f"Unsupported media type '{ext}'"})
     try:
-        ts = datetime.now().strftime("%y%m%d%H%M")
-        ext = os.path.splitext(file.filename or "upload")[1] or ".jpg"
-        filename = f"{ts}_post{ext}"
+        # seconds plus a short random tail: two uploads in one minute must not
+        # overwrite each other (review 5, C4)
+        ts = datetime.now().strftime("%y%m%d%H%M%S")
+        filename = f"{ts}_{uuid.uuid4().hex[:6]}_post{ext}"
         dest = f"/socialmedia/{filename}"
         content = await file.read()
         with open(dest, "wb") as f:
@@ -465,6 +503,9 @@ async def upload_post_media(file: UploadFile = File(...)):
 async def upload_to_comfyui(image: UploadFile = File(...)):
     """Proxy image upload to ComfyUI (avoids CORS issues from browser)."""
     import httpx
+    too_large = _upload_too_large(image)
+    if too_large:
+        return too_large
     try:
         content = await image.read()
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -510,7 +551,7 @@ async def list_posts():
         while True:
             resp = await client.get(
                 f"{settings.baserow_url}/api/database/rows/table/557/?user_field_names=true&size=50&page={page}",
-                headers=BASEROW_HEADERS)
+                headers=_bh())
             if resp.status_code != 200:
                 break
             data = resp.json()
@@ -530,46 +571,6 @@ async def list_posts():
     return {"posts": posts}
 
 
-@app.post("/assign-image")
-async def assign_image(request: Request):
-    """Assign a generated image to a Baserow post: copy to socialmedia + set media_path."""
-    import httpx as _httpx
-    import shutil
-    import os
-    body = await request.json()
-    post_id = body.get("post_id")
-    filename = body.get("filename")
-
-    if not post_id or not filename:
-        return JSONResponse(content={"success": False, "error": "post_id and filename required"})
-
-    # Copy image from comfyui wip to socialmedia assets
-    src = f"/images/wip/{filename}"
-    dst_dir = "/socialmedia/"
-    dst = f"{dst_dir}{filename}"
-
-    try:
-        if os.path.exists(src):
-            shutil.copy2(src, dst)
-        else:
-            return JSONResponse(content={"success": False, "error": f"Source file not found: {filename}"})
-    except Exception as e:
-        return JSONResponse(content={"success": False, "error": f"Copy failed: {e}"})
-
-    # Write only filename to media_path in Baserow
-    try:
-        async with _httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.patch(
-                f"{settings.baserow_url}/api/database/rows/table/557/{post_id}/?user_field_names=true",
-                headers=BASEROW_HEADERS,
-                json={"media_path": filename})
-            if resp.status_code == 200:
-                return JSONResponse(content={"success": True, "post_id": post_id, "filename": filename})
-            return JSONResponse(content={"success": False, "error": f"Baserow {resp.status_code}: {resp.text[:200]}"})
-    except Exception as e:
-        return JSONResponse(content={"success": False, "error": str(e)})
-
-
 @app.get("/costs/monthly")
 async def monthly_costs():
     """Return current month costs per model: Baserow (historical) + RAM (active sessions)."""
@@ -584,7 +585,7 @@ async def monthly_costs():
         async with _httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-                headers=BASEROW_HEADERS)
+                headers=_bh())
             months = resp.json().get("results", []) if resp.status_code == 200 else []
         for row in months:
             if row.get("month") == current_month:
@@ -607,7 +608,7 @@ async def monthly_costs():
         async with _httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{settings.baserow_url}/api/database/rows/table/{settings.baserow_table_sessions}/?user_field_names=true&size=200&order_by=-id",
-                headers=BASEROW_HEADERS)
+                headers=_bh())
             rows = resp.json().get("results", []) if resp.status_code == 200 else []
         for row in rows:
             ended = row.get("ended_at") or ""
@@ -886,23 +887,6 @@ async def submit_feedback(request: Request):
     return JSONResponse(status_code=500, content={"success": False, "error": "Failed to save feedback"})
 
 
-@app.get("/feedback/list")
-async def get_feedback_list(status: str = None):
-    """List feedback entries, optionally filtered by status."""
-    entries = await list_feedback(status_filter=status)
-    return {"feedback": entries, "count": len(entries)}
-
-
-@app.patch("/feedback/{row_id}")
-async def patch_feedback(row_id: int, request: Request):
-    """Update a feedback entry (e.g. change status to resolved)."""
-    body = await request.json()
-    result = await update_feedback(row_id, body)
-    if result:
-        return JSONResponse(content={"success": True, "id": row_id})
-    return JSONResponse(status_code=500, content={"success": False, "error": "Update failed"})
-
-
 # ── Bucket Persistence ───────────────────────────────────────
 
 @app.post("/bucket/save")
@@ -939,7 +923,7 @@ async def bucket_get(row_id: int):
     async with _httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             f"{settings.baserow_url}/api/database/rows/table/{settings.baserow_table_buckets}/{row_id}/?user_field_names=true",
-            headers=BASEROW_HEADERS)
+            headers=_bh())
         if resp.status_code == 200:
             row = resp.json()
             items = []
@@ -1038,31 +1022,6 @@ async def styles_scan_folder(path: str = ""):
     return JSONResponse(content=scan)
 
 
-@app.get("/api/styles/{row_id}")
-async def styles_get(row_id: int):
-    """Get style pack details including image list from folder."""
-    pack = await get_style_pack(row_id)
-    if not pack:
-        return JSONResponse(status_code=404, content={"error": "Not found"})
-    # Enrich with current folder scan
-    source_path = pack.get("source_path", "")
-    if source_path:
-        scan = _scan_image_folder(source_path)
-        pack["_images"] = scan.get("images", [])
-        pack["_image_count_actual"] = scan.get("count", 0)
-    return JSONResponse(content=pack)
-
-
-@app.patch("/api/styles/{row_id}")
-async def styles_update(row_id: int, request: Request):
-    """Update a style pack."""
-    body = await request.json()
-    row = await update_style_pack(row_id, body)
-    if row:
-        return JSONResponse(content=row)
-    return JSONResponse(status_code=500, content={"error": "Update failed"})
-
-
 @app.delete("/api/styles/{row_id}")
 async def styles_delete(row_id: int):
     """Delete a style pack."""
@@ -1098,6 +1057,14 @@ async def styles_upload(name: str, files: List[UploadFile] = File(...)):
         ext = Path(f.filename).suffix.lower()
         if ext not in IMAGE_EXTENSIONS:
             continue
+        # the part's file name becomes a path: "../x.png" or "/socialmedia/x.png"
+        # would leave the pack directory (review 5, A3) - one segment or nothing
+        problem = segment_problem(f.filename)
+        if problem:
+            return JSONResponse(status_code=400, content={"error": f"file name {problem}"})
+        too_large = _upload_too_large(f)
+        if too_large:
+            return too_large
         dest = target_dir / f.filename
         content = await f.read()
         dest.write_bytes(content)
@@ -1152,7 +1119,7 @@ async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: in
             # Find current month row
             resp = await client.get(
                 f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-                headers=BASEROW_HEADERS)
+                headers=_bh())
             rows = resp.json().get("results", []) if resp.status_code == 200 else []
 
             row_id = None
@@ -1180,7 +1147,7 @@ async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: in
                 # Update existing row
                 await client.patch(
                     f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
-                    headers=BASEROW_HEADERS, json=update_data)
+                    headers=_bh(), json=update_data)
             else:
                 # Create new month row
                 update_data["month"] = current_month
@@ -1190,7 +1157,7 @@ async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: in
                         update_data[k] = "0"
                 await client.post(
                     f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
-                    headers=BASEROW_HEADERS, json=update_data)
+                    headers=_bh(), json=update_data)
     except Exception as e:
         print(f"[persist_cost] Error: {e}")
 
@@ -1215,7 +1182,7 @@ async def persist_image_cost_to_baserow(flow_key: str, image_count: int):
         async with _httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-                headers=BASEROW_HEADERS)
+                headers=_bh())
             rows = resp.json().get("results", []) if resp.status_code == 200 else []
 
             row_id = None
@@ -1236,7 +1203,7 @@ async def persist_image_cost_to_baserow(flow_key: str, image_count: int):
             if row_id:
                 await client.patch(
                     f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
-                    headers=BASEROW_HEADERS, json=update_data)
+                    headers=_bh(), json=update_data)
             else:
                 update_data["month"] = current_month
                 update_data["sessions_total"] = "0"
@@ -1244,7 +1211,7 @@ async def persist_image_cost_to_baserow(flow_key: str, image_count: int):
                     update_data[k] = "0"
                 await client.post(
                     f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
-                    headers=BASEROW_HEADERS, json=update_data)
+                    headers=_bh(), json=update_data)
         print(f"[persist_image_cost] {flow_key}: {image_count} images, ${cost:.4f}")
     except Exception as e:
         print(f"[persist_image_cost] Error: {e}")
@@ -1469,6 +1436,9 @@ async def upload_audio_to_comfyui(file: UploadFile = File(...)):
     """Proxy audio upload to ComfyUI input directory for reference audio."""
     import httpx
     COMFYUI_URL = "http://comfyui:8188"
+    too_large = _upload_too_large(file)
+    if too_large:
+        return too_large
     try:
         content = await file.read()
         async with httpx.AsyncClient(timeout=30.0) as client:

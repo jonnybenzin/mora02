@@ -11,7 +11,7 @@ from typing import Optional
 
 import httpx
 
-from mora02_core._common import get_logger
+from mora02_core._common import get_logger, segment_problem
 from mora02_core.assets import Asset
 from mora02_core.comfyui._config import COMFYUI_URL
 from mora02_core.comfyui.client import (
@@ -21,6 +21,8 @@ from mora02_core.comfyui.client import (
 )
 from mora02_core.comfyui.builders import stamp_output_prefix
 from mora02_core.comfyui.registry import load_registry, load_workflow
+# ceiling for an image fetched from the asset server on the way into ComfyUI
+MAX_SOURCE_IMAGE_BYTES = 50 * 1024 * 1024
 
 _log = get_logger("mora02_core.comfyui.transforms")
 
@@ -47,7 +49,15 @@ def _asset_for(filename: str) -> Asset:
 async def upload_image_url_to_comfyui(image_url: str) -> str:
     """Read an image from the pilot's local volume (or via HTTP) and POST it
     to ComfyUI's /upload/image as a deterministic 'expand_' prefixed name."""
+    # Only the stack's own assets are sources: a path under the asset server.
+    # A remote URL here was a readable SSRF - the response landed in ComfyUI's
+    # input directory, viewable via /view (review 5, A5).
+    if not image_url.startswith("/"):
+        raise ValueError("image source must be a path on the asset server, not a URL")
     filename = Path(image_url).name
+    problem = segment_problem(filename)
+    if problem:
+        raise ValueError(f"image name {problem}")
     local_path: Optional[Path] = None
     if "/comfyui/wip/" in image_url:
         local_path = Path("/images/wip") / filename
@@ -59,15 +69,14 @@ async def upload_image_url_to_comfyui(image_url: str) -> str:
         if local_path and local_path.exists():
             image_data = local_path.read_bytes()
         else:
-            download_url = (
-                f"http://nginx-images:80{image_url}"
-                if image_url.startswith("/") else image_url
-            )
+            download_url = f"http://nginx-images:80{image_url}"
             resp = await client.get(download_url)
             if resp.status_code != 200:
                 raise Exception(
                     f"Failed to download image: {resp.status_code} (tried {download_url})"
                 )
+            if len(resp.content) > MAX_SOURCE_IMAGE_BYTES:
+                raise ValueError("image source larger than the 50 MB ceiling")
             image_data = resp.content
         upload_resp = await client.post(
             f"{COMFYUI_URL}/upload/image",
