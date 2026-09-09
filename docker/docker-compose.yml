@@ -6,7 +6,7 @@ services:
   # Qwen3-14B (Baseline - aktuell im Einsatz)
   llama-qwen3-14b:
     profiles: ["qwen3-14b"]
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b10711  # build the model benchmarks were measured on; bump deliberately
     container_name: llama-server
     restart: unless-stopped
     ports:
@@ -36,7 +36,7 @@ services:
   # Qwen3-8B (kleiner, schneller)
   llama-qwen3-8b:
     profiles: ["qwen3-8b"]
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b10711  # build the model benchmarks were measured on; bump deliberately
     container_name: llama-server
     restart: unless-stopped
     ports:
@@ -66,7 +66,7 @@ services:
   ####
   llama-qwen36-27b:
     profiles: ["qwen36-27b"]
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b10711  # build the model benchmarks were measured on; bump deliberately
     container_name: llama-server
     restart: unless-stopped
     ports:
@@ -98,7 +98,7 @@ services:
 
   llama-glimmer-30b:
     profiles: ["glimmer-30b"]
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b10711  # build the model benchmarks were measured on; bump deliberately
     container_name: llama-server
     restart: unless-stopped
     ports:
@@ -136,7 +136,7 @@ services:
   # Qwen2.5-7B-Instruct
   llama-qwen25-7b:
     profiles: ["qwen25-7b"]
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b10711  # build the model benchmarks were measured on; bump deliberately
     container_name: llama-server
     restart: unless-stopped
     ports:
@@ -166,7 +166,7 @@ services:
   # Qwen2.5-Coder-14B
   llama-qwen25-coder:
     profiles: ["qwen25-coder"]
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b10711  # build the model benchmarks were measured on; bump deliberately
     container_name: llama-server
     restart: unless-stopped
     ports:
@@ -196,7 +196,7 @@ services:
   # Nous-Hermes-2-Mistral-7B
   llama-nous-hermes:
     profiles: ["nous-hermes"]
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b10711  # build the model benchmarks were measured on; bump deliberately
     container_name: llama-server
     restart: unless-stopped
     ports:
@@ -226,7 +226,7 @@ services:
   # Magistral Small 24B (Reasoning)
   llama-magistral:
     profiles: ["magistral"]
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b10711  # build the model benchmarks were measured on; bump deliberately
     container_name: llama-server
     restart: unless-stopped
     ports:
@@ -294,7 +294,7 @@ services:
   # ============================================================================
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD}
@@ -313,7 +313,7 @@ services:
   # ============================================================================
 
   postgres-baserow:
-    image: postgres:15-alpine
+    image: postgres:15.19-alpine
     container_name: postgres-baserow
     restart: unless-stopped
     environment:
@@ -358,7 +358,7 @@ services:
 # ============================================================================
 
   postgres-tools:
-    image: postgres:15-alpine
+    image: postgres:15.19-alpine
     container_name: postgres-tools
     restart: unless-stopped
     environment:
@@ -443,7 +443,7 @@ services:
  # ============================================================================
 
   excalidraw-room:
-    image: excalidraw/excalidraw-room@sha256:2fe999f9be4379e3ee282fc45d75d84a691a6383dde33544514cc395287c7a70
+    image: excalidraw/excalidraw-room@sha256:2fe999f9be4379e3ee282fc45d75d84a691a6383dde33544514cc395287c7a70  # "latest" of 2023-12-15, unchanged since
     container_name: excalidraw-room
     restart: unless-stopped
     ports:
@@ -452,7 +452,7 @@ services:
       - mora02-net
 
   excalidraw:
-    image: excalidraw/excalidraw@sha256:95d528cb4f8d18e0fbdc42ae3d09b5c4a899bfbd6bb89eeaf94b904330d79714
+    image: excalidraw/excalidraw@sha256:f7ee194addd607bf831d2af0f0a34463dd4225e426cf35199ef0b12a803398e9  # "latest" of 2026-05-06; the image has no version tags
     container_name: excalidraw
     restart: unless-stopped
     ports:
@@ -469,7 +469,7 @@ services:
 # IMAGE SERVER
 # ============================================================================
   nginx-images:
-    image: nginx:1.27-alpine
+    image: nginx:1.31.5-alpine
     container_name: nginx-images
     restart: unless-stopped
     ports:
@@ -503,7 +503,7 @@ services:
 # ============================================================================
 
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2026.9.8-3fdc6d753
     container_name: searxng
     restart: unless-stopped
     ports:
@@ -623,7 +623,7 @@ services:
 # TTS SERVICES
 # ============================================================================
   kokoro-tts:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.8.2
     container_name: kokoro-tts
     restart: unless-stopped
     ports:
@@ -738,7 +738,7 @@ services:
 # ============================================================================
 
   mora02-signal-cli:
-    image: bbernhard/signal-cli-rest-api:latest   # match the tag pulled in Phase 0
+    image: bbernhard/signal-cli-rest-api:0.100
     container_name: mora02-signal-cli
     restart: unless-stopped
     ports:
