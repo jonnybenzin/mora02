@@ -332,7 +332,7 @@ services:
       retries: 5
 
   baserow:
-    image: baserow/baserow:1.26.1
+    image: baserow/baserow:2.3.3
     container_name: baserow
     restart: unless-stopped
     ports:
