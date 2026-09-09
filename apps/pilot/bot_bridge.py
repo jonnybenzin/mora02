@@ -51,12 +51,12 @@ async def call_script_runner(command: str) -> dict:
                 return {"subtype": "stock_results", "data": data}
             return {"subtype": "text", "data": f"Script-Runner Error: {resp.status_code} - {resp.text}"}
     if stripped.lower().startswith("/gif"):
-        return {"subtype": "text", "data": "GIF braucht Bilder \u2192 mora02.local:8092/script-bot/"}
+        return {"subtype": "text", "data": "GIF needs images \u2192 mora02.local:8092/script-bot/"}
     if stripped.lower().startswith("/typ"):
-        return {"subtype": "text", "data": "Typer braucht Parameter \u2192 mora02.local:8092/script-bot/"}
+        return {"subtype": "text", "data": "Typer needs parameters \u2192 mora02.local:8092/script-bot/"}
     if stripped.lower().startswith("/clip"):
-        return {"subtype": "text", "data": "Clipper braucht Medien \u2192 mora02.local:8092/script-bot/"}
-    return {"subtype": "text", "data": f"Unbekannter Script-Command: {stripped}"}
+        return {"subtype": "text", "data": "Clipper needs media \u2192 mora02.local:8092/script-bot/"}
+    return {"subtype": "text", "data": f"Unknown script command: {stripped}"}
 
 
 async def call_search(query: str) -> dict:

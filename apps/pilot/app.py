@@ -12,7 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from sse_starlette.sse import EventSourceResponse
 from config import settings, MODELS, DEFAULT_SYSTEM_PROMPT, get_local_profile_label
-from mora02_core._common import segment_problem
+from mora02_core._common import segment_problem, get_logger
+from comfyui_client import IMAGE_EXTENSIONS
+
+
 from router import classify_input
 from session_manager import store
 import inbox_store
@@ -27,6 +30,8 @@ from mora02_core.db import (
     save_style_pack, list_style_packs, delete_style_pack,
     create_post, update_post,
 )
+
+log = get_logger("pilot")
 
 # The raw-httpx call sites below still build their own headers; they will move
 # to db_api eventually. Evaluated per call, not at import: a missing or rotated
@@ -46,7 +51,7 @@ async def _check_schema_drift() -> None:
     try:
         live_fields = await db_api.list_fields("bot_costs")
     except Exception as e:
-        print(f"[schema-drift] skipped (Baserow unreachable): {e}")
+        log.warning(f"[schema-drift] skipped (Baserow unreachable): {e}")
         return
     live_names = {f["name"] for f in live_fields}
 
@@ -60,7 +65,7 @@ async def _check_schema_drift() -> None:
             all_pages=True,
         )
     except Exception as e:
-        print(f"[schema-drift] couldn't list existing feedback: {e}")
+        log.warning(f"[schema-drift] couldn't list existing feedback: {e}")
         existing = []
 
     existing_by_col: dict[str, int] = {}
@@ -98,12 +103,12 @@ async def _check_schema_drift() -> None:
             "Page": "boot-check",
             "Status": "new",
         })
-        print(f"[schema-drift] reminder created: {col}")
+        log.info(f"[schema-drift] reminder created: {col}")
 
     for col, row_id in existing_by_col.items():
         if col not in missing:
             await db_api.update("bot_feedback", row_id, {"Status": "resolved"})
-            print(f"[schema-drift] auto-resolved: {col}")
+            log.info(f"[schema-drift] auto-resolved: {col}")
 
 
 async def _check_profile_label_drift() -> None:
@@ -117,11 +122,11 @@ async def _check_profile_label_drift() -> None:
         async with _httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{settings.script_runner_url}/llm/profiles")
         if resp.status_code != 200:
-            print(f"[profile-drift] skipped: script-runner returned {resp.status_code}")
+            log.warning(f"[profile-drift] skipped: script-runner returned {resp.status_code}")
             return
         canonical = resp.json().get("profiles", [])
     except Exception as e:
-        print(f"[profile-drift] skipped (script-runner unreachable): {e}")
+        log.warning(f"[profile-drift] skipped (script-runner unreachable): {e}")
         return
 
     canonical_by_name = {p["name"]: p.get("label", p["name"]) for p in canonical}
@@ -140,7 +145,7 @@ async def _check_profile_label_drift() -> None:
             all_pages=True,
         )
     except Exception as e:
-        print(f"[profile-drift] couldn't list existing feedback: {e}")
+        log.warning(f"[profile-drift] couldn't list existing feedback: {e}")
         existing = []
 
     existing_by_profile: dict[str, int] = {}
@@ -185,7 +190,7 @@ async def _check_profile_label_drift() -> None:
             "Page": "boot-check",
             "Status": "new",
         })
-        print(f"[profile-drift] reminder created (missing): {name}")
+        log.info(f"[profile-drift] reminder created (missing): {name}")
 
     for name in stale_in_lib:
         seen.add(name)
@@ -203,7 +208,7 @@ async def _check_profile_label_drift() -> None:
             "Page": "boot-check",
             "Status": "new",
         })
-        print(f"[profile-drift] reminder created (stale): {name}")
+        log.info(f"[profile-drift] reminder created (stale): {name}")
 
     for name, (lib_lbl, canon_lbl) in mismatched.items():
         seen.add(name)
@@ -221,12 +226,12 @@ async def _check_profile_label_drift() -> None:
             "Page": "boot-check",
             "Status": "new",
         })
-        print(f"[profile-drift] reminder created (mismatch): {name}")
+        log.info(f"[profile-drift] reminder created (mismatch): {name}")
 
     for name, row_id in existing_by_profile.items():
         if name not in seen:
             await db_api.update("bot_feedback", row_id, {"Status": "resolved"})
-            print(f"[profile-drift] auto-resolved: {name}")
+            log.info(f"[profile-drift] auto-resolved: {name}")
 
 
 @asynccontextmanager
@@ -238,7 +243,7 @@ async def _lifespan(app: FastAPI):
         try:
             await check()
         except Exception as e:
-            print(f"[boot] {check.__name__} failed, continuing: {e}")
+            log.warning(f"[boot] {check.__name__} failed, continuing: {e}")
     yield
 
 
@@ -329,16 +334,9 @@ def get_system_prompt(session_id: str, model_key: str) -> str:
 
 async def get_cost_summary() -> str:
     """Read costs from bot_costs table + calculate current week from bot_sessions."""
-    import httpx as _httpx
     from datetime import timedelta
-    from config import settings
 
-    # Monthly data from bot_costs
-    async with _httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-            headers=_bh())
-        months = resp.json().get("results", []) if resp.status_code == 200 else []
+    months = await db_api.query("bot_costs", size=100)
 
     # Current week from bot_sessions (Monday 00:00)
     now = datetime.now(timezone.utc)
@@ -616,29 +614,15 @@ async def list_posts():
 
 @app.get("/costs/monthly")
 async def monthly_costs():
-    """Return current month costs per model from the bot_costs ledger (574)."""
-    import httpx as _httpx
-    now = datetime.now(timezone.utc)
-    current_month = now.strftime("%Y-%m")
-    costs = {"qwen": 0.0, "haiku": 0.0, "sonnet": 0.0, "opus": 0.0, "nanban": 0.0}
-
-    # 1. Historical: bot_costs table (Baserow 574)
+    """Return current month costs per model from the bot_costs ledger."""
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    costs = {k[5:]: 0.0 for k in LEDGER_FIELDS}
     try:
-        async with _httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-                headers=_bh())
-            months = resp.json().get("results", []) if resp.status_code == 200 else []
-        for row in months:
-            if row.get("month") == current_month:
-                for k in costs:
-                    costs[k] += float(row.get(f"cost_{k}") or 0)
-    except Exception:
-        pass
-
-    # bot_costs (574) is written after EVERY paid call (persist_cost_to_baserow,
-    # persist_image_cost_to_baserow). Adding open sessions and ended sessions
-    # on top counted each dollar twice (review 5, B1).
+        for row in await db_api.query("bot_costs", filter={"month": current_month}, size=1):
+            for k in costs:
+                costs[k] += float(row.get(f"cost_{k}") or 0)
+    except Exception as e:
+        log.warning(f"[costs] ledger unreadable: {e}")
     total = round(sum(costs.values()), 4)
     return {
         "month": current_month,
@@ -830,9 +814,9 @@ async def end_session(sid: str, request: Request):
             ],
         }
         history_file.write_text(json.dumps(chat_data, ensure_ascii=False, indent=2))
-        print(f"[pilot] Chat history saved: {history_file}")
+        log.info(f"[pilot] Chat history saved: {history_file}")
     except Exception as e:
-        print(f"[pilot] Failed to save chat history: {e}")
+        log.info(f"[pilot] Failed to save chat history: {e}")
 
     store.delete(sid)
     session_settings.pop(sid, None)
@@ -974,7 +958,6 @@ async def bucket_delete(row_id: int):
 # STYLE PACKS
 # ============================================================
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 
 
 def _scan_image_folder(folder_path: str) -> dict:
@@ -1128,128 +1111,68 @@ async def styles_list_folders():
 # One process, so a lock is enough: two answers finishing together both read
 # old_total and the second PATCH silently dropped the first (review 5, B2).
 _cost_lock = asyncio.Lock()
+LEDGER_FIELDS = ("cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus", "cost_nanban")
+
+
+async def _ledger_bump(increments: dict[str, float], tokens_in: int = 0, tokens_out: int = 0) -> None:
+    """Add to this month's row of bot_costs, creating the row if the month is new.
+
+    The one place that writes the ledger. Four raw-httpx copies of this
+    read-modify-write lived in app.py before (review 5, breadth); the CRUD
+    facade in mora02_core.db.api is what they were meant to use.
+    """
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    rows = await db_api.query("bot_costs", filter={"month": month}, size=1)
+    row = rows[0] if rows else {}
+    data: dict[str, str] = {}
+    added = 0.0
+    for field, inc in increments.items():
+        data[field] = str(round(float(row.get(field) or 0) + inc, 4))
+        added += inc
+    data["cost_total"] = str(round(float(row.get("cost_total") or 0) + added, 4))
+    if tokens_in or tokens_out:
+        # Baserow returns number fields as text with decimals ("953.0000")
+        data["tokens_in"] = str(int(float(row.get("tokens_in") or 0)) + tokens_in)
+        data["tokens_out"] = str(int(float(row.get("tokens_out") or 0)) + tokens_out)
+    if row:
+        await db_api.update("bot_costs", row["id"], data)
+    else:
+        data["month"] = month
+        data["sessions_total"] = "0"
+        for field in LEDGER_FIELDS:
+            data.setdefault(field, "0")
+        await db_api.insert("bot_costs", data)
 
 
 async def persist_cost_to_baserow(model_key: str, tokens_in: int, tokens_out: int):
-    """Increment monthly costs in bot_costs table (574) after every paid API call."""
+    """Increment monthly costs in bot_costs after every paid API call."""
+    m = MODELS.get(model_key)
+    if not m or m.get("type") == "openai_compatible" or (tokens_in == 0 and tokens_out == 0):
+        return
+    cost = (tokens_in / 1_000_000) * m["cost_input_per_1m"] + (tokens_out / 1_000_000) * m["cost_output_per_1m"]
+    if cost == 0:
+        return
     async with _cost_lock:
-        m = MODELS.get(model_key)
-        if not m or m.get("type") == "openai_compatible" or (tokens_in == 0 and tokens_out == 0):
-            return
-        import httpx as _httpx
-        cost = (tokens_in / 1_000_000) * m["cost_input_per_1m"] + (tokens_out / 1_000_000) * m["cost_output_per_1m"]
-        if cost == 0:
-            return
-
-        now = datetime.now(timezone.utc)
-        current_month = now.strftime("%Y-%m")
-        cost_field = f"cost_{model_key}"
-
         try:
-            async with _httpx.AsyncClient(timeout=10.0) as client:
-                # Find current month row
-                resp = await client.get(
-                    f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-                    headers=_bh())
-                rows = resp.json().get("results", []) if resp.status_code == 200 else []
-
-                row_id = None
-                old_model_cost = 0.0
-                old_total = 0.0
-                old_tokens_in = 0
-                old_tokens_out = 0
-                for row in rows:
-                    if row.get("month") == current_month:
-                        row_id = row["id"]
-                        old_model_cost = float(row.get(cost_field) or 0)
-                        old_total = float(row.get("cost_total") or 0)
-                        # Baserow returns number fields as text with decimals
-                        # ("953.0000"); int() on that raised, and every booking
-                        # after the first of a month failed silently (review 5, probe)
-                        old_tokens_in = int(float(row.get("tokens_in") or 0))
-                        old_tokens_out = int(float(row.get("tokens_out") or 0))
-                        break
-
-                update_data = {
-                    cost_field: str(round(old_model_cost + cost, 4)),
-                    "cost_total": str(round(old_total + cost, 4)),
-                    "tokens_in": str(old_tokens_in + tokens_in),
-                    "tokens_out": str(old_tokens_out + tokens_out),
-                }
-
-                if row_id:
-                    # Update existing row
-                    await client.patch(
-                        f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
-                        headers=_bh(), json=update_data)
-                else:
-                    # Create new month row
-                    update_data["month"] = current_month
-                    update_data["sessions_total"] = "0"
-                    for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus", "cost_nanban"]:
-                        if k not in update_data:
-                            update_data[k] = "0"
-                    await client.post(
-                        f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
-                        headers=_bh(), json=update_data)
+            await _ledger_bump({f"cost_{model_key}": cost}, tokens_in, tokens_out)
         except Exception as e:
-            print(f"[persist_cost] Error: {e}")
+            log.warning(f"[persist_cost] {model_key}: {e}")
 
 
 async def persist_image_cost_to_baserow(flow_key: str, image_count: int):
-    """Increment monthly image generation costs in bot_costs table (574)."""
+    """Increment monthly image generation costs in bot_costs."""
+    from comfyui_client import load_registry
+    flow_config = load_registry()["flows"].get(flow_key, {})
+    cost_per_image = flow_config.get("cost_per_image", 0)
+    if cost_per_image == 0 or image_count == 0:
+        return
+    cost = cost_per_image * image_count
     async with _cost_lock:
-        from comfyui_client import load_registry
-        import httpx as _httpx
-
-        registry = load_registry()
-        flow_config = registry["flows"].get(flow_key, {})
-        cost_per_image = flow_config.get("cost_per_image", 0)
-        if cost_per_image == 0 or image_count == 0:
-            print(f"[persist_image_cost] skipped: flow={flow_key}, cost_per_image={cost_per_image}, count={image_count}")
-            return
-
-        cost = cost_per_image * image_count
-        now = datetime.now(timezone.utc)
-        current_month = now.strftime("%Y-%m")
-
         try:
-            async with _httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true&size=100",
-                    headers=_bh())
-                rows = resp.json().get("results", []) if resp.status_code == 200 else []
-
-                row_id = None
-                old_nanban = 0.0
-                old_total = 0.0
-                for row in rows:
-                    if row.get("month") == current_month:
-                        row_id = row["id"]
-                        old_nanban = float(row.get("cost_nanban") or 0)
-                        old_total = float(row.get("cost_total") or 0)
-                        break
-
-                update_data = {
-                    "cost_nanban": str(round(old_nanban + cost, 4)),
-                    "cost_total": str(round(old_total + cost, 4)),
-                }
-
-                if row_id:
-                    await client.patch(
-                        f"{settings.baserow_url}/api/database/rows/table/574/{row_id}/?user_field_names=true",
-                        headers=_bh(), json=update_data)
-                else:
-                    update_data["month"] = current_month
-                    update_data["sessions_total"] = "0"
-                    for k in ["cost_qwen", "cost_haiku", "cost_sonnet", "cost_opus"]:
-                        update_data[k] = "0"
-                    await client.post(
-                        f"{settings.baserow_url}/api/database/rows/table/574/?user_field_names=true",
-                        headers=_bh(), json=update_data)
-            print(f"[persist_image_cost] {flow_key}: {image_count} images, ${cost:.4f}")
+            await _ledger_bump({"cost_nanban": cost})
+            log.info(f"[persist_image_cost] {flow_key}: {image_count} images, ${cost:.4f}")
         except Exception as e:
-            print(f"[persist_image_cost] Error: {e}")
+            log.warning(f"[persist_image_cost] {flow_key}: {e}")
 
 
 @app.post("/chat/{sid}")
@@ -1414,7 +1337,8 @@ async def chat(sid: str, request: Request):
 @app.post("/vid/generate")
 async def vid_generate(request: Request):
     """Queue a video generation job, return prompt_id immediately."""
-    from comfyui_client import (parse_vid_command, build_video_workflow,
+    from comfyui_client import (
+    parse_vid_command, build_video_workflow,
                                  queue_prompt, resolve_flow, get_flow_info)
     import random
     try:
@@ -1508,6 +1432,7 @@ async def upload_audio_to_comfyui(file: UploadFile = File(...)):
 async def music_generate(request: Request):
     """Queue a music generation job via ComfyUI ACE-Step 1.5, return prompt_id."""
     from comfyui_client import queue_prompt
+    from mora02_core.comfyui.builders import build_music_workflow
     import random
 
     try:
@@ -1530,107 +1455,15 @@ async def music_generate(request: Request):
             return JSONResponse(status_code=400, content={"error": "Provide tags or lyrics"})
 
         actual_seed = seed if seed >= 0 else random.randint(0, 2**32 - 1)
-        use_ref = bool(ref_audio_filename)
-
-        # Build API-format workflow (AIO checkpoint)
-        workflow = {
-            "1": {
-                "class_type": "CheckpointLoaderSimple",
-                "inputs": {
-                    "ckpt_name": "ace_step_1.5_turbo_aio.safetensors"
-                }
-            },
-            "5": {
-                "class_type": "EmptyAceStep1.5LatentAudio",
-                "inputs": {
-                    "seconds": duration,
-                    "batch_size": 1
-                }
-            },
-            "6": {
-                "class_type": "TextEncodeAceStepAudio1.5",
-                "inputs": {
-                    "tags": tags,
-                    "lyrics": lyrics,
-                    "seed": actual_seed,
-                    "bpm": bpm,
-                    "duration": duration,
-                    "timesignature": time_sig,
-                    "language": language,
-                    "keyscale": key,
-                    "generate_audio_codes": True,
-                    "cfg_scale": 2.0,
-                    "temperature": 0.85,
-                    "top_p": 0.9,
-                    "top_k": 0,
-                    "min_p": 0.0,
-                    "clip": ["1", 1]
-                }
-            },
-            "7": {
-                "class_type": "ConditioningZeroOut",
-                "inputs": {
-                    "conditioning": ["6", 0]
-                }
-            },
-            "8": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "seed": actual_seed,
-                    "control_after_generate": "fixed",
-                    "steps": steps,
-                    "cfg": 1,
-                    "sampler_name": "euler",
-                    "scheduler": "simple",
-                    "denoise": 1,
-                    "model": ["1", 0],
-                    "positive": ["6", 0],
-                    "negative": ["7", 0],
-                    "latent_image": ["5", 0]
-                }
-            },
-            "9": {
-                "class_type": "VAEDecodeAudio",
-                "inputs": {
-                    "samples": ["8", 0],
-                    "vae": ["1", 2]
-                }
-            },
-            "10": {
-                "class_type": "SaveAudioMP3",
-                "inputs": {
-                    "filename_prefix": f"music/mus_{datetime.now().strftime('%y%m%d-%H%M')}",
-                    "quality": "V0",
-                    "audio": ["9", 0]
-                }
-            }
-        }
-
-        # Reference audio: encode to latent, inject into conditioning
-        if use_ref:
-            workflow["11"] = {
-                "class_type": "LoadAudio",
-                "inputs": {
-                    "audio": ref_audio_filename,
-                }
-            }
-            workflow["12"] = {
-                "class_type": "VAEEncodeAudio",
-                "inputs": {
-                    "audio": ["11", 0],
-                    "vae": ["1", 2],
-                }
-            }
-            workflow["13"] = {
-                "class_type": "ReferenceTimbreAudio",
-                "inputs": {
-                    "conditioning": ["6", 0],
-                    "latent": ["12", 0],
-                }
-            }
-            # KSampler uses reference-augmented conditioning
-            workflow["8"]["inputs"]["positive"] = ["13", 0]
-
+        # The ACE-Step graph lives in the library (workflows/ace_music.json +
+        # build_music_workflow); a second copy lived here for months and had
+        # to be changed twice for every node change (review 5, breadth).
+        actual_seed = int(seed) if seed not in (None, -1, "-1") else random.randint(0, 2**31 - 1)
+        workflow = build_music_workflow(
+            tags, lyrics=lyrics, seed=actual_seed, duration=duration, steps=steps,
+            bpm=bpm, key=key, time_signature=time_sig, language=language,
+            ref_audio=ref_audio_filename or None,
+        )
         prompt_id = await queue_prompt(workflow)
 
         return JSONResponse(content={
@@ -1639,7 +1472,7 @@ async def music_generate(request: Request):
             "tags": tags,
             "duration": duration,
             "bpm": bpm,
-            "mode": "reference" if use_ref else "text2music",
+            "mode": "reference" if ref_audio_filename else "text2music",
         })
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -1649,6 +1482,7 @@ async def music_generate(request: Request):
 async def music_status(prompt_id: str):
     """Poll endpoint: check if a music generation job is done."""
     import httpx
+    from mora02_core.comfyui.client import extract_audio_filenames
     COMFYUI_URL = "http://comfyui:8188"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -1656,16 +1490,9 @@ async def music_status(prompt_id: str):
             if r.status_code == 200:
                 data = r.json()
                 if prompt_id in data:
-                    outputs = data[prompt_id].get("outputs", {})
-                    for node_id, node_output in outputs.items():
-                        # Audio files appear under "audio" key in SaveAudioMP3
-                        audios = node_output.get("audio", [])
-                        for a in audios:
-                            if a.get("type") == "output":
-                                subfolder = a.get("subfolder", "")
-                                fname = a["filename"]
-                                path = f"{subfolder}/{fname}" if subfolder else fname
-                                return {"status": "done", "audio_url": f"/comfyui/wip/{path}", "filename": fname}
+                    for path in extract_audio_filenames(data[prompt_id]):
+                        return {"status": "done", "audio_url": f"/comfyui/wip/{path}",
+                                "filename": path.rsplit("/", 1)[-1]}
                     status_info = data[prompt_id].get("status", {})
                     if status_info.get("status_str") == "error":
                         msgs = status_info.get("messages", [])

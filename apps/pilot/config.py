@@ -17,13 +17,7 @@ class Settings(BaseSettings):
     searxng_url: str = "http://searxng:8080"
     baserow_url: str = "http://baserow:80"
     baserow_token: str = ""
-    baserow_table_sessions: int = 571
-    baserow_table_context: int = 572
-    baserow_table_known_issues: int = 573
-    baserow_table_feedback: int = 576
     baserow_table_buckets: int = 577
-    baserow_table_style_packs: int = 578
-    baserow_table_posts: int = 557
     styles_base_path: str = "/data/styles"
     host: str = "0.0.0.0"
     port: int = 8098
