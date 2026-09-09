@@ -1337,9 +1337,11 @@ async def chat(sid: str, request: Request):
 @app.post("/vid/generate")
 async def vid_generate(request: Request):
     """Queue a video generation job, return prompt_id immediately."""
-    from comfyui_client import (
-    parse_vid_command, build_video_workflow,
-                                 queue_prompt, resolve_flow, get_flow_info)
+    # queue_prompt & co. left comfyui_client with the Phase-1 migration
+    # (2026-05-20); this route has answered 500 ever since (review 5 probe)
+    from comfyui_client import parse_vid_command
+    from mora02_core.comfyui import queue_prompt, resolve_flow, get_flow_info
+    from mora02_core.comfyui.builders import build_video_workflow
     import random
     try:
         body = await request.json()
@@ -1384,7 +1386,7 @@ async def vid_status(prompt_id: str):
             if r.status_code == 200:
                 data = r.json()
                 if prompt_id in data:
-                    from comfyui_client import extract_video_filenames
+                    from mora02_core.comfyui import extract_video_filenames
                     fnames = extract_video_filenames(data[prompt_id])
                     if fnames:
                         return {"status": "done", "video_url": f"/comfyui/wip/{fnames[0]}", "filename": fnames[0].split("/")[-1]}
@@ -1431,7 +1433,7 @@ async def upload_audio_to_comfyui(file: UploadFile = File(...)):
 @app.post("/music/generate")
 async def music_generate(request: Request):
     """Queue a music generation job via ComfyUI ACE-Step 1.5, return prompt_id."""
-    from comfyui_client import queue_prompt
+    from mora02_core.comfyui import queue_prompt
     from mora02_core.comfyui.builders import build_music_workflow
     import random
 
@@ -1454,7 +1456,6 @@ async def music_generate(request: Request):
         if not tags and not lyrics:
             return JSONResponse(status_code=400, content={"error": "Provide tags or lyrics"})
 
-        actual_seed = seed if seed >= 0 else random.randint(0, 2**32 - 1)
         # The ACE-Step graph lives in the library (workflows/ace_music.json +
         # build_music_workflow); a second copy lived here for months and had
         # to be changed twice for every node change (review 5, breadth).
