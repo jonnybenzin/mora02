@@ -41,3 +41,6 @@ side (rotate a key, recreate a container), the commit message says so.
 - Known vulnerabilities in pinned Python dependencies are checked against
   https://osv.dev (OpenSSF Scorecard run) and fixed by raising the pin.
 - Services bind to `127.0.0.1` unless they must be reached from the LAN.
+- Pilot, the one API reachable from the LAN, requires a shared token on
+  every request (`MORA02_PILOT_TOKEN`, auth stage 1); `/health` is the
+  only open route.

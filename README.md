@@ -41,7 +41,7 @@ My long term goal is to create a machine or a chain of machines (call it a facto
 | `excalidraw` (2 containers) | Whiteboard / sketch tool | 8102 |
 | `postgres` ×2, `redis` | Backing services | — |
 
-All on one Docker bridge network (`mora02-net`), data in host-mounted volumes for persistence and easy backup. Only Pilot, Baserow and the asset server are reachable from the LAN; everything else binds to `127.0.0.1`.
+All on one Docker bridge network (`mora02-net`), data in host-mounted volumes for persistence and easy backup. Only Pilot, Baserow and the asset server are reachable from the LAN; everything else binds to `127.0.0.1`. Pilot requires a shared token on every request (auth stage 1: one secret in `.env`, the UI asks for it once); Baserow has its own login; the asset server is read-only.
 
 Shared logic lives in one Python library, `lib/mora02_core` — Baserow access, LLM clients, ComfyUI workflow building, the pipeline vocabulary and runner, notifications, publishing. The apps consume it; nothing is implemented twice.
 
@@ -110,7 +110,7 @@ Honestly, probably not without surgery. This is my personal lab, not a deployabl
 
 ## Status
 
-Actively maintained, single-author, evenings and weekends. The big refactors are done: shared logic in `mora02_core`, a native pipeline layer with gates instead of external workflow tools, agents on the local model, the stack trimmed from forty services to twenty-eight with every image pinned. Next up: a review pass over Pilot, then authentication in front of it.
+Actively maintained, single-author, evenings and weekends. The big refactors are done: shared logic in `mora02_core`, a native pipeline layer with gates instead of external workflow tools, agents on the local model, the stack trimmed from forty services to twenty-eight with every image pinned. Pilot has had its first review pass and a shared-token auth in front of it. Next up: the frontend block.
 
 Questions, ideas and bug reports: see [CONTRIBUTING.md](CONTRIBUTING.md). Security findings: see [SECURITY.md](SECURITY.md).
 
