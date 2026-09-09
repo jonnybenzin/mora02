@@ -18,7 +18,6 @@
 # in advance - an exception for a case that never occurred hides the next one.
 
 .githooks/boundary-guard	# the guard's own marker documentation; it names host paths in comments in order to recognise them, and configures nothing
-config/dify-ssrf-proxy/*	# container-internal squid config: /var/log and /etc paths live inside the container, and the RFC 1918 entries are ACL ranges describing the docker network, not addresses of this machine
 scripts/system/mora02-scheduled-publish.service	# clone test passed (ADR-025): paths under /opt/mora02 only, values from docker/.env, names neither a user nor an address
 scripts/system/mora02-scheduled-publish.timer	# clone test passed, see the matching .service
 scripts/install-llm-switch.sh	# clone test passed: the units it writes reference only /opt/mora02 paths and name no user, host or address - same construction as mora02-scheduled-publish.service. It installs an application feature, it does not operate this machine

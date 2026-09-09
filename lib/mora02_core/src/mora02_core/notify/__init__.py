@@ -70,7 +70,7 @@ def notify_sync(
     media: str | None = None,
     backend: str | None = None,
 ) -> NotifyResult:
-    """Blocking wrapper around :func:`notify` for sync callers (scripts, ActivePieces).
+    """Blocking wrapper around :func:`notify` for sync callers (scripts, cron jobs).
 
     Must not be called from within a running event loop — use :func:`notify`
     there instead.

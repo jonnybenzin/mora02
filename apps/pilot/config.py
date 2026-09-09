@@ -10,8 +10,6 @@ from mora02_core.llm import (  # noqa: F401
 
 
 class Settings(BaseSettings):
-    dify_api_url: str = "http://dify-new-api:5001"
-    dify_api_key: str = ""
     script_runner_url: str = "http://script-runner:8096"
     blender_worker_url: str = "http://blender-worker:8097"
     pixeltext_assets_url: str = "http://mora02.local:8092/pixeltext"

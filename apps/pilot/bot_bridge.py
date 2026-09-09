@@ -37,18 +37,6 @@ def _wrap_video_asset(result: dict) -> dict:
     return result
 
 
-async def call_runner(command: str) -> str:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{settings.dify_api_url}/v1/chat-messages",
-            headers={"Authorization": f"Bearer {settings.dify_api_key}",
-                     "Content-Type": "application/json"},
-            json={"inputs": {}, "query": command,
-                  "response_mode": "blocking", "user": "pilot"})
-        if resp.status_code == 200:
-            return resp.json().get("answer", "Keine Antwort vom Runner")
-        return f"Runner Error: {resp.status_code} - {resp.text}"
-
 
 async def call_script_runner(command: str) -> dict:
     """Returns dict with type info for frontend rendering."""

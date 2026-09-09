@@ -30,7 +30,6 @@ apps/_archive/
 # Per-service container data
 docker/ComfyUI/
 docker/penpot/
-docker/activepieces/
 docker/open-webui/
 
 # Git, OS, editor, language caches

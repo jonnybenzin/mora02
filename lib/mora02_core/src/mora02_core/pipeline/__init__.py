@@ -14,7 +14,7 @@ deterministic, no LLM in the loop:
 The default runner is the headless Lobster CLI (``MORA02_PIPELINE_RUNNER=lobster``)
 invoked via docker exec inside the gateway container. Scope is run/resume only —
 the inbox UI and decision flow live in Pilot. Sync wrappers exist for non-async
-callers (scripts, ActivePieces).
+callers (scripts, cron jobs).
 """
 
 from __future__ import annotations

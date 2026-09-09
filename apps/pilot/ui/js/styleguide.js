@@ -244,7 +244,7 @@ function initStyleGuide() {
 
   /* ═══ ICONS (SVG Sprite) ════════════════════════════════════ */
   html += sgSection('ICONS (SVG SPRITE)', 'icons/sprite.svg — reference via use href');
-  var icons = ['i-bot','i-persona','i-apps','i-library','i-core','i-settings','i-arrow-l','i-arrow-up','i-plus','i-delete','i-hamburger','i-image','i-reload','i-copy','i-download','i-arrow-r','i-chev','i-shuffle','i-chev-up','i-chev-down','i-gif','i-mpg','i-typer','i-baserow','i-activepieces','i-comfyui','i-excalidraw'];
+  var icons = ['i-bot','i-persona','i-apps','i-library','i-core','i-settings','i-arrow-l','i-arrow-up','i-plus','i-delete','i-hamburger','i-image','i-reload','i-copy','i-download','i-arrow-r','i-chev','i-shuffle','i-chev-up','i-chev-down','i-gif','i-mpg','i-typer','i-baserow','i-comfyui','i-excalidraw'];
   html += '<div class="sg-icons">';
   var spriteBase = 'icons/sprite' + '.svg#';
   icons.forEach(function(id) {

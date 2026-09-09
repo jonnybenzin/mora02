@@ -10,10 +10,8 @@ var dashServices = {
   ],
   services: [
     { name: 'Pilot Bot',     url: 'http://mora02.local:8098/health', port: 8098 },
-    { name: 'Dify Web',      url: 'http://mora02.local:8190/',        port: 8190 },
     { name: 'Baserow',       url: 'http://mora02.local:8085/api/',   port: 8085 },
     { name: 'Script Runner',  url: 'http://mora02.local:8098/sr/health', port: 8096 },
-    { name: 'Activepieces',   url: 'http://mora02.local:8089/',       port: 8089 },
     { name: 'SearXNG',        url: 'http://mora02.local:8094/',       port: 8094 },
   ],
   creative: [
@@ -23,7 +21,6 @@ var dashServices = {
   ],
   infra: [
     { name: 'nginx',      url: 'http://mora02.local:8092/health', port: 8092 },
-    { name: 'Ollama',     url: 'http://mora02.local:11434/',       port: 11434 },
   ],
 };
 

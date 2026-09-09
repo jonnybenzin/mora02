@@ -7,8 +7,6 @@ def classify_input(user_input: str) -> dict:
     s = user_input.strip()
     if s.lower().startswith("/post"):
         return {"type": "post", "raw": s}
-    if s.lower().startswith("/rd"):
-        return {"type": "roadmap", "raw": s}
     if starts_with_any(s, ["/gif", "/typ", "/clip", "/stock"]):
         return {"type": "script", "raw": s}
     if starts_with_any(s, ["/img", "/vid", "/expand", "/upscale", "/up "]):

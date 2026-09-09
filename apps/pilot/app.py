@@ -14,7 +14,7 @@ from router import classify_input
 from session_manager import store
 import inbox_store
 from mora02_core.llm import LOCAL_PROFILE_LABELS, stream_llm
-from bot_bridge import call_runner, call_script_runner, call_comfyui, call_search, call_pixeltext
+from bot_bridge import call_script_runner, call_comfyui, call_search, call_pixeltext
 from mora02_core.db import api as db_api
 from mora02_core.db import (
     write_session, read_last_sessions, read_all_sessions,
@@ -1260,12 +1260,6 @@ async def chat(sid: str, request: Request):
 
     session = store.get_or_create(sid)
     classification = classify_input(user_message)
-
-    if classification["type"] in ("social", "roadmap"):
-        session.add_user_message(user_message)
-        result = await call_runner(classification["raw"])
-        session.add_assistant_message(result, model="runner")
-        return JSONResponse(content={"type": "command_result", "result": result, "model": "runner"})
 
     if classification["type"] == "script":
         session.add_user_message(user_message)

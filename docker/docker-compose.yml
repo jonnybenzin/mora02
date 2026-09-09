@@ -290,32 +290,12 @@ services:
       - mora02-net
       
   # ============================================================================
-  # AUTOMATION
-  # ============================================================================
-
-  activepieces:
-    image: activepieces.local
-    container_name: activepieces
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8089:80"
-    volumes:
-      - /opt/mora02/docker/activepieces/.activepieces:/root/.activepieces
-      - /opt/mora02/output:/opt/mora02/output
-    environment:
-      - AP_REDIS_TYPE=MEMORY
-      - AP_DB_TYPE=SQLITE3
-      - AP_FRONTEND_URL=http://mora02.local:8089
-    networks:
-      - mora02-net
-
-  # ============================================================================
-  # SHARED SERVICES (Redis, Weaviate)
+  # SHARED SERVICES (Redis - used by Penpot for websocket notifications)
   # ============================================================================
 
   redis:
     image: redis:7-alpine
-    container_name: redis-dify
+    container_name: redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
@@ -327,280 +307,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  weaviate:
-    image: semitechnologies/weaviate:1.19.0
-    container_name: weaviate
-    restart: unless-stopped
-    environment:
-      QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      AUTHENTICATION_APIKEY_ENABLED: 'false'
-      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_AUTH_API_KEY}
-      PERSISTENCE_DATA_PATH: /var/lib/weaviate
-      DEFAULT_VECTORIZER_MODULE: none
-      CLUSTER_HOSTNAME: node1
-    volumes:
-      - /opt/mora02/volumes/weaviate:/var/lib/weaviate
-    networks:
-      - mora02-net
-
-# ============================================================================
-  # DIFY 1.x - MULTI-AGENT PLATFORM
-  # ============================================================================
-
-  # PostgreSQL for Dify
-  postgres-dify-new:
-    image: postgres:15-alpine
-    container_name: postgres-dify-new
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:5433:5432" 
-    environment:
-      POSTGRES_USER: dify
-      POSTGRES_PASSWORD: ${POSTGRES_DIFY_PASSWORD}
-      POSTGRES_DB: dify
-      PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - /opt/mora02/volumes/postgres-dify-new:/var/lib/postgresql/data
-    networks:
-      - mora02-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dify"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # SSRF Proxy for Dify 1.x
-  dify-ssrf-proxy:
-    image: ubuntu/squid:latest
-    container_name: dify-ssrf-proxy
-    restart: unless-stopped
-    volumes:
-      - /opt/mora02/config/dify-ssrf-proxy/squid.conf.template:/etc/squid/squid.conf.template
-      - /opt/mora02/config/dify-ssrf-proxy/docker-entrypoint.sh:/docker-entrypoint-mount.sh
-    entrypoint: ["sh", "-c", "cp /docker-entrypoint-mount.sh /docker-entrypoint.sh && sed -i 's/\\r$$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && /docker-entrypoint.sh"]
-    environment:
-      HTTP_PORT: 3128
-      COREDUMP_DIR: /var/spool/squid
-      REVERSE_PROXY_PORT: 8194
-      SANDBOX_HOST: dify-sandbox
-      SANDBOX_PORT: 8194
-      MAX_WORKERS: 4
-      MAX_REQUESTS: 50
-    networks:
-      - mora02-net
-
-  # Sandbox for Dify 1.x (code execution)
-  dify-sandbox:
-    image: langgenius/dify-sandbox:0.2.12
-    container_name: dify-sandbox
-    restart: unless-stopped
-    environment:
-      API_KEY: dify-sandbox
-      GIN_MODE: release
-      WORKER_TIMEOUT: 15
-      ENABLE_NETWORK: "true"
-      HTTP_PROXY: http://dify-ssrf-proxy:3128
-      HTTPS_PROXY: http://dify-ssrf-proxy:3128
-      SANDBOX_PORT: 8194
-      MAX_WORKERS: 4
-      MAX_REQUESTS: 50
-    volumes:
-      - /opt/mora02/volumes/dify-new/sandbox/dependencies:/dependencies
-      - /opt/mora02/volumes/dify-new/sandbox/conf:/conf
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8194/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - mora02-net
-
-  # Plugin Daemon for Dify 1.x
-  dify-plugin-daemon:
-    image: langgenius/dify-plugin-daemon:0.5.3-local
-    container_name: dify-plugin-daemon
-    restart: unless-stopped
-    environment:
-      DB_TYPE: postgresql
-      DB_HOST: postgres-dify-new
-      DB_PORT: 5432
-      DB_USERNAME: dify
-      DB_PASSWORD: ${POSTGRES_DIFY_PASSWORD}
-      DB_DATABASE: dify_plugin
-      REDIS_HOST: redis-dify
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      SERVER_PORT: 5002
-      SERVER_KEY: ${DIFY_PLUGIN_DAEMON_KEY}
-      MAX_PLUGIN_PACKAGE_SIZE: 52428800
-      PPROF_ENABLED: "false"
-      DIFY_INNER_API_URL: http://dify-api-new:5001
-      DIFY_INNER_API_KEY: ${DIFY_INNER_API_KEY}
-      PLUGIN_REMOTE_INSTALLING_HOST: 0.0.0.0
-      PLUGIN_REMOTE_INSTALLING_PORT: 5003
-      PLUGIN_WORKING_PATH: /app/storage/cwd
-      FORCE_VERIFYING_SIGNATURE: "true"
-      PYTHON_ENV_INIT_TIMEOUT: 120
-      PLUGIN_MAX_EXECUTION_TIMEOUT: 600
-      PLUGIN_STORAGE_TYPE: local
-      PLUGIN_STORAGE_LOCAL_ROOT: /app/storage
-    ports:
-      - "127.0.0.1:5003:5003"
-    volumes:
-      - /opt/mora02/volumes/dify-new/plugin_daemon:/app/storage
-    depends_on:
-      postgres-dify-new:
-        condition: service_healthy
-    networks:
-      - mora02-net
-
-  # API for Dify 1.x
-  dify-api-new:
-    image: langgenius/dify-api:1.11.4
-    container_name: dify-api-new
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8191:5001"
-    environment:
-      MODE: api
-      LOG_LEVEL: INFO
-      SECRET_KEY: ${DIFY_SECRET_KEY}
-      MIGRATION_ENABLED: "true"
-      # Database
-      DB_TYPE: postgresql
-      DB_USERNAME: dify
-      DB_PASSWORD: ${POSTGRES_DIFY_PASSWORD}
-      DB_HOST: postgres-dify-new
-      DB_PORT: 5432
-      DB_DATABASE: dify
-      # Redis
-      REDIS_HOST: redis-dify
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      REDIS_USE_SSL: "false"
-      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis-dify:6379/1
-      # Storage
-      STORAGE_TYPE: opendal
-      OPENDAL_SCHEME: fs
-      OPENDAL_FS_ROOT: storage
-      # Vector Store
-      VECTOR_STORE: weaviate
-      WEAVIATE_ENDPOINT: http://weaviate:8080
-      WEAVIATE_API_KEY: ""
-      # Sandbox
-      CODE_EXECUTION_ENDPOINT: http://dify-sandbox:8194
-      CODE_EXECUTION_API_KEY: dify-sandbox
-      # Plugin
-      PLUGIN_DAEMON_TIMEOUT: 600.0
-      INNER_API_KEY_FOR_PLUGIN: ${DIFY_INNER_API_KEY}
-      # CORS
-      CONSOLE_CORS_ALLOW_ORIGINS: '*'
-      WEB_API_CORS_ALLOW_ORIGINS: '*'
-      # Plugin Daemon
-      PLUGIN_DAEMON_URL: http://dify-plugin-daemon:5002
-      PLUGIN_DAEMON_KEY: ${DIFY_PLUGIN_DAEMON_KEY}
-    volumes:
-      - /opt/mora02/volumes/dify-new/storage:/app/api/storage
-    depends_on:
-      postgres-dify-new:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      dify-sandbox:
-        condition: service_healthy
-    networks:
-      - mora02-net
-
-  # Worker for Dify 1.x
-  dify-worker-new:
-    image: langgenius/dify-api:1.11.4
-    container_name: dify-worker-new
-    restart: unless-stopped
-    environment:
-      MODE: worker
-      LOG_LEVEL: INFO
-      SECRET_KEY: ${DIFY_SECRET_KEY}
-      DB_TYPE: postgresql
-      DB_USERNAME: dify
-      DB_PASSWORD: ${POSTGRES_DIFY_PASSWORD}
-      DB_HOST: postgres-dify-new
-      DB_PORT: 5432
-      DB_DATABASE: dify
-      REDIS_HOST: redis-dify
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      REDIS_USE_SSL: "false"
-      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis-dify:6379/1
-      STORAGE_TYPE: opendal
-      OPENDAL_SCHEME: fs
-      OPENDAL_FS_ROOT: storage
-      VECTOR_STORE: weaviate
-      WEAVIATE_ENDPOINT: http://weaviate:8080
-      WEAVIATE_API_KEY: ""
-      CODE_EXECUTION_ENDPOINT: http://dify-sandbox:8194
-      CODE_EXECUTION_API_KEY: dify-sandbox
-      INNER_API_KEY_FOR_PLUGIN: ${DIFY_INNER_API_KEY}
-    volumes:
-      - /opt/mora02/volumes/dify-new/storage:/app/api/storage
-    depends_on:
-      postgres-dify-new:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - mora02-net
-
-  # Worker Beat for Dify 1.x (scheduled tasks)
-  dify-worker-beat:
-    image: langgenius/dify-api:1.11.4
-    container_name: dify-worker-beat
-    restart: unless-stopped
-    environment:
-      MODE: beat
-      LOG_LEVEL: INFO
-      SECRET_KEY: ${DIFY_SECRET_KEY}
-      DB_TYPE: postgresql
-      DB_USERNAME: dify
-      DB_PASSWORD: ${POSTGRES_DIFY_PASSWORD}
-      DB_HOST: postgres-dify-new
-      DB_PORT: 5432
-      DB_DATABASE: dify
-      REDIS_HOST: redis-dify
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      REDIS_USE_SSL: "false"
-      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis-dify:6379/1
-      STORAGE_TYPE: opendal
-      OPENDAL_SCHEME: fs
-      OPENDAL_FS_ROOT: storage
-    depends_on:
-      postgres-dify-new:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - mora02-net
-
-  # Web Frontend for Dify 1.x
-  dify-web-new:
-    image: langgenius/dify-web:1.11.4
-    container_name: dify-web-new
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8190:3000"
-    environment:
-      EDITION: SELF_HOSTED
-      CONSOLE_API_URL: http://mora02.local:8191
-      APP_API_URL: http://mora02.local:8191
-      MARKETPLACE_API_URL: https://marketplace.dify.ai
-      MARKETPLACE_URL: https://marketplace.dify.ai
-    depends_on:
-      - dify-api-new
-    networks:
-      - mora02-net
-
 
   # ============================================================================
   # BASEROW - PROJECT MANAGEMENT & DATA HUB
@@ -685,7 +391,7 @@ services:
       PENPOT_DATABASE_URI: "postgresql://postgres-tools/penpot"
       PENPOT_DATABASE_USERNAME: penpot
       PENPOT_DATABASE_PASSWORD: ${PENPOT_DATABASE_PASSWORD}
-      PENPOT_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis-dify:6379/1"
+      PENPOT_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis:6379/1"
       PENPOT_OBJECTS_STORAGE_BACKEND: fs
       PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets
       PENPOT_TELEMETRY_ENABLED: "false"
@@ -708,7 +414,7 @@ services:
       - /opt/mora02/volumes/fonts:/usr/share/fonts/custom:ro
     environment:
       PENPOT_PUBLIC_URI: "http://penpot-frontend:8080"
-      PENPOT_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis-dify:6379/2"
+      PENPOT_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis:6379/2"
       PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
     networks:
       - mora02-net
@@ -914,28 +620,6 @@ services:
       retries: 3
 
 # ============================================================================
-# EMBED OLLAMA
-# ============================================================================
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    volumes:
-      - /opt/mora02/volumes/ollama:/root/.ollama
-    ports:
-      - "127.0.0.1:11434:11434"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    networks:
-      - mora02-net
-    restart: unless-stopped
-
-# ============================================================================
 # TTS SERVICES
 # ============================================================================
   kokoro-tts:
@@ -1033,8 +717,6 @@ services:
       - /opt/mora02/llm-switch:/llm-switch:ro
     environment:
       - PILOT_BASEROW_TOKEN=${BASEROW_TOKEN}
-      - PILOT_DIFY_API_KEY=${DIFY_APP_KEY_DAILY}
-      - PILOT_DIFY_API_URL=http://dify-api-new:5001
       - PILOT_SCRIPT_RUNNER_URL=http://script-runner:8096
       # mora02_core library env (no PILOT_ prefix)
       - BASEROW_TOKEN=${BASEROW_TOKEN}

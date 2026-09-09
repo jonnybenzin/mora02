@@ -11,7 +11,6 @@ mora02 is a one-machine pipeline for creative work:
 - Render animated GIFs, video clips, and text-on-image frames through custom scripts (**Script-Runner**)
 - Search the web locally via **SearXNG** instead of going through a cloud search API
 - Store everything in **Baserow** as a CMS — posts, personas, sessions, known issues, cost tracking
-- Run multi-agent workflows in **Dify** when chains get too gnarly for the Pilot
 - Use **Penpot** + **ExcaliDraw** for design work, all on the same machine
 
 The whole thing comes up with `docker compose up -d`. There's no cloud services in the loop except for the Anthropic API and gemini API (nano banana). Both triggered only when actively selected.
@@ -26,16 +25,13 @@ My long term goal is to create machine or a chain of machines (call it a factory
 |---|---|---|
 | `pilot` | Chat orchestrator + UI (FastAPI + vanilla JS) | 8098 |
 | `script-runner` | Media pipelines (Gifer, Clipper, Typer) | 8096 |
-| `knowledge-api` | Knowledge sync, Claude Vision, TTS, web search proxy | 8095 |
 | `llama-server` | Local LLM (Qwen profiles, switchable) | 8080 |
 | `comfyui` | Image/video generation | 8188 |
-| `dify-api` | Multi-agent workflow platform | 8190 |
 | `baserow` | Database / CMS | 8085 |
-| `activepieces` | Workflow automation (being phased out) | 8089 |
 | `searxng` | Metasearch | 8094 |
 | `penpot` | Vector design tool | 8101 |
 | `excalidraw` | Whiteboard / sketch tool | 8102 |
-| `postgres`, `redis`, `weaviate`, `ollama` | Backing services | — |
+| `postgres`, `redis` | Backing services | — |
 
 All on a Docker bridge network (`mora02-net`), data in host-mounted volumes for persistence and easy backup.
 
@@ -44,7 +40,7 @@ All on a Docker bridge network (`mora02-net`), data in host-mounted volumes for 
 - **Backend:** Python 3.11/3.12, FastAPI, Flask, Gunicorn
 - **Frontend:** Vanilla HTML/CSS/JS — no framework, no build step, no `npm install` purgatory
 - **LLMs:** local Qwen / Mistral / Magistral via llama.cpp + Anthropic Claude API for edge cases 
-- **Infra:** Docker Compose, NVIDIA CUDA runtime, PostgreSQL 15, Redis 7, Weaviate 1.19
+- **Infra:** Docker Compose, NVIDIA CUDA runtime, PostgreSQL 15, Redis 7
 
 ## Models in use
 
@@ -74,8 +70,6 @@ None of these are in the repo (weights are huge, license-bound, or both). They l
 - **Kokoro** (English TTS, local)
 - **Chatterbox** (voice cloning, local) — custom voices live in `volumes/chatterbox/voices/`
 
-**Embeddings:**
-- Ollama is in the stack as embedding provider for Weaviate / Dify, but I haven't pinned a specific model yet — pull whichever embedder you prefer (`nomic-embed-text`, `mxbai-embed-large`, etc.)
 
 ## Hardware this assumes
 

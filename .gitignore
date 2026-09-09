@@ -85,9 +85,6 @@ config/vpn/
 # LibreChat env
 docker/.librechat.env
 
-# Activepieces Runtime-Daten
-docker/activepieces/
-
 # Blender Binaries
 *.blend
 *.blend1
