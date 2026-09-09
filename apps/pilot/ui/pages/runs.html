@@ -1,37 +1,3 @@
 <!-- RUNS page — live view of pipeline runs (reads the run logs via script-runner).
      Rendered by navigate('runs') → initRuns() in js/runs.js. -->
-<style>
-  .runs-wrap{max-width:680px;margin:0 auto;padding:20px;font-family:var(--font,monospace)}
-  .runs-title{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx-muted,#888);margin:0 0 14px}
-  .run-note,.run-err{font-size:12px;color:var(--tx-muted,#888);padding:14px 0}
-  .run-err{color:#e77}
-
-  /* list */
-  .run-card{border:1px solid var(--bd,#2a2a2a);border-radius:9px;padding:11px 13px;margin-bottom:8px;background:var(--c-grey1,#141414);cursor:pointer}
-  .run-card:hover{background:var(--c-grey2,#1c1c1c);border-color:var(--accent,#2b7)}
-  .run-card-h{display:flex;align-items:center;gap:10px}
-  .run-name{font-weight:700;font-size:13px;color:var(--tx-primary,#eee);flex:1}
-  .run-card-meta{font-size:11px;color:var(--tx-muted,#888);margin-top:3px}
-  .run-badge{font-size:9px;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:var(--c-grey2,#222);color:var(--tx-muted,#9ab)}
-  .run-badge.live{color:#eb4;border:1px solid #a83}
-  .run-badge.done{color:#8ec;border:1px solid #4a7}
-  .run-badge.fail{color:#e88;border:1px solid #a55}
-  .run-badge.type{color:#8ec}
-
-  /* detail */
-  .run-back{font-size:12px;color:var(--tx-muted,#888);cursor:pointer;margin-bottom:10px;display:inline-block}
-  .run-back:hover{color:var(--accent,#2b7)}
-  .run-detail-title{font-size:18px;font-weight:700;color:var(--tx-primary,#eee);margin:0 0 14px}
-  .run-block{border:1px solid var(--bd,#2a2a2a);border-radius:9px;margin-bottom:8px;background:var(--c-grey1,#141414);overflow:hidden}
-  .run-block.fail{border-color:#8a2f2f}
-  .run-block-h{display:flex;align-items:center;gap:9px;padding:10px 12px}
-  .run-op{font-weight:700;font-size:12px;color:var(--tx-primary,#eee)}
-  .run-id{font-size:11px;color:var(--tx-muted,#777);flex:1}
-  .run-body{padding:0 12px 12px}
-  .run-media{max-width:100%;border-radius:6px;margin-top:8px;display:block}
-  .run-out-text{font-size:11px;color:var(--tx-muted,#9c9);background:var(--c-black,#0e0e0e);border-radius:6px;padding:8px;margin-top:8px;white-space:pre-wrap}
-  .run-err-line{font-size:11px;color:#e88;margin-top:8px}
-  .run-conn{width:2px;height:9px;background:var(--bd,#333);margin:0 auto}
-  .run-spin{color:#eb4}
-</style>
 <div class="runs-wrap"><p class="runs-title">Pipeline Runs</p><div id="runs-list"></div></div>

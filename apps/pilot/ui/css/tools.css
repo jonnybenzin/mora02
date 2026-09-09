@@ -737,3 +737,9 @@ textarea.fl-input:focus~.fl-label,textarea.fl-input:not(:placeholder-shown)~.fl-
   .sp-overlay.sp-open{align-items:flex-end}
   .sp-preview-grid{grid-template-columns:repeat(3,1fr)}
 }
+
+/* ---- state + label classes that JS/HTML used without a rule (lint, 2026-09-09) ---- */
+/* .loading: set on the TTS generate button while a render runs; same look as :disabled */
+.loading{opacity:var(--op-dis);cursor:wait;pointer-events:none}
+/* the "test run" checkbox label on the image page, styled like the other setting labels */
+.img-testrun-lbl{font-family:var(--font);font-size:var(--fs-xs);font-weight:var(--fw-semi);color:var(--tx-muted);letter-spacing:var(--ls-wide);text-transform:uppercase;cursor:pointer;display:inline-flex;align-items:center;gap:var(--sp-6)}

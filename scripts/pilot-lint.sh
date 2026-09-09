@@ -76,6 +76,9 @@ JS_CLASSES2=$(grep -oh 'classList\.\(add\|toggle\|replace\|remove\)("[^"]*"' $JS
 
 ALL_USED_CLASSES=$(echo -e "$HTML_CLASSES\n$JS_CLASSES\n$JS_CLASSES2" | sort -u)
 DYNAMIC_PREFIXES="hljs-"
+# Hook classes: JS finds elements by them (querySelectorAll) and toggles
+# style.display; they carry no rule of their own on purpose.
+HOOK_CLASSES="tts-de-only tts-chatterbox-only"
 
 ORPHAN_COUNT=0
 for cls in $CSS_CLASSES; do
@@ -98,6 +101,9 @@ info "Skipped: hljs-* (syntax highlighting, added dynamically)"
 
 MISSING_COUNT=0
 for cls in $ALL_USED_CLASSES; do
+    HOOK=0
+    for h in $HOOK_CLASSES; do [[ "$cls" == "$h" ]] && HOOK=1 && break; done
+    [ $HOOK -eq 1 ] && continue
     [ -z "$cls" ] && continue
     if ! echo "$CSS_CLASSES" | grep -qx "$cls"; then
         [[ "$cls" == hljs* ]] && continue
